@@ -52,6 +52,7 @@ Follow these in sequence. Each file is short and focused.
 7. [07-verification.md](07-verification.md) — end-to-end checklist before relying on it
 8. [08-troubleshooting.md](08-troubleshooting.md) — common gotchas
 9. [09-ui-deploy.md](09-ui-deploy.md) — deploy the mobile web UI via Coolify (optional)
+10. [10-deploy-checklist.md](10-deploy-checklist.md) — condensed action checklist for first UI deploy
 
 ## Worldwide jobs caveat
 
