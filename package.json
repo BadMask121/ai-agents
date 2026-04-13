@@ -1,0 +1,21 @@
+{
+  "name": "ai-agents",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.10.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "start": "turbo run start",
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist .turbo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "turbo": "^2.5.4",
+    "typescript": "~5.8.3"
+  }
+}
