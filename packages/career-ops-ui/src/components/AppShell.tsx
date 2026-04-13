@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 const NAV = [
-  { href: "/", label: "Home" },
+  { href: "/discover", label: "Discover" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/resume", label: "Resume" },
   { href: "/settings", label: "Settings" },
@@ -12,7 +12,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
         <div className="mx-auto max-w-2xl px-5 py-3 flex items-center justify-between">
-          <Link href="/" className="text-sm font-semibold tracking-tight">
+          <Link
+            href="/discover"
+            className="text-sm font-semibold tracking-tight"
+          >
             career-ops
           </Link>
           <form action="/api/auth/logout" method="post">
