@@ -84,17 +84,23 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.104 \
 
 WORKDIR /app
 
-# Copy only what we need to run the built Next.js app
-COPY --from=build /repo/packages/career-ops-ui/.next ./.next
-COPY --from=build /repo/packages/career-ops-ui/package.json ./package.json
-COPY --from=build /repo/packages/career-ops-ui/next.config.ts ./next.config.ts
+# Mirror the /repo layout from the build stage. pnpm's per-package node_modules
+# contain symlinks like `next -> ../../../node_modules/.pnpm/next@.../node_modules/next`,
+# which only resolve correctly if the workspace root sits 3 levels up from
+# packages/<pkg>/node_modules/<dep>. Flattening the package into /app breaks both
+# the symlinks and the bin lookup (next is at packages/.../node_modules/.bin/next,
+# not the workspace-root node_modules/.bin).
 COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/packages/career-ops-ui/.next ./packages/career-ops-ui/.next
+COPY --from=build /repo/packages/career-ops-ui/package.json ./packages/career-ops-ui/package.json
+COPY --from=build /repo/packages/career-ops-ui/next.config.ts ./packages/career-ops-ui/next.config.ts
 COPY --from=build /repo/packages/career-ops-ui/node_modules ./packages/career-ops-ui/node_modules
 
 # Runtime dir for career-ops workspace — bind-mounted from host in prod
 RUN mkdir -p /workspace/career-ops && chown -R node:node /workspace /app
 
 USER node
+WORKDIR /app/packages/career-ops-ui
 EXPOSE 3000
 
 ENV PORT=3000 \
