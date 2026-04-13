@@ -9,49 +9,98 @@ export type PipelineItem = {
   url: string;
   company: string | null;
   title: string | null;
+  num: number | null;
+  score: number | null;
+  pdfReady: boolean;
+  error: string | null;
   raw: string;
 };
 
-const LINE_RE =
-  /^-\s+\[([ x!])\]\s+(.+?)$/;
+const LINE_RE = /^-\s+\[([ x!])\]\s+(.+?)$/;
+const NUM_RE = /^#(\d+)$/;
+const SCORE_RE = /^([\d.]+)\s*\/\s*5$/;
+const PDF_RE = /^PDF\s*(✅|❌|YES|NO|TRUE|FALSE)$/i;
+const URL_RE = /https?:\/\/\S+/;
+// em dash, en dash, or " -- " — used by `- [!] URL — Error: reason`
+const BLOCKED_SEP_RE = /\s[—–]\s|\s--\s/;
 
-function parseLine(raw: string): PipelineItem | null {
-  const m = raw.match(LINE_RE);
+function parseLine(line: string): PipelineItem | null {
+  const m = line.match(LINE_RE);
   if (!m) return null;
   const [, mark, rest] = m;
   const state: PipelineState =
     mark === "x" ? "processed" : mark === "!" ? "blocked" : "pending";
 
-  // Format variants seen in scan.mjs and modes/pipeline.md:
-  //   - [ ] https://... | Company | Title
-  //   - [ ] https://...
-  //   - [x] #NNN | https://... | Company | Role | Score | PDF ✅
-  //   - [!] https://... — Error: ...
-  const segments = rest.split("|").map((s) => s.trim()).filter(Boolean);
-
   let url: string | null = null;
   let company: string | null = null;
   let title: string | null = null;
+  let num: number | null = null;
+  let score: number | null = null;
+  let pdfReady = false;
+  let error: string | null = null;
 
-  for (const seg of segments) {
-    const urlMatch = seg.match(/https?:\/\/\S+/);
-    if (urlMatch && !url) {
-      url = urlMatch[0].replace(/[),.;]+$/, "");
-      continue;
+  if (state === "blocked") {
+    // - [!] URL — Error: reason
+    const sepMatch = rest.match(BLOCKED_SEP_RE);
+    if (sepMatch && sepMatch.index !== undefined) {
+      const head = rest.slice(0, sepMatch.index).trim();
+      const tail = rest.slice(sepMatch.index + sepMatch[0].length).trim();
+      const u = head.match(URL_RE);
+      if (u) url = stripUrlTrailing(u[0]);
+      error = tail.replace(/^Error:\s*/i, "") || null;
+    } else {
+      const u = rest.match(URL_RE);
+      if (u) url = stripUrlTrailing(u[0]);
     }
-    if (!company) {
-      company = seg;
-    } else if (!title) {
-      title = seg;
+  } else {
+    // Pending or processed: pipe-separated segments.
+    // Pending:   `- [ ] URL` or `- [ ] URL | Company | Title`
+    // Processed: `- [x] #NNN | URL | Company | Role | X.X/5 | PDF ✅/❌`
+    const segments = rest
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const remaining: string[] = [];
+
+    for (const seg of segments) {
+      const numM = seg.match(NUM_RE);
+      if (numM && num === null) {
+        num = parseInt(numM[1], 10);
+        continue;
+      }
+
+      const scoreM = seg.match(SCORE_RE);
+      if (scoreM && score === null) {
+        score = parseFloat(scoreM[1]);
+        continue;
+      }
+
+      const pdfM = seg.match(PDF_RE);
+      if (pdfM) {
+        const v = pdfM[1];
+        pdfReady = v === "✅" || /^(YES|TRUE)$/i.test(v);
+        continue;
+      }
+
+      const urlM = seg.match(URL_RE);
+      if (urlM && !url) {
+        url = stripUrlTrailing(urlM[0]);
+        continue;
+      }
+
+      remaining.push(seg);
     }
+
+    // Whatever's left, in order, is company then title.
+    if (remaining.length >= 1) company = remaining[0];
+    if (remaining.length >= 2) title = remaining.slice(1).join(" | ");
   }
 
   if (!url) {
-    // fallback: look anywhere in the line for a URL
-    const anyUrl = rest.match(/https?:\/\/\S+/);
-    if (anyUrl) url = anyUrl[0].replace(/[),.;]+$/, "");
+    const u = line.match(URL_RE);
+    if (u) url = stripUrlTrailing(u[0]);
   }
-
   if (!url) return null;
 
   return {
@@ -60,8 +109,16 @@ function parseLine(raw: string): PipelineItem | null {
     url,
     company,
     title,
-    raw,
+    num,
+    score,
+    pdfReady,
+    error,
+    raw: rest,
   };
+}
+
+function stripUrlTrailing(u: string): string {
+  return u.replace(/[),.;]+$/, "");
 }
 
 export async function readPipeline(): Promise<PipelineItem[]> {
@@ -82,7 +139,6 @@ export async function readPipeline(): Promise<PipelineItem[]> {
 }
 
 export async function writePipeline(items: PipelineItem[]): Promise<void> {
-  // Rebuild the file preserving the section headers used by scan.mjs
   const pending = items.filter((i) => i.state === "pending");
   const blocked = items.filter((i) => i.state === "blocked");
   const processed = items.filter((i) => i.state === "processed");
@@ -104,10 +160,45 @@ export async function writePipeline(items: PipelineItem[]): Promise<void> {
 
 function fmtLine(i: PipelineItem): string {
   const mark = i.state === "processed" ? "x" : i.state === "blocked" ? "!" : " ";
+
+  if (i.state === "processed" && i.score !== null) {
+    const parts: string[] = [];
+    if (i.num !== null) parts.push(`#${i.num}`);
+    parts.push(i.url);
+    if (i.company) parts.push(i.company);
+    if (i.title) parts.push(i.title);
+    parts.push(`${i.score.toFixed(1)}/5`);
+    parts.push(`PDF ${i.pdfReady ? "✅" : "❌"}`);
+    return `- [${mark}] ${parts.join(" | ")}`;
+  }
+
+  if (i.state === "blocked") {
+    return `- [${mark}] ${i.url}${i.error ? ` — ${i.error}` : ""}`;
+  }
+
   const parts = [i.url];
   if (i.company) parts.push(i.company);
   if (i.title) parts.push(i.title);
   return `- [${mark}] ${parts.join(" | ")}`;
+}
+
+function blankItem(
+  url: string,
+  state: PipelineState,
+  meta?: { company?: string; title?: string },
+): PipelineItem {
+  return {
+    id: Buffer.from(url).toString("base64url"),
+    state,
+    url,
+    company: meta?.company ?? null,
+    title: meta?.title ?? null,
+    num: null,
+    score: null,
+    pdfReady: false,
+    error: null,
+    raw: "",
+  };
 }
 
 export async function addUrl(
@@ -118,14 +209,7 @@ export async function addUrl(
   const existing = items.find((i) => i.url === url);
   if (existing) return existing;
 
-  const item: PipelineItem = {
-    id: Buffer.from(url).toString("base64url"),
-    state: "pending",
-    url,
-    company: meta?.company ?? null,
-    title: meta?.title ?? null,
-    raw: "",
-  };
+  const item = blankItem(url, "pending", meta);
   items.push(item);
   await writePipeline(items);
   return item;

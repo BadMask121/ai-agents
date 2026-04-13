@@ -3,8 +3,24 @@ import { readPipeline, addUrl, updateState, removeItem } from "@/lib/pipeline";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const items = await readPipeline();
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const stateFilter = searchParams.get("state");
+  const minScoreParam = searchParams.get("minScore");
+
+  let items = await readPipeline();
+
+  if (stateFilter && ["pending", "processed", "blocked"].includes(stateFilter)) {
+    items = items.filter((i) => i.state === stateFilter);
+  }
+
+  if (minScoreParam !== null) {
+    const minScore = parseFloat(minScoreParam);
+    if (!Number.isNaN(minScore)) {
+      items = items.filter((i) => i.score !== null && i.score >= minScore);
+    }
+  }
+
   return NextResponse.json({ items });
 }
 
