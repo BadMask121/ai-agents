@@ -38,7 +38,10 @@ export async function POST(req: Request) {
   let markdown: string;
   if (ext === ".md" || ext === ".markdown" || ext === ".txt") {
     markdown = buf.toString("utf-8");
-  } else if (ext === ".docx" || ext === ".doc" || ext === ".pdf" || ext === ".odt" || ext === ".rtf" || ext === ".html") {
+  } else if (ext === ".pdf") {
+    // pandoc can only emit PDF, never read it — use poppler's pdftotext instead.
+    markdown = await pdftotextConvert(buf);
+  } else if (ext === ".docx" || ext === ".doc" || ext === ".odt" || ext === ".rtf" || ext === ".html") {
     markdown = await pandocConvert(buf, ext);
   } else {
     return NextResponse.json(
@@ -98,8 +101,6 @@ function extToFormat(ext: string): string {
       return "docx";
     case ".doc":
       return "doc";
-    case ".pdf":
-      return "pdf";
     case ".odt":
       return "odt";
     case ".rtf":
@@ -108,5 +109,39 @@ function extToFormat(ext: string): string {
       return "html";
     default:
       throw new Error(`unsupported ext: ${ext}`);
+  }
+}
+
+async function pdftotextConvert(input: Buffer): Promise<string> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "cv-pdf-"));
+  const inputPath = path.join(
+    tmpDir,
+    `input-${crypto.randomBytes(4).toString("hex")}.pdf`,
+  );
+  try {
+    await fs.writeFile(inputPath, input);
+    return await new Promise<string>((resolve, reject) => {
+      // -layout preserves multi-column resume structure; "-" writes to stdout.
+      const proc = spawn("pdftotext", ["-layout", inputPath, "-"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const chunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
+      proc.stdout.on("data", (c) => chunks.push(c));
+      proc.stderr.on("data", (c) => errChunks.push(c));
+      proc.on("error", reject);
+      proc.on("close", (code) => {
+        if (code !== 0) {
+          return reject(
+            new Error(
+              `pdftotext exited with ${code}: ${Buffer.concat(errChunks).toString()}`,
+            ),
+          );
+        }
+        resolve(Buffer.concat(chunks).toString("utf-8"));
+      });
+    });
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
   }
 }
