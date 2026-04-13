@@ -51,6 +51,7 @@ Follow these in sequence. Each file is short and focused.
 6. [06-daily-flow.md](06-daily-flow.md) — what you actually do every morning
 7. [07-verification.md](07-verification.md) — end-to-end checklist before relying on it
 8. [08-troubleshooting.md](08-troubleshooting.md) — common gotchas
+9. [09-ui-deploy.md](09-ui-deploy.md) — deploy the mobile web UI via Coolify (optional)
 
 ## Worldwide jobs caveat
 
