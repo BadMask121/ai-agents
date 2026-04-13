@@ -5,6 +5,15 @@ import bcrypt from "bcryptjs";
 const COOKIE_NAME = "career_ops_session";
 const ALG = "HS256";
 
+// TEMPORARY: lets the app run over plain HTTP (e.g. Coolify's auto-generated
+// sslip.io URL) by dropping the Secure flag from the session cookie. ONLY for
+// use until a real domain + Let's Encrypt cert is set up. Tracked by bd
+// ai-agents-0xv. See instrumentation.ts for the boot-time warning and
+// components/InsecureCookieBanner.tsx for the in-UI banner.
+export function insecureCookiesEnabled(): boolean {
+  return process.env.ALLOW_INSECURE_COOKIES === "1";
+}
+
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET;
   if (!secret || secret.length < 32) {
@@ -33,9 +42,10 @@ export async function createSession(): Promise<string> {
 
 export async function setSessionCookie(token: string): Promise<void> {
   const store = await cookies();
+  const isProd = process.env.NODE_ENV === "production";
   store.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProd && !insecureCookiesEnabled(),
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 30,

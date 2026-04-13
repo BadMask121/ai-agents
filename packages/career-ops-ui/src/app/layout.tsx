@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { InsecureCookieBanner } from "@/components/InsecureCookieBanner";
 
 export const metadata: Metadata = {
   title: "career-ops",
@@ -20,7 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full bg-zinc-950 text-zinc-100">{children}</body>
+      <body className="min-h-full bg-zinc-950 text-zinc-100">
+        <InsecureCookieBanner />
+        {children}
+      </body>
     </html>
   );
 }

@@ -94,7 +94,23 @@ In the app's **Environment Variables** tab, add:
 | `CAREER_OPS_WORKSPACE` | `/workspace/career-ops` | — |
 | `NODE_ENV` | `production` | — |
 
-⚠️ When pasting `AUTH_PASSWORD_HASH`, make sure Coolify treats `$2a$12$...` as a literal value. If the UI supports "build variable" vs "runtime" toggles, pick **runtime only** — we never need it at build time.
+⚠️ **Tick `Is Literal?` on `AUTH_PASSWORD_HASH`** in Coolify. The hash contains `$` characters and Coolify/Compose will otherwise try to expand `$2a`, `$12`, etc. as shell variables and silently corrupt the value. Same goes for any other env var whose value contains `$`.
+
+### Optional: `ALLOW_INSECURE_COOKIES` (HTTP-only stopgap)
+
+If you want to validate the app over Coolify's auto-generated HTTP `sslip.io` URL **before** wiring up a real domain + Let's Encrypt cert in Phase 5, add this env var:
+
+| Key | Value |
+|---|---|
+| `ALLOW_INSECURE_COOKIES` | `1` |
+
+This drops the `Secure` flag from the session cookie so the browser will accept it on plain HTTP. While the flag is on:
+
+- The container logs a loud warning at every boot (visible in Coolify → **Logs**)
+- A permanent red banner appears at the top of every page in the UI
+- bd issue `ai-agents-0xv` stays open as a removal reminder
+
+**Delete this env var the moment Phase 5 is done.** It is a stopgap, not a config knob.
 
 ---
 
