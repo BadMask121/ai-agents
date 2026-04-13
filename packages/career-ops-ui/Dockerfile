@@ -53,13 +53,20 @@ FROM base AS runtime
 #   pandoc + poppler-utils — resume conversion (docx/pdf/md)
 #   tini                   — pid 1 init
 #   curl, ca-certs         — healthcheck + fetching
+#   wget + gnupg           — fetch Google Chrome signing key
 #   playwright chromium libs — so /career-ops pipeline can render PDFs
+#   google-chrome-stable   — required by @playwright/mcp (it hardcodes the
+#                            'chrome' channel, won't accept Playwright's bundled
+#                            chromium binary). amd64-only — local builds on
+#                            Apple Silicon need --platform linux/amd64.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc \
     poppler-utils \
     tini \
     curl \
     ca-certificates \
+    wget \
+    gnupg \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -76,11 +83,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     fonts-liberation \
+ && wget -qO - https://dl.google.com/linux/linux_signing_key.pub \
+      | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+ && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+      > /etc/apt/sources.list.d/google-chrome.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends google-chrome-stable \
  && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally and pre-pull Playwright Chromium
-RUN npm install -g @anthropic-ai/claude-code@2.1.104 \
- && npx --yes playwright@1.58.1 install chromium
+# Install Claude Code CLI globally, install @playwright/mcp (Microsoft's official
+# Playwright MCP server — Claude's browser_navigate/browser_snapshot tools),
+# and pre-pull Playwright Chromium into a SHARED path readable by the node user.
+#
+# Why the shared path: by default, `playwright install chromium` drops the
+# browser binary into $HOME/.cache/ms-playwright, which is /root/.cache/... when
+# the install runs as root. The container later switches to USER node, which
+# cannot read /root. Setting PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright puts
+# the binary in a known location we can chown.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN mkdir -p /opt/ms-playwright \
+ && npm install -g @anthropic-ai/claude-code@2.1.104 @playwright/mcp \
+ && npx --yes playwright@1.58.1 install chromium \
+ && chown -R node:node /opt/ms-playwright
 
 WORKDIR /app
 
@@ -100,6 +124,22 @@ COPY --from=build /repo/packages/career-ops-ui/node_modules ./packages/career-op
 RUN mkdir -p /workspace/career-ops && chown -R node:node /workspace /app
 
 USER node
+
+# Pre-configure Claude CLI to see the Playwright MCP server on boot.
+# Writes ~/.claude.json (user-scope) with an mcpServers entry. This means
+# every `claude -p "..."` invocation from the app already has browser_navigate,
+# browser_snapshot, browser_click, browser_type, etc. available as tools —
+# no per-request `claude mcp add` needed.
+RUN mkdir -p /home/node/.claude \
+ && printf '%s\n' '{' \
+    '  "mcpServers": {' \
+    '    "playwright": {' \
+    '      "command": "npx",' \
+    '      "args": ["-y", "@playwright/mcp"]' \
+    '    }' \
+    '  }' \
+    '}' > /home/node/.claude.json
+
 WORKDIR /app/packages/career-ops-ui
 EXPOSE 3000
 

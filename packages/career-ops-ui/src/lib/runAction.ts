@@ -44,7 +44,7 @@ export function runClaudeAction(opts: {
 
   const proc = spawn(
     "claude",
-    ["-p", promptBody, "--output-format", "stream-json"],
+    ["-p", promptBody, "--output-format", "stream-json", "--verbose"],
     {
       cwd: p.root,
       env,
