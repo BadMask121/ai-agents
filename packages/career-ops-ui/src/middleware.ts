@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
+// Pin to Node runtime so process.env.AUTH_SECRET is readable at request time.
+// On the default Edge runtime, env vars aren't injected at runtime, so
+// getSecret() returns null and every request is treated as unauthenticated.
+export const runtime = "nodejs";
+
 const COOKIE_NAME = "career_ops_session";
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
