@@ -35,7 +35,7 @@ A step-by-step deployment guide for running [santifer/career-ops](https://github
 The CPX22 image often ships with Coolify pre-installed (hostname like `coolify-ubuntu-4gb-hel1-1`). Do NOT try to deploy career-ops through Coolify — career-ops is a stateful CLI tool, not a containerized web service, and the fit is bad. We install it directly on the host under a dedicated `career` user. Coolify continues to run, untouched, alongside it.
 
 Three things to be aware of when Coolify is present:
-- Port 80, 443, 8000, and 6001/6002 are typically taken by Coolify's reverse proxy and dashboard. Avoid them.
+- **Coolify dashboard lives at `http://<vps-ip>:8000`** — not port 80. Ports 6001/6002 are Coolify's realtime websockets. Ports 80/443 stay free until you install Traefik (Coolify's reverse proxy) from its Server → Proxy tab, at which point Traefik grabs them for Let's Encrypt TLS on every app you deploy.
 - Docker is already installed (Coolify uses it heavily). You don't need to install Docker again, but we won't use it for career-ops either.
 - The default firewall posture is whatever Coolify set. We add Tailscale on top so career-ops is reachable only over the mesh, not via any Coolify-exposed port.
 

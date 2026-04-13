@@ -6,7 +6,26 @@ A condensed, action-oriented checklist to get the career-ops UI live on Coolify.
 
 ---
 
-## Phase 1 — Before you touch Coolify
+## Phase 0 — Install Coolify's reverse proxy (one-time)
+
+Coolify ships without a reverse proxy running by default, so ports 80/443 are closed until you install one. Do this once before your first app deploy.
+
+- [ ] Log in to Coolify at **<http://95.217.185.93:8000>**
+- [ ] Left sidebar → **Servers** → click `localhost`
+- [ ] Open the **Proxy** tab
+- [ ] Select **Traefik** (Coolify's default — don't pick Caddy unless you have a specific reason)
+- [ ] Click **Install / Start Proxy**
+- [ ] Wait ~20s, then confirm: from your Mac run
+  ```bash
+  curl -sI http://95.217.185.93/ | head -1
+  ```
+  You should get back `HTTP/1.1 404 page not found` (that's Traefik responding with "no route for this host" — expected until you attach a domain). If you get `Connection refused`, the proxy didn't start; check the **Proxy** tab for logs.
+
+Once Traefik is running, proceed to Phase 1.
+
+---
+
+## Phase 1 — Before you touch Coolify's application UI
 
 - [ ] **Rotate the Anthropic API key**
   You pasted the old key in chat during setup — treat it as exposed.
@@ -27,7 +46,7 @@ A condensed, action-oriented checklist to get the career-ops UI live on Coolify.
 
 ## Phase 2 — Coolify application setup
 
-Open your Coolify dashboard (port 8000 on the VPS). **+ New → Application → Public Repository**.
+Open your Coolify dashboard at **<http://95.217.185.93:8000>** — the `:8000` is required, Coolify's dashboard is not on port 80. **+ New → Application → Public Repository**.
 
 - [ ] **Repository:** `https://github.com/BadMask121/ai-agents`
 - [ ] **Branch:** `main`

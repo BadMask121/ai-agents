@@ -7,6 +7,17 @@ This walks you through deploying the `career-ops-ui` Next.js app from the `ai-ag
 - Steps 01–08 are done. career-ops is installed at `/home/career/work/career-ops` on the VPS and the scheduled scan is running.
 - You have a public domain (or subdomain) pointing at the VPS. Coolify will issue Let's Encrypt TLS automatically.
 - The repo is pushed to `github.com/BadMask121/ai-agents` (or wherever you host it) and the `packages/career-ops-ui/` directory is committed.
+- **Coolify's reverse proxy is installed and running.** Coolify ships without a proxy active — ports 80 and 443 are closed until you install one. See [10-deploy-checklist.md § Phase 0](10-deploy-checklist.md#phase-0--install-coolifys-reverse-proxy-one-time) for the one-time setup (pick Traefik). Verify with `curl -sI http://<vps-ip>/` — you should get an HTTP response (probably 404 for an unrouted host), not `Connection refused`.
+
+## Where to access Coolify
+
+Coolify's own dashboard runs on port 8000, not 80. Open it at:
+
+```
+http://95.217.185.93:8000
+```
+
+After you attach a domain to the Coolify app in Phase 5 below, Traefik will handle HTTPS for the career-ops UI on that domain. The Coolify admin dashboard stays on `:8000` unless you separately assign it a domain (optional — see Coolify docs).
 
 ## Step 1 — Prepare secrets locally
 
@@ -25,7 +36,7 @@ Copy both values somewhere safe (password manager). You'll paste them into Cooli
 
 ## Step 2 — Create the Coolify application
 
-1. Open your Coolify dashboard (the one running on this VPS at port 8000).
+1. Open your Coolify dashboard at <http://95.217.185.93:8000> (the port matters — nothing responds on 80 until Traefik is installed).
 2. **+ New** → **Application** → **Public Repository** (or private, with a deploy key).
 3. Repository URL: `https://github.com/BadMask121/ai-agents`
 4. Branch: `main`
