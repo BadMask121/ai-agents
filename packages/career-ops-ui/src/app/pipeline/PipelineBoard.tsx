@@ -12,6 +12,35 @@ type Tab = "pending" | "processed" | "blocked";
 
 const PAGE_SIZE = 50;
 
+/* ─────────────────── Eval status types ─────────────────── */
+
+type EvalError =
+  | { kind: "permission-denied"; tools: string[] }
+  | { kind: "no-report" }
+  | { kind: "spawn"; message: string }
+  | { kind: "api"; status: number }
+  | { kind: "reconcile"; status: number };
+
+type EvalInfo = {
+  itemId: string | null;
+  phase: "idle" | "running" | "success" | "failed";
+  currentAction: string | null;
+  cost: number | null;
+  durationMs: number | null;
+  score: number | null;
+  error: EvalError | null;
+};
+
+const IDLE_EVAL: EvalInfo = {
+  itemId: null,
+  phase: "idle",
+  currentAction: null,
+  cost: null,
+  durationMs: null,
+  score: null,
+  error: null,
+};
+
 export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
   const [items, setItems] = useState(initial);
   const [tab, setTab] = useState<Tab>("pending");
@@ -20,7 +49,9 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [pending, startTransition] = useTransition();
   const [log, setLog] = useState<string>("");
-  const [running, setRunning] = useState<string | null>(null);
+  const [evalInfo, setEvalInfo] = useState<EvalInfo>(IDLE_EVAL);
+
+  const runningId = evalInfo.phase === "running" ? evalInfo.itemId : null;
 
   const counts = useMemo(
     () => ({
@@ -100,9 +131,77 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
   // Evaluate = run the full `/career-ops auto-pipeline` chain on a single URL,
   // then reconcile the resulting report back onto the pipeline row so the
   // score/num/pdfReady fields are populated (and Discover can pick it up).
+  //
+  // Along the way we parse the stream-json events to drive the status card:
+  //   - `assistant` events with `tool_use` content → currentAction update
+  //   - `result` event at the end → cost, duration, and permission_denials
+  //     (permission denials are a hard failure — we short-circuit the
+  //      reconcile because there's no report to find)
   const evaluate = async (item: PipelineItem) => {
-    setRunning(item.id);
     setLog("");
+    setEvalInfo({
+      itemId: item.id,
+      phase: "running",
+      currentAction: "Starting agent…",
+      cost: null,
+      durationMs: null,
+      score: null,
+      error: null,
+    });
+
+    // Captured from the stream's final `result` event.
+    let finalCost: number | null = null;
+    let finalDurationMs: number | null = null;
+    let deniedTools: string[] = [];
+
+    const handleStreamEvent = (ev: unknown): void => {
+      if (!ev || typeof ev !== "object") return;
+      const e = ev as Record<string, unknown>;
+
+      // Assistant turns carry text + tool_use blocks. Narrate tool calls
+      // as they happen so the user sees progress in plain English.
+      if (e.type === "assistant" && e.message && typeof e.message === "object") {
+        const content = (e.message as { content?: unknown }).content;
+        if (Array.isArray(content)) {
+          for (const c of content) {
+            if (
+              c &&
+              typeof c === "object" &&
+              (c as Record<string, unknown>).type === "tool_use"
+            ) {
+              const name = String(
+                (c as Record<string, unknown>).name ?? "",
+              );
+              const input = (c as Record<string, unknown>).input;
+              const narration = humanizeTool(name, input);
+              setEvalInfo((prev) =>
+                prev.phase === "running"
+                  ? { ...prev, currentAction: narration }
+                  : prev,
+              );
+            }
+          }
+        }
+      }
+
+      // The final result event reports cost, duration, and any denied tool
+      // calls. Permission denials are fatal — the agent couldn't reach the
+      // network, so there's no report to reconcile.
+      if (e.type === "result") {
+        if (typeof e.total_cost_usd === "number") finalCost = e.total_cost_usd;
+        if (typeof e.duration_ms === "number") finalDurationMs = e.duration_ms;
+        if (Array.isArray(e.permission_denials) && e.permission_denials.length > 0) {
+          deniedTools = Array.from(
+            new Set(
+              (e.permission_denials as Array<Record<string, unknown>>)
+                .map((d) => String(d.tool_name ?? ""))
+                .filter(Boolean),
+            ),
+          );
+        }
+      }
+    };
+
     try {
       const res = await fetch("/api/actions", {
         method: "POST",
@@ -110,80 +209,167 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
         body: JSON.stringify({ mode: "auto-pipeline", arg: item.url }),
       });
       if (!res.ok || !res.body) {
-        setLog(`error: ${res.status}`);
+        setEvalInfo({
+          ...IDLE_EVAL,
+          itemId: item.id,
+          phase: "failed",
+          error: { kind: "api", status: res.status },
+        });
         return;
       }
+
+      // Two levels of buffering:
+      //   1. SSE event buffer (outer `\n\n`-delimited SSE frames)
+      //   2. stream-json line buffer (inside each parsed.chunk, newline-
+      //      delimited claude events that may span multiple SSE frames)
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buf = "";
+      let sseBuf = "";
+      let jsonBuf = "";
+
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const events = buf.split("\n\n");
-        buf = events.pop() ?? "";
-        for (const block of events) {
-          const lines = block.split("\n");
+        sseBuf += decoder.decode(value, { stream: true });
+        const frames = sseBuf.split("\n\n");
+        sseBuf = frames.pop() ?? "";
+        for (const frame of frames) {
+          const lines = frame.split("\n");
           let data = "";
           for (const ln of lines) {
             if (ln.startsWith("data:")) data += ln.slice(5).trim();
           }
           if (!data) continue;
           try {
-            const parsed = JSON.parse(data);
-            if (parsed.chunk) setLog((prev) => prev + parsed.chunk);
-          } catch {}
+            const parsed = JSON.parse(data) as { chunk?: string };
+            if (typeof parsed.chunk === "string") {
+              setLog((prev) => prev + parsed.chunk!);
+              jsonBuf += parsed.chunk;
+              const lineEnd = jsonBuf.lastIndexOf("\n");
+              if (lineEnd >= 0) {
+                const complete = jsonBuf.slice(0, lineEnd);
+                jsonBuf = jsonBuf.slice(lineEnd + 1);
+                for (const ln of complete.split("\n")) {
+                  const t = ln.trim();
+                  if (!t) continue;
+                  try {
+                    handleStreamEvent(JSON.parse(t));
+                  } catch {
+                    /* incomplete or non-JSON line — skip */
+                  }
+                }
+              }
+            }
+          } catch {
+            /* not JSON SSE data — skip */
+          }
         }
       }
 
-      // Stream ended — auto-pipeline has (hopefully) written a report and
-      // PDF. Ask the server to locate them, parse the overall score, and
-      // patch the pipeline row. If the reconcile can't find a matching
-      // report it still flips state to processed so the UI doesn't get stuck.
+      // Stream ended. Check for permission denials first — if the agent was
+      // blocked, there's nothing for reconcile to find.
+      if (deniedTools.length > 0) {
+        setEvalInfo({
+          itemId: item.id,
+          phase: "failed",
+          currentAction: null,
+          cost: finalCost,
+          durationMs: finalDurationMs,
+          score: null,
+          error: { kind: "permission-denied", tools: deniedTools },
+        });
+        return;
+      }
+
+      // Happy path: ask the server to locate the new report and patch the
+      // pipeline row with the score / num / pdfReady fields.
       const rec = await fetch("/api/pipeline/reconcile", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: item.id }),
       });
-      if (rec.ok) {
-        const outcome = (await rec.json()) as
-          | {
-              ok: true;
-              item: PipelineItem;
-              overallScore: number | null;
-            }
-          | {
-              ok: false;
-              reason:
-                | "item-not-found"
-                | "already-scored"
-                | "no-matching-report";
-              item: PipelineItem | null;
-            };
-        if (outcome.item) {
-          const updated = outcome.item;
-          setItems((prev) =>
-            prev.map((p) => (p.id === updated.id ? updated : p)),
-          );
-        }
-        if (!outcome.ok && outcome.reason === "no-matching-report") {
-          setLog(
-            (prev) =>
-              prev +
-              "\n\n[reconcile] evaluation finished but the corresponding report couldn't be located in reports/. The item is marked processed but won't appear on Discover until the score is back-filled manually.",
-          );
-        }
+      if (!rec.ok) {
+        setEvalInfo({
+          itemId: item.id,
+          phase: "failed",
+          currentAction: null,
+          cost: finalCost,
+          durationMs: finalDurationMs,
+          score: null,
+          error: { kind: "reconcile", status: rec.status },
+        });
+        return;
+      }
+      const outcome = (await rec.json()) as
+        | {
+            ok: true;
+            item: PipelineItem;
+            overallScore: number | null;
+          }
+        | {
+            ok: false;
+            reason: "item-not-found" | "already-scored" | "no-matching-report";
+            item: PipelineItem | null;
+          };
+
+      if (outcome.item) {
+        const updated = outcome.item;
+        setItems((prev) =>
+          prev.map((p) => (p.id === updated.id ? updated : p)),
+        );
+      }
+
+      if (outcome.ok) {
+        setEvalInfo({
+          itemId: item.id,
+          phase: "success",
+          currentAction: null,
+          cost: finalCost,
+          durationMs: finalDurationMs,
+          score: outcome.overallScore,
+          error: null,
+        });
+      } else if (outcome.reason === "no-matching-report") {
+        setEvalInfo({
+          itemId: item.id,
+          phase: "failed",
+          currentAction: null,
+          cost: finalCost,
+          durationMs: finalDurationMs,
+          score: null,
+          error: { kind: "no-report" },
+        });
       } else {
-        // Worst case: reconcile endpoint errored. Fall back to the old
-        // behavior — flip state to processed so the UI at least advances.
-        setState(item.id, "processed");
+        // "already-scored" or "item-not-found" — treat as success so the UI
+        // doesn't look like a regression.
+        setEvalInfo({
+          itemId: item.id,
+          phase: "success",
+          currentAction: null,
+          cost: finalCost,
+          durationMs: finalDurationMs,
+          score: outcome.item?.score ?? null,
+          error: null,
+        });
       }
     } catch (err) {
-      setLog(`error: ${(err as Error).message}`);
-    } finally {
-      setRunning(null);
+      setEvalInfo({
+        itemId: item.id,
+        phase: "failed",
+        currentAction: null,
+        cost: finalCost,
+        durationMs: finalDurationMs,
+        score: null,
+        error: { kind: "spawn", message: (err as Error).message },
+      });
     }
   };
+
+  const dismissEval = () => setEvalInfo(IDLE_EVAL);
+
+  const runningItem = evalInfo.itemId
+    ? items.find((i) => i.id === evalInfo.itemId) ?? null
+    : null;
 
   return (
     <div className="space-y-5">
@@ -275,8 +461,8 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
                 key={item.id}
                 item={item}
                 tab={tab}
-                isRunning={running === item.id}
-                anyRunning={running !== null}
+                isRunning={runningId === item.id}
+                anyRunning={runningId !== null}
                 onEvaluate={() => evaluate(item)}
                 onSkip={() => setState(item.id, "blocked")}
                 onReopen={() => setState(item.id, "pending")}
@@ -299,27 +485,357 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
         </>
       )}
 
+      <EvalStatusCard
+        evalInfo={evalInfo}
+        item={runningItem}
+        onDismiss={dismissEval}
+      />
+
       {log && (
-        <Card className="bg-surface-sunk border-border-strong">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">
-              Agent output
+        <details className="rounded-2xl border border-border bg-surface-muted">
+          <summary className="cursor-pointer list-none px-5 py-3 text-[11px] uppercase tracking-wider text-muted font-semibold select-none flex items-center justify-between">
+            <span>Show raw agent output</span>
+            <span className="text-subtle normal-case tracking-normal font-normal">
+              click to expand
             </span>
-            <button
-              type="button"
-              onClick={() => setLog("")}
-              className="text-[10px] text-muted hover:text-foreground transition"
-            >
-              clear
-            </button>
+          </summary>
+          <div className="border-t border-border px-5 py-3">
+            <div className="flex items-center justify-end mb-2">
+              <button
+                type="button"
+                onClick={() => setLog("")}
+                className="text-[10px] text-muted hover:text-foreground transition"
+              >
+                clear
+              </button>
+            </div>
+            <pre className="text-[11px] leading-relaxed text-foreground whitespace-pre-wrap break-all max-h-80 overflow-auto font-mono">
+              {log}
+            </pre>
           </div>
-          <pre className="text-[11px] leading-relaxed text-foreground whitespace-pre-wrap break-all max-h-80 overflow-auto font-mono">
-            {log}
-          </pre>
-        </Card>
+        </details>
       )}
     </div>
   );
+}
+
+/* ──────────────────── Eval status card ──────────────────── */
+
+function EvalStatusCard({
+  evalInfo,
+  item,
+  onDismiss,
+}: {
+  evalInfo: EvalInfo;
+  item: PipelineItem | null;
+  onDismiss: () => void;
+}) {
+  if (evalInfo.phase === "idle") return null;
+
+  const label = item
+    ? `${item.company ?? "Unknown company"} — ${item.title ?? "Untitled role"}`
+    : "Job evaluation";
+
+  if (evalInfo.phase === "running") {
+    return (
+      <Card className="border-accent/40">
+        <div className="flex items-start gap-3">
+          <Spinner />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground truncate">
+              Evaluating {label}
+            </div>
+            <div className="text-xs text-muted truncate mt-0.5">
+              {evalInfo.currentAction ?? "Agent is thinking…"}
+            </div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (evalInfo.phase === "success") {
+    return (
+      <Card className="border-success/30">
+        <div className="flex items-start gap-3">
+          <SuccessIcon />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground truncate">
+              Evaluated {label}
+            </div>
+            <div className="text-xs text-muted truncate mt-0.5 tabular-nums">
+              {evalInfo.score !== null && (
+                <>
+                  <span className="text-success font-semibold">
+                    {evalInfo.score.toFixed(1)}/5
+                  </span>
+                  {" · "}
+                </>
+              )}
+              {formatDuration(evalInfo.durationMs)}
+              {evalInfo.cost !== null &&
+                ` · $${evalInfo.cost.toFixed(4)}`}
+              {" · visible on Discover"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="text-[10px] text-muted hover:text-foreground transition shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
+  // failed
+  return (
+    <Card className="border-danger/30 bg-danger-soft">
+      <div className="flex items-start gap-3">
+        <FailIcon />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div>
+            <div className="text-sm font-semibold text-foreground">
+              Evaluation failed for {label}
+            </div>
+            <div className="text-xs text-muted mt-0.5 tabular-nums">
+              {formatDuration(evalInfo.durationMs)}
+              {evalInfo.cost !== null && ` · $${evalInfo.cost.toFixed(4)}`}
+            </div>
+          </div>
+          <div className="text-xs text-foreground">
+            {renderErrorBody(evalInfo.error)}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-[10px] text-muted hover:text-foreground transition shrink-0"
+        >
+          Dismiss
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function renderErrorBody(error: EvalError | null): React.ReactNode {
+  if (!error) return "Unknown error.";
+  switch (error.kind) {
+    case "permission-denied":
+      return (
+        <>
+          <p>
+            The agent was blocked from using tools it needs to fetch the job
+            posting:
+          </p>
+          <ul className="mt-1 list-disc list-inside text-muted">
+            {error.tools.map((t) => (
+              <li key={t} className="font-mono">
+                {t}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-muted">
+            This is a container config bug. Ensure{" "}
+            <code className="font-mono bg-surface-sunk px-1 rounded">
+              --dangerously-skip-permissions
+            </code>{" "}
+            is passed to the claude CLI in{" "}
+            <code className="font-mono bg-surface-sunk px-1 rounded">
+              src/lib/runAction.ts
+            </code>
+            .
+          </p>
+        </>
+      );
+    case "no-report":
+      return (
+        <>
+          <p>
+            The agent finished but we couldn&apos;t locate the resulting report
+            in{" "}
+            <code className="font-mono bg-surface-sunk px-1 rounded">
+              reports/
+            </code>
+            . The job is marked processed but won&apos;t show up on Discover.
+          </p>
+          <p className="mt-2 text-muted">
+            Most common cause: the agent couldn&apos;t extract the JD (e.g.,
+            LinkedIn login wall, portal down). Check the raw output below for
+            details.
+          </p>
+        </>
+      );
+    case "spawn":
+      return (
+        <>
+          <p>Couldn&apos;t start or read from the agent process:</p>
+          <p className="mt-1 font-mono text-muted break-all">{error.message}</p>
+        </>
+      );
+    case "api":
+      return (
+        <p>
+          The server returned HTTP{" "}
+          <span className="font-mono">{error.status}</span> when starting the
+          agent. Check the container logs.
+        </p>
+      );
+    case "reconcile":
+      return (
+        <p>
+          The agent finished but the reconcile endpoint returned HTTP{" "}
+          <span className="font-mono">{error.status}</span>. The report is on
+          disk but the pipeline row wasn&apos;t patched.
+        </p>
+      );
+  }
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms === null || ms <= 0) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return `${m}m ${rem}s`;
+}
+
+function Spinner() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className="h-5 w-5 shrink-0 animate-spin text-accent"
+      aria-hidden="true"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="3"
+        opacity="0.25"
+      />
+      <path
+        d="M12 2 a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SuccessIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className="h-5 w-5 shrink-0 text-success"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="m8 12 3 3 5-6"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FailIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className="h-5 w-5 shrink-0 text-danger"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M12 7v6"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="16.5" r="1.25" fill="currentColor" />
+    </svg>
+  );
+}
+
+/* ──────────────────── Tool narration ──────────────────── */
+
+// Turns raw stream-json tool_use events into short, plain-English status
+// lines for the Evaluating card. Keeps the hot path readable while the
+// detailed trace stays in the collapsible raw log for debugging.
+function humanizeTool(name: string, input: unknown): string {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const str = (k: string): string =>
+    typeof i[k] === "string" ? (i[k] as string) : "";
+  const host = (u: string): string => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return u;
+    }
+  };
+  const shortName = name.replace(/^mcp__\w+__/, "");
+
+  switch (name) {
+    case "mcp__playwright__browser_navigate":
+      return `Opening ${host(str("url"))} in browser…`;
+    case "mcp__playwright__browser_snapshot":
+      return "Reading page structure…";
+    case "mcp__playwright__browser_take_screenshot":
+      return "Taking screenshot…";
+    case "mcp__playwright__browser_click":
+      return "Clicking element…";
+    case "mcp__playwright__browser_type":
+      return "Typing into form field…";
+    case "mcp__playwright__browser_fill_form":
+      return "Filling form…";
+    case "mcp__playwright__browser_press_key":
+      return "Pressing key…";
+    case "mcp__playwright__browser_wait_for":
+      return "Waiting for page element…";
+    case "mcp__playwright__browser_close":
+      return "Closing browser…";
+    case "WebFetch":
+      return `Fetching ${host(str("url"))}…`;
+    case "WebSearch":
+      return `Searching the web${str("query") ? `: ${str("query").slice(0, 40)}` : ""}…`;
+    case "Read":
+      return `Reading ${basename(str("file_path")) || "file"}…`;
+    case "Write":
+      return `Writing ${basename(str("file_path")) || "file"}…`;
+    case "Edit":
+      return `Editing ${basename(str("file_path")) || "file"}…`;
+    case "Bash":
+      return `Running: ${str("command").slice(0, 50)}…`;
+    case "Glob":
+      return `Looking for ${str("pattern") || "files"}…`;
+    case "Grep":
+      return `Grep: ${str("pattern") || "pattern"}…`;
+    case "Task":
+    case "Agent":
+      return "Delegating to a subagent…";
+    default:
+      return `Running ${shortName}…`;
+  }
+}
+
+function basename(p: string): string {
+  if (!p) return "";
+  const parts = p.split("/");
+  return parts[parts.length - 1] || "";
 }
 
 function PipelineCard({
@@ -360,14 +876,10 @@ function PipelineCard({
             </h2>
             <div className="text-xs text-muted truncate">
               {item.company ?? "Unknown company"}
-              {domain && (
-                <span className="text-subtle"> · {domain}</span>
-              )}
+              {domain && <span className="text-subtle"> · {domain}</span>}
             </div>
           </div>
-          {hasScore && (
-            <StarRating score={item.score!} size="sm" />
-          )}
+          {hasScore && <StarRating score={item.score!} size="sm" />}
         </div>
 
         {/* Blocked error message, if any */}
