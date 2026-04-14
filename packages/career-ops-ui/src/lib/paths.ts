@@ -15,4 +15,5 @@ export const p = {
   reports: path.join(WORKSPACE, "reports"),
   output: path.join(WORKSPACE, "output"),
   logs: path.join(WORKSPACE, "logs"),
+  applySessions: path.join(WORKSPACE, "data", "apply-sessions"),
 };
