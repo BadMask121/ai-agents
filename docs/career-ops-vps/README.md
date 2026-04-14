@@ -53,6 +53,8 @@ Follow these in sequence. Each file is short and focused.
 8. [08-troubleshooting.md](08-troubleshooting.md) — common gotchas
 9. [09-ui-deploy.md](09-ui-deploy.md) — deploy the mobile web UI via Coolify (optional)
 10. [10-deploy-checklist.md](10-deploy-checklist.md) — condensed action checklist for first UI deploy
+11. [20-ui-overhaul-plan.md](20-ui-overhaul-plan.md) — multi-phase career-ops-ui overhaul
+12. [21-roadmap.md](21-roadmap.md) — designed-but-deferred features (pick up when core overhaul lands)
 
 ## Worldwide jobs caveat
 
