@@ -113,13 +113,37 @@ ssh career@95.217.185.93 'sed -i "s|^CAREER_OPS_WORKSPACE=.*|CAREER_OPS_WORKSPAC
 
 Replace `utvvmofv` with the actual Coolify container name prefix if it changes (find it with `docker ps`).
 
-**Quote every value with single quotes.** Next.js's env loader (`@next/env`) treats unquoted `$` as variable interpolation — so a bcrypt hash like `$2a$12$po8sGA...` gets read as `$2a` + `$12` + `$po8sGA...`, all expanded to empty strings, producing a silent empty `AUTH_PASSWORD_HASH`. Wrap all four values:
+**Backslash-escape every `$` in `AUTH_PASSWORD_HASH`.** Next.js's env loader (`@next/env`) runs values through `dotenv-expand`, which interprets `$` as variable interpolation regardless of single-quote wrapping (single quotes do **not** prevent expansion in this loader — confirmed empirically; only `\$` does). So a raw bcrypt hash like `$2a$12$po8sGA...` gets read as `$2a` + `$12` + `$po8sGA...`, all expanded to empty strings, producing a silent empty `AUTH_PASSWORD_HASH` and a `verifyPassword` 500 on login.
+
+The fix is to escape every `$` in the value with a backslash. The other three vars (`AUTH_SECRET` hex, `ANTHROPIC_API_KEY`, `CAREER_OPS_WORKSPACE`) don't contain `$`, so they need no escaping. One-liner using node so you don't have to fight sed escaping:
 
 ```bash
-ssh career@95.217.185.93 "sed -i \"s|^\([A-Z_]*\)=\(.*\)\$|\1='\2'|\" /home/career/ai-agents/packages/career-ops-ui/.env.local"
+ssh career@95.217.185.93 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; node -e "
+const fs = require(\"fs\");
+const p = \"/home/career/ai-agents/packages/career-ops-ui/.env.local\";
+const out = fs.readFileSync(p, \"utf8\").split(\"\n\").map(line => {
+  if (!line.startsWith(\"AUTH_PASSWORD_HASH=\")) return line;
+  let v = line.slice(\"AUTH_PASSWORD_HASH=\".length);
+  if ((v.startsWith(\"'\''\") && v.endsWith(\"'\''\")) || (v.startsWith(\"\\\"\") && v.endsWith(\"\\\"\")))
+    v = v.slice(1, -1);
+  return \"AUTH_PASSWORD_HASH=\" + v.replace(/\\\$/g, \"\\\\\\\$\");
+}).join(\"\n\");
+fs.writeFileSync(p, out);
+"'
 ```
 
-Single quotes are inert in dotenv parsing — they don't appear in the loaded value, but they prevent expansion of any `$` inside. Applying the wrap to all four lines is harmless for values that don't contain `$` (the hex secret, the API key, the workspace path), so it's the safe default.
+You can verify the result by loading the file via `@next/env` directly:
+
+```bash
+ssh career@95.217.185.93 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; node -e "
+const {loadEnvConfig} = require(\"/home/career/ai-agents/node_modules/.pnpm/@next+env@16.2.3/node_modules/@next/env\");
+loadEnvConfig(\"/home/career/ai-agents/packages/career-ops-ui\", true);
+console.log(\"AUTH_PASSWORD_HASH starts:\", (process.env.AUTH_PASSWORD_HASH||\"\").slice(0,7));
+console.log(\"length:\", (process.env.AUTH_PASSWORD_HASH||\"\").length);
+"'
+```
+
+You should see `starts: $2a$12$` and `length: 60`. If `length: 0` you've still got an unescaped `$` somewhere.
 
 > **Warning.** `CAREER_OPS_WORKSPACE` points at live data. If you're iterating on destructive operations (delete, rewrite `pipeline.md`, etc.) and don't trust your code yet, point it at a copy instead: `cp -a /home/career/work/career-ops /home/career/work/career-ops.dev` and update the env var.
 
@@ -234,7 +258,7 @@ pkill -f "next dev"
 
 ### Login throws `AUTH_PASSWORD_HASH is not set` despite the var being in `.env.local`
 
-Your bcrypt hash starts with `$2a$12$...` and Next's env loader expanded the `$` sequences as variable references, leaving an empty value. Fix: wrap every value in `.env.local` in single quotes (see Step 4). Restart `pnpm dev` afterwards — Next loads `.env.local` once at startup and does not hot-reload env changes.
+Your bcrypt hash starts with `$2a$12$...` and `@next/env`'s `dotenv-expand` step ate the `$` sequences as variable references, leaving an empty value. Fix: backslash-escape every `$` in `AUTH_PASSWORD_HASH` (see Step 4 — single-quote wrapping does **not** work in this loader, only `\$` does). Then restart `pnpm dev` — Next loads `.env.local` once at startup and does not hot-reload env changes.
 
 ### Hot reload doesn't fire on save
 
