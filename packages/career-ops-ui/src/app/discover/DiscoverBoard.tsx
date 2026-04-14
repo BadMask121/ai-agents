@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -28,7 +28,9 @@ export function DiscoverBoard({
   const [items, setItems] = useState(initialItems);
   const [minScore, setMinScore] = useState(initialMinScore);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const router = useRouter();
 
   // Sync slider value into the URL so the page is shareable + survives reloads.
   useEffect(() => {
@@ -59,6 +61,29 @@ export function DiscoverBoard({
         setItems((prev) => prev.filter((d) => d.pipeline.id !== id));
       }
     });
+  };
+
+  // Approve creates a new apply session and navigates to it. The session
+  // POST is non-blocking — the prepare agent runs on the server afterward
+  // and the /apply/[id] page polls until the payload arrives.
+  const approve = async (d: DiscoverItem) => {
+    if (approvingId) return;
+    setApprovingId(d.pipeline.id);
+    try {
+      const res = await fetch("/api/apply/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobNum: d.pipeline.num }),
+      });
+      if (!res.ok) {
+        setApprovingId(null);
+        return;
+      }
+      const { session } = (await res.json()) as { session: { id: string } };
+      router.push(`/apply/${session.id}`);
+    } catch {
+      setApprovingId(null);
+    }
   };
 
   return (
@@ -105,6 +130,7 @@ export function DiscoverBoard({
               key={d.pipeline.id}
               item={d}
               expanded={!!expanded[d.pipeline.id]}
+              approving={approvingId === d.pipeline.id}
               onToggle={() =>
                 setExpanded((prev) => ({
                   ...prev,
@@ -112,6 +138,7 @@ export function DiscoverBoard({
                 }))
               }
               onSkip={() => skip(d.pipeline.id)}
+              onApprove={() => approve(d)}
             />
           ))}
         </ul>
@@ -168,7 +195,7 @@ function ThresholdControl({
   aboveCount: number;
 }) {
   return (
-    <div className="space-y-2 rounded-2xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgba(20,14,4,0.04)]">
+    <div className="space-y-2 rounded-2xl border border-border bg-surface p-4">
       <div className="flex items-baseline justify-between">
         <label
           htmlFor="threshold"
@@ -207,13 +234,17 @@ function ThresholdControl({
 function JobCard({
   item,
   expanded,
+  approving,
   onToggle,
   onSkip,
+  onApprove,
 }: {
   item: DiscoverItem;
   expanded: boolean;
+  approving: boolean;
   onToggle: () => void;
   onSkip: () => void;
+  onApprove: () => void;
 }) {
   const { pipeline, report, excerpt, reportDate } = item;
   const score = pipeline.score;
@@ -281,15 +312,22 @@ function JobCard({
 
           {/* Action row — the big Approve + Skip pair */}
           <div className="flex items-center gap-2 pt-1">
-            <Link
-              href={`/apply/${pipeline.num ?? pipeline.id}`}
-              className="flex-1"
+            <Button
+              variant="primary"
+              size="md"
+              className="flex-1 w-full"
+              onClick={onApprove}
+              loading={approving}
+              disabled={pipeline.num === null}
             >
-              <Button variant="primary" size="md" className="w-full">
-                Approve
-              </Button>
-            </Link>
-            <Button variant="secondary" size="md" onClick={onSkip}>
+              Approve
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onSkip}
+              disabled={approving}
+            >
               Skip
             </Button>
           </div>

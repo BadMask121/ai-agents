@@ -34,7 +34,7 @@ export function LoginForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-[0_4px_16px_rgba(20,14,4,0.06)]"
+      className="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-[0_0_0_1px_rgb(0_230_118/0.08),0_8px_32px_rgba(0,0,0,0.6)]"
     >
       <div className="space-y-1">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">

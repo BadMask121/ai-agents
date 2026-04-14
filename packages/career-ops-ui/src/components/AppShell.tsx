@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="Primary"
         className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20"
       >
-        <div className="flex items-center gap-1 rounded-full border border-border bg-surface/95 px-2 py-2 shadow-[0_8px_24px_rgba(20,14,4,0.08)] backdrop-blur">
+        <div className="flex items-center gap-1 rounded-full border border-border bg-surface/95 px-2 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.6),0_0_0_1px_rgb(0_230_118/0.12)] backdrop-blur">
           {NAV.map((item) => {
             const active =
               pathname === item.href || pathname.startsWith(item.href + "/");

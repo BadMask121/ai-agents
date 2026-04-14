@@ -7,9 +7,11 @@ type CardProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
 };
 
-const BASE = "rounded-2xl border border-border bg-surface p-5 shadow-[0_1px_2px_rgba(20,14,4,0.04)]";
+// Flat panels on black — borders carry the hierarchy rather than shadows.
+// Interactive variant gets a subtle green ring on hover for the hacker vibe.
+const BASE = "rounded-2xl border border-border bg-surface p-5";
 const INTERACTIVE =
-  "transition hover:border-border-strong hover:shadow-[0_2px_8px_rgba(20,14,4,0.06)] cursor-pointer";
+  "transition hover:border-accent/40 hover:shadow-[0_0_0_1px_rgb(0_230_118/0.2)] cursor-pointer";
 
 export function Card({
   variant = "default",

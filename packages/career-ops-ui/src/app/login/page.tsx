@@ -15,7 +15,7 @@ export default function LoginPage() {
 
 function LoginFormFallback() {
   return (
-    <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-[0_4px_16px_rgba(20,14,4,0.06)]">
+    <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-[0_0_0_1px_rgb(0_230_118/0.08),0_8px_32px_rgba(0,0,0,0.6)]">
       <div className="h-5 w-24 rounded-full bg-surface-sunk animate-pulse" />
       <div className="h-10 rounded-full bg-surface-sunk animate-pulse" />
       <div className="h-10 rounded-full bg-surface-sunk animate-pulse" />

@@ -36,7 +36,7 @@ export default function SettingsPage() {
             <li key={s.href}>
               <Link
                 href={s.href}
-                className="block rounded-2xl border border-border bg-surface hover:border-border-strong hover:shadow-[0_2px_8px_rgba(20,14,4,0.06)] px-5 py-4 transition"
+                className="block rounded-2xl border border-border bg-surface hover:border-accent/40 hover:shadow-[0_0_0_1px_rgb(0_230_118/0.2)] px-5 py-4 transition"
               >
                 <div className="text-sm font-semibold text-foreground">
                   {s.title}
