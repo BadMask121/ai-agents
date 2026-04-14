@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 
 type Tab = "pending" | "processed" | "blocked";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 
 /* ─────────────────── Eval status types ─────────────────── */
 
@@ -382,6 +382,12 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
         </p>
       </header>
 
+      <EvalStatusCard
+        evalInfo={evalInfo}
+        item={runningItem}
+        onDismiss={dismissEval}
+      />
+
       {/* Add URL row */}
       <div className="flex gap-2">
         <input
@@ -478,18 +484,12 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
                 size="sm"
                 onClick={() => setVisible((n) => n + PAGE_SIZE)}
               >
-                Show {Math.min(PAGE_SIZE, filtered.length - visible)} more
+                Load {Math.min(PAGE_SIZE, filtered.length - visible)} more
               </Button>
             </div>
           )}
         </>
       )}
-
-      <EvalStatusCard
-        evalInfo={evalInfo}
-        item={runningItem}
-        onDismiss={dismissEval}
-      />
 
       {log && (
         <details className="rounded-2xl border border-border bg-surface-muted">
