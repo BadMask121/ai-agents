@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef } from "react";
+import { Button } from "@/components/ui/Button";
 
 export function ResumeEditor({ initial }: { initial: string }) {
   const [content, setContent] = useState(initial);
@@ -38,7 +39,7 @@ export function ResumeEditor({ initial }: { initial: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-dashed border-zinc-800 p-4 text-center">
+      <div className="rounded-2xl border border-dashed border-border-strong bg-surface-muted p-5 text-center">
         <input
           ref={fileRef}
           type="file"
@@ -49,15 +50,15 @@ export function ResumeEditor({ initial }: { initial: string }) {
             if (f) upload(f);
           }}
         />
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="md"
           onClick={() => fileRef.current?.click()}
-          className="rounded-lg bg-zinc-100 text-zinc-900 px-4 py-2 text-sm font-medium"
         >
           Upload resume
-        </button>
-        <p className="mt-2 text-xs text-zinc-500">
-          .docx, .pdf, .md — pandoc converts to markdown
+        </Button>
+        <p className="mt-2 text-xs text-muted">
+          .docx, .pdf, .md — converted to markdown automatically
         </p>
       </div>
 
@@ -65,21 +66,22 @@ export function ResumeEditor({ initial }: { initial: string }) {
         value={content}
         onChange={(e) => setContent(e.target.value)}
         spellCheck={false}
-        className="w-full h-[60vh] resize-y rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm font-mono outline-none focus:border-zinc-600"
+        placeholder="Your resume in markdown…"
+        className="w-full h-[60vh] resize-y rounded-2xl border border-border bg-surface px-4 py-3 text-sm font-mono text-foreground placeholder:text-subtle outline-none focus:border-accent"
       />
 
       <div className="flex items-center justify-between">
-        <div className="text-xs text-zinc-500">
+        <div className="text-xs text-muted tabular-nums">
           {status ?? `${content.length} chars`}
         </div>
-        <button
-          type="button"
+        <Button
+          variant="primary"
           onClick={save}
+          loading={pending}
           disabled={pending}
-          className="rounded-lg bg-zinc-100 text-zinc-900 px-4 py-2 text-sm font-medium disabled:opacity-40"
         >
-          {pending ? "saving…" : "Save"}
-        </button>
+          {pending ? "Saving…" : "Save"}
+        </Button>
       </div>
     </div>
   );

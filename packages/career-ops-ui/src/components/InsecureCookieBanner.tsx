@@ -10,7 +10,7 @@ export function InsecureCookieBanner() {
   return (
     <div
       role="alert"
-      className="sticky top-0 z-50 border-b border-red-700 bg-red-900/95 px-4 py-2 text-center text-sm font-medium text-red-50 shadow-md backdrop-blur"
+      className="sticky top-0 z-50 border-b border-danger/30 bg-danger-soft px-4 py-2 text-center text-xs font-medium text-danger shadow-sm"
     >
       ⚠ insecure-cookie mode is on — sessions are issued without the{" "}
       <code className="font-mono">Secure</code> flag. set up TLS (deploy

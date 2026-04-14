@@ -48,8 +48,10 @@ export function DiscoverBoard({
   return (
     <div className="space-y-5">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Discover</h1>
-        <p className="text-sm text-zinc-400">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Discover
+        </h1>
+        <p className="text-sm text-muted">
           AI-scored job matches, ranked by fit.
         </p>
       </header>
@@ -118,12 +120,12 @@ function StatusStrip({
       ? ` · ${lastScan.newSinceLast} new in 24h`
       : "";
   return (
-    <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-[11px] text-zinc-400">
+    <div className="flex items-center justify-between rounded-full border border-border bg-surface-muted px-4 py-2 text-[11px] text-muted">
       <span>
         {lastScanLabel}
         {newLabel}
       </span>
-      <span className="tabular-nums">
+      <span className="tabular-nums text-foreground font-medium">
         {aboveCount}/{totalLoaded} above threshold
       </span>
     </div>
@@ -149,15 +151,15 @@ function ThresholdControl({
   aboveCount: number;
 }) {
   return (
-    <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+    <div className="space-y-2 rounded-2xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgba(20,14,4,0.04)]">
       <div className="flex items-baseline justify-between">
         <label
           htmlFor="threshold"
-          className="text-xs font-medium uppercase tracking-wider text-zinc-500"
+          className="text-[10px] font-semibold uppercase tracking-wider text-muted"
         >
           Minimum score
         </label>
-        <span className="text-sm font-semibold tabular-nums text-zinc-100">
+        <span className="text-sm font-semibold tabular-nums text-foreground">
           {value.toFixed(1)}/5
         </span>
       </div>
@@ -169,12 +171,14 @@ function ThresholdControl({
         step={0.1}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full accent-emerald-500"
+        className="w-full accent-[var(--color-accent)]"
         aria-valuetext={`${value.toFixed(1)} out of 5`}
       />
-      <div className="flex justify-between text-[10px] text-zinc-500">
+      <div className="flex justify-between text-[10px] text-subtle">
         <span>{floor.toFixed(1)}</span>
-        <span className="text-zinc-400">{aboveCount} match{aboveCount === 1 ? "" : "es"}</span>
+        <span className="text-muted">
+          {aboveCount} match{aboveCount === 1 ? "" : "es"}
+        </span>
         <span>5.0</span>
       </div>
     </div>
@@ -200,13 +204,13 @@ function DiscoverCard({
         <div className="space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
-              <div className="text-xs text-zinc-500 tabular-nums">
+              <div className="text-[10px] uppercase tracking-wider text-subtle tabular-nums">
                 #{pipeline.num ?? "—"}
               </div>
-              <h2 className="text-sm font-semibold truncate">
+              <h2 className="text-sm font-semibold text-foreground truncate">
                 {pipeline.title ?? "Untitled role"}
               </h2>
-              <div className="text-xs text-zinc-400 truncate">
+              <div className="text-xs text-muted truncate">
                 {pipeline.company ?? "Unknown company"}
               </div>
             </div>
@@ -223,24 +227,27 @@ function DiscoverCard({
           )}
 
           {excerpt && (
-            <p className="text-xs leading-relaxed text-zinc-300 line-clamp-3">
+            <p className="text-xs leading-relaxed text-muted line-clamp-3">
               {excerpt}
             </p>
           )}
 
           {expanded && report && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">
+            <div className="rounded-xl border border-border bg-surface-muted p-3">
+              <div className="text-[10px] uppercase tracking-wider text-muted font-semibold mb-2">
                 Full report
               </div>
-              <pre className="text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-words font-mono max-h-96 overflow-auto">
+              <pre className="text-[11px] leading-relaxed text-foreground whitespace-pre-wrap break-words font-mono max-h-96 overflow-auto">
                 {report.raw}
               </pre>
             </div>
           )}
 
           <div className="flex items-center gap-2 pt-1">
-            <Link href={`/apply/${pipeline.num ?? pipeline.id}`} className="flex-1">
+            <Link
+              href={`/apply/${pipeline.num ?? pipeline.id}`}
+              className="flex-1"
+            >
               <Button variant="primary" size="sm" className="w-full">
                 Approve → chat
               </Button>
@@ -254,7 +261,7 @@ function DiscoverCard({
               href={pipeline.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-zinc-500 hover:text-zinc-300 px-2"
+              className="text-xs text-subtle hover:text-accent px-2 transition"
               aria-label="Open job posting in new tab"
             >
               ↗
@@ -262,7 +269,7 @@ function DiscoverCard({
           </div>
 
           {!pipeline.pdfReady && report && (
-            <div className="text-[10px] text-amber-400/80">
+            <div className="text-[10px] text-warning">
               ⚠ PDF report not yet generated
             </div>
           )}

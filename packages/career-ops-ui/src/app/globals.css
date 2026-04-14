@@ -1,30 +1,47 @@
 @import "tailwindcss";
 
+/*
+ * career-ops design tokens — warm light theme, orange accent.
+ *
+ * Surface palette is a cream/stone scale. Primary accent is orange. Status
+ * colors are rebalanced for a light background. Every Tailwind v4 `@theme`
+ * variable here becomes a utility class (e.g. `--color-background` → bg-background).
+ */
+
 @theme inline {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-muted: #71717a;
-  --color-border: #27272a;
-  --color-card: #18181b;
-  --color-accent: #22c55e;
-  --color-danger: #ef4444;
+  /* ── Surfaces ─────────────────────────────────────────────── */
+  --color-background:    #FAF7F2;  /* page — warm cream */
+  --color-surface:       #FFFFFF;  /* cards, panels */
+  --color-surface-muted: #F5F2EC;  /* inputs, tabs, subtle fills */
+  --color-surface-sunk:  #EFEBE3;  /* rails, deep wells */
 
-  --color-success-bg: rgb(34 197 94 / 0.12);
-  --color-success-fg: #4ade80;
-  --color-success-border: rgb(34 197 94 / 0.35);
+  /* ── Text ─────────────────────────────────────────────────── */
+  --color-foreground: #1A1A1A;  /* primary — near black */
+  --color-muted:      #6B6560;  /* secondary — warm gray */
+  --color-subtle:     #A39D95;  /* tertiary — light warm gray */
 
-  --color-warning-bg: rgb(245 158 11 / 0.12);
-  --color-warning-fg: #fbbf24;
-  --color-warning-border: rgb(245 158 11 / 0.35);
+  /* ── Borders ──────────────────────────────────────────────── */
+  --color-border:        #EBE7DF;  /* hairline, default */
+  --color-border-strong: #D9D4CA;  /* hover, focus */
 
-  --color-danger-bg: rgb(239 68 68 / 0.12);
-  --color-danger-fg: #f87171;
-  --color-danger-border: rgb(239 68 68 / 0.35);
+  /* ── Accent (orange) ──────────────────────────────────────── */
+  --color-accent:        #F97316;  /* orange-500 — buttons, focus rings */
+  --color-accent-hover:  #EA580C;  /* orange-600 — active state */
+  --color-accent-soft:   #FFF1E6;  /* orange-50 — soft bg for active pills */
+  --color-accent-fg:     #FFFFFF;  /* text on accent */
 
-  --color-info-bg: rgb(59 130 246 / 0.12);
-  --color-info-fg: #60a5fa;
-  --color-info-border: rgb(59 130 246 / 0.35);
+  /* ── Status ───────────────────────────────────────────────── */
+  --color-success:      #16A34A;
+  --color-success-soft: #DCFCE7;
+  --color-warning:      #D97706;
+  --color-warning-soft: #FEF3C7;
+  --color-danger:       #DC2626;
+  --color-danger-soft:  #FEE2E2;
 
+  /* ── Back-compat shims for anything still referencing old names ── */
+  --color-card: var(--color-surface);
+
+  /* ── Typography ───────────────────────────────────────────── */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
@@ -37,6 +54,8 @@ html,
 body {
   -webkit-font-smoothing: antialiased;
   font-family: var(--font-sans);
+  background: var(--color-background);
+  color: var(--color-foreground);
 }
 
 input,
@@ -46,9 +65,9 @@ button {
   font-family: inherit;
 }
 
-/* Visible focus ring for keyboard users on every interactive element. */
+/* Visible focus ring for keyboard users — orange to match the accent. */
 :where(button, a, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 8px;
 }

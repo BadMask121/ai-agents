@@ -12,19 +12,19 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-zinc-100 text-zinc-900 hover:bg-white disabled:bg-zinc-300",
+    "bg-accent text-accent-fg hover:bg-accent-hover shadow-sm",
   secondary:
-    "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 border border-zinc-700",
+    "bg-surface text-foreground border border-border hover:border-border-strong hover:bg-surface-muted",
   ghost:
-    "bg-transparent text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100",
+    "bg-transparent text-muted hover:bg-surface-muted hover:text-foreground",
   danger:
-    "bg-transparent text-red-400 border border-red-900 hover:bg-red-950",
+    "bg-danger-soft text-danger border border-danger/20 hover:bg-danger hover:text-white",
 };
 
 const SIZE: Record<Size, string> = {
-  sm: "px-3 py-1.5 text-xs rounded-lg",
-  md: "px-4 py-2.5 text-sm rounded-lg",
-  lg: "px-5 py-3 text-base rounded-lg",
+  sm: "px-3 py-1.5 text-xs rounded-full",
+  md: "px-4 py-2.5 text-sm rounded-full",
+  lg: "px-5 py-3 text-base rounded-full",
 };
 
 export function Button({

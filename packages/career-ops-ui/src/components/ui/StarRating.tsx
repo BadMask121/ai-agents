@@ -33,16 +33,16 @@ export function StarRating({
         className="relative inline-block"
         style={{ width: px * max + (max - 1) * 2, height: px }}
       >
-        <Stars max={max} px={px} className="text-zinc-700" />
+        <Stars max={max} px={px} className="text-border-strong" />
         <div
           className="absolute inset-y-0 left-0 overflow-hidden"
           style={{ width: `${percent}%` }}
         >
-          <Stars max={max} px={px} className="text-amber-400" />
+          <Stars max={max} px={px} className="text-accent" />
         </div>
       </div>
       {showLabel && (
-        <span className="text-xs font-medium tabular-nums text-zinc-300">
+        <span className="text-xs font-semibold tabular-nums text-foreground">
           {clamped.toFixed(1)}
         </span>
       )}

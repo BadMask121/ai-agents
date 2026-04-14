@@ -11,8 +11,10 @@ export default async function ResumePage() {
     <AppShell>
       <div className="space-y-4">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Resume</h1>
-          <p className="text-sm text-zinc-400">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Resume
+          </h1>
+          <p className="text-sm text-muted">
             Source of truth for tailored CV generation.
           </p>
         </header>

@@ -21,7 +21,7 @@ export function LoadingSkeleton({
 }: Props) {
   return (
     <div
-      className={`animate-pulse bg-zinc-800/80 ${ROUND[rounded]} ${className}`}
+      className={`animate-pulse bg-surface-sunk ${ROUND[rounded]} ${className}`}
       style={{ width, height }}
       aria-hidden="true"
     />

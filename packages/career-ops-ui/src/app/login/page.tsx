@@ -15,10 +15,10 @@ export default function LoginPage() {
 
 function LoginFormFallback() {
   return (
-    <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-6">
-      <div className="h-5 w-24 rounded bg-zinc-800 animate-pulse" />
-      <div className="h-10 rounded bg-zinc-800 animate-pulse" />
-      <div className="h-10 rounded bg-zinc-800 animate-pulse" />
+    <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-6 shadow-[0_4px_16px_rgba(20,14,4,0.06)]">
+      <div className="h-5 w-24 rounded-full bg-surface-sunk animate-pulse" />
+      <div className="h-10 rounded-full bg-surface-sunk animate-pulse" />
+      <div className="h-10 rounded-full bg-surface-sunk animate-pulse" />
     </div>
   );
 }

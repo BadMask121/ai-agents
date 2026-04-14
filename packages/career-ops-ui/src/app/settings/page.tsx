@@ -24,8 +24,10 @@ export default function SettingsPage() {
     <AppShell>
       <div className="space-y-4">
         <header className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-zinc-400">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Settings
+          </h1>
+          <p className="text-sm text-muted">
             Edit the user-layer files career-ops reads.
           </p>
         </header>
@@ -34,10 +36,12 @@ export default function SettingsPage() {
             <li key={s.href}>
               <Link
                 href={s.href}
-                className="block rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 px-4 py-3 transition"
+                className="block rounded-2xl border border-border bg-surface hover:border-border-strong hover:shadow-[0_2px_8px_rgba(20,14,4,0.06)] px-5 py-4 transition"
               >
-                <div className="text-sm font-medium">{s.title}</div>
-                <div className="text-xs text-zinc-500 mt-0.5">{s.subtitle}</div>
+                <div className="text-sm font-semibold text-foreground">
+                  {s.title}
+                </div>
+                <div className="text-xs text-muted mt-0.5">{s.subtitle}</div>
               </Link>
             </li>
           ))}

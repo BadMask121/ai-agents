@@ -7,9 +7,9 @@ type CardProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
 };
 
-const BASE = "rounded-xl border border-zinc-800 bg-zinc-900/50 p-4";
+const BASE = "rounded-2xl border border-border bg-surface p-5 shadow-[0_1px_2px_rgba(20,14,4,0.04)]";
 const INTERACTIVE =
-  "transition hover:bg-zinc-900 hover:border-zinc-700 cursor-pointer";
+  "transition hover:border-border-strong hover:shadow-[0_2px_8px_rgba(20,14,4,0.06)] cursor-pointer";
 
 export function Card({
   variant = "default",
