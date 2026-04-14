@@ -42,9 +42,26 @@ export function runClaudeAction(opts: {
     HOME: process.env.HOME ?? "",
   };
 
+  // --dangerously-skip-permissions: the CLI defaults to permissionMode
+  // "default", which interactively prompts for every sensitive tool call
+  // (Bash, WebFetch, Playwright MCP, etc.). In a non-interactive `-p`
+  // invocation spawned from a web request there is no user to approve the
+  // prompts, so every such tool call silently fails as "permission not
+  // granted" and the agent finishes without extracting the JD or writing a
+  // report. The container is already isolated: it runs as the `node` user,
+  // workspace writes are confined to the bind-mounted career-ops workspace,
+  // and the only outward network access is over the container's NAT. Flip
+  // the mode to bypassPermissions so the agent can actually do its job.
   const proc = spawn(
     "claude",
-    ["-p", promptBody, "--output-format", "stream-json", "--verbose"],
+    [
+      "-p",
+      promptBody,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--dangerously-skip-permissions",
+    ],
     {
       cwd: p.root,
       env,
