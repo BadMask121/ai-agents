@@ -97,7 +97,10 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
     });
   };
 
-  const approve = async (item: PipelineItem) => {
+  // Evaluate = run the full `/career-ops auto-pipeline` chain on a single URL,
+  // then reconcile the resulting report back onto the pipeline row so the
+  // score/num/pdfReady fields are populated (and Discover can pick it up).
+  const evaluate = async (item: PipelineItem) => {
     setRunning(item.id);
     setLog("");
     try {
@@ -132,7 +135,49 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
           } catch {}
         }
       }
-      setState(item.id, "processed");
+
+      // Stream ended — auto-pipeline has (hopefully) written a report and
+      // PDF. Ask the server to locate them, parse the overall score, and
+      // patch the pipeline row. If the reconcile can't find a matching
+      // report it still flips state to processed so the UI doesn't get stuck.
+      const rec = await fetch("/api/pipeline/reconcile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: item.id }),
+      });
+      if (rec.ok) {
+        const outcome = (await rec.json()) as
+          | {
+              ok: true;
+              item: PipelineItem;
+              overallScore: number | null;
+            }
+          | {
+              ok: false;
+              reason:
+                | "item-not-found"
+                | "already-scored"
+                | "no-matching-report";
+              item: PipelineItem | null;
+            };
+        if (outcome.item) {
+          const updated = outcome.item;
+          setItems((prev) =>
+            prev.map((p) => (p.id === updated.id ? updated : p)),
+          );
+        }
+        if (!outcome.ok && outcome.reason === "no-matching-report") {
+          setLog(
+            (prev) =>
+              prev +
+              "\n\n[reconcile] evaluation finished but the corresponding report couldn't be located in reports/. The item is marked processed but won't appear on Discover until the score is back-filled manually.",
+          );
+        }
+      } else {
+        // Worst case: reconcile endpoint errored. Fall back to the old
+        // behavior — flip state to processed so the UI at least advances.
+        setState(item.id, "processed");
+      }
     } catch (err) {
       setLog(`error: ${(err as Error).message}`);
     } finally {
@@ -232,7 +277,7 @@ export function PipelineBoard({ initial }: { initial: PipelineItem[] }) {
                 tab={tab}
                 isRunning={running === item.id}
                 anyRunning={running !== null}
-                onApprove={() => approve(item)}
+                onEvaluate={() => evaluate(item)}
                 onSkip={() => setState(item.id, "blocked")}
                 onReopen={() => setState(item.id, "pending")}
                 onRemove={() => remove(item.id)}
@@ -282,7 +327,7 @@ function PipelineCard({
   tab,
   isRunning,
   anyRunning,
-  onApprove,
+  onEvaluate,
   onSkip,
   onReopen,
   onRemove,
@@ -291,7 +336,7 @@ function PipelineCard({
   tab: Tab;
   isRunning: boolean;
   anyRunning: boolean;
-  onApprove: () => void;
+  onEvaluate: () => void;
   onSkip: () => void;
   onReopen: () => void;
   onRemove: () => void;
@@ -340,11 +385,11 @@ function PipelineCard({
                 variant="primary"
                 size="sm"
                 className="flex-1"
-                onClick={onApprove}
+                onClick={onEvaluate}
                 loading={isRunning}
                 disabled={anyRunning && !isRunning}
               >
-                {isRunning ? "Evaluating…" : "Approve"}
+                {isRunning ? "Evaluating…" : "Evaluate"}
               </Button>
               <Button
                 variant="secondary"
@@ -360,7 +405,7 @@ function PipelineCard({
             <>
               <Link href={`/apply/${item.num ?? item.id}`} className="flex-1">
                 <Button variant="primary" size="sm" className="w-full">
-                  Review → apply
+                  Approve
                 </Button>
               </Link>
               <Button variant="ghost" size="sm" onClick={onReopen}>

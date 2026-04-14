@@ -226,6 +226,34 @@ export async function updateState(
   await writePipeline(items);
 }
 
+// Richer mutator used by the reconcile flow after /career-ops auto-pipeline
+// finishes running — lets us patch score/num/pdfReady onto an item in one
+// atomic read-modify-write instead of multiple setState calls.
+export async function enrichItem(
+  id: string,
+  patch: Partial<
+    Pick<
+      PipelineItem,
+      "state" | "num" | "score" | "pdfReady" | "error" | "company" | "title"
+    >
+  >,
+): Promise<PipelineItem> {
+  const items = await readPipeline();
+  const target = items.find((i) => i.id === id);
+  if (!target) throw new Error(`pipeline item not found: ${id}`);
+
+  if (patch.state !== undefined) target.state = patch.state;
+  if (patch.num !== undefined) target.num = patch.num;
+  if (patch.score !== undefined) target.score = patch.score;
+  if (patch.pdfReady !== undefined) target.pdfReady = patch.pdfReady;
+  if (patch.error !== undefined) target.error = patch.error;
+  if (patch.company !== undefined) target.company = patch.company;
+  if (patch.title !== undefined) target.title = patch.title;
+
+  await writePipeline(items);
+  return target;
+}
+
 export async function removeItem(id: string): Promise<void> {
   const items = await readPipeline();
   const filtered = items.filter((i) => i.id !== id);
