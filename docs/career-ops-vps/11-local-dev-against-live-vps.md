@@ -113,6 +113,14 @@ ssh career@95.217.185.93 'sed -i "s|^CAREER_OPS_WORKSPACE=.*|CAREER_OPS_WORKSPAC
 
 Replace `utvvmofv` with the actual Coolify container name prefix if it changes (find it with `docker ps`).
 
+**Quote every value with single quotes.** Next.js's env loader (`@next/env`) treats unquoted `$` as variable interpolation — so a bcrypt hash like `$2a$12$po8sGA...` gets read as `$2a` + `$12` + `$po8sGA...`, all expanded to empty strings, producing a silent empty `AUTH_PASSWORD_HASH`. Wrap all four values:
+
+```bash
+ssh career@95.217.185.93 "sed -i \"s|^\([A-Z_]*\)=\(.*\)\$|\1='\2'|\" /home/career/ai-agents/packages/career-ops-ui/.env.local"
+```
+
+Single quotes are inert in dotenv parsing — they don't appear in the loaded value, but they prevent expansion of any `$` inside. Applying the wrap to all four lines is harmless for values that don't contain `$` (the hex secret, the API key, the workspace path), so it's the safe default.
+
 > **Warning.** `CAREER_OPS_WORKSPACE` points at live data. If you're iterating on destructive operations (delete, rewrite `pipeline.md`, etc.) and don't trust your code yet, point it at a copy instead: `cp -a /home/career/work/career-ops /home/career/work/career-ops.dev` and update the env var.
 
 ## Step 5 — Run the dev server
@@ -223,6 +231,10 @@ ss -tlnp | grep 3000
 tmux kill-session -t career-dev 2>/dev/null
 pkill -f "next dev"
 ```
+
+### Login throws `AUTH_PASSWORD_HASH is not set` despite the var being in `.env.local`
+
+Your bcrypt hash starts with `$2a$12$...` and Next's env loader expanded the `$` sequences as variable references, leaving an empty value. Fix: wrap every value in `.env.local` in single quotes (see Step 4). Restart `pnpm dev` afterwards — Next loads `.env.local` once at startup and does not hot-reload env changes.
 
 ### Hot reload doesn't fire on save
 
