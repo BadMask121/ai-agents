@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:vps": "ssh -t -L 3000:localhost:3000 career@95.217.185.93 'tmux kill-session -t career-dev 2>/dev/null; export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; cd ~/ai-agents/packages/career-ops-ui && pnpm dev'",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "eslint",
