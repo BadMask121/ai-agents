@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { StarRating } from "@/components/ui/StarRating";
-import { ScoreBar } from "@/components/ui/ScoreBar";
+import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { DiscoverItem } from "./page";
 
@@ -21,13 +20,15 @@ type Props = {
 };
 
 export function DiscoverBoard({
-  items,
+  items: initialItems,
   initialMinScore,
   serverFloor,
   lastScan,
 }: Props) {
+  const [items, setItems] = useState(initialItems);
   const [minScore, setMinScore] = useState(initialMinScore);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [, startTransition] = useTransition();
 
   // Sync slider value into the URL so the page is shareable + survives reloads.
   useEffect(() => {
@@ -37,13 +38,28 @@ export function DiscoverBoard({
   }, [minScore]);
 
   const filtered = useMemo(
-    () =>
-      items.filter((d) => (d.pipeline.score ?? 0) >= minScore),
+    () => items.filter((d) => (d.pipeline.score ?? 0) >= minScore),
     [items, minScore],
   );
 
   const aboveCount = filtered.length;
   const totalLoaded = items.length;
+
+  // Skip in Discover = move the pipeline row to `blocked` so it doesn't keep
+  // showing up. The server re-reads pipeline.md on next page load; for now we
+  // optimistically drop it from the board state.
+  const skip = (id: string) => {
+    startTransition(async () => {
+      const res = await fetch("/api/pipeline", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, state: "blocked" }),
+      });
+      if (res.ok) {
+        setItems((prev) => prev.filter((d) => d.pipeline.id !== id));
+      }
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -85,7 +101,7 @@ export function DiscoverBoard({
       ) : (
         <ul className="space-y-3" aria-label="Scored job matches">
           {filtered.map((d) => (
-            <DiscoverCard
+            <JobCard
               key={d.pipeline.id}
               item={d}
               expanded={!!expanded[d.pipeline.id]}
@@ -95,6 +111,7 @@ export function DiscoverBoard({
                   [d.pipeline.id]: !prev[d.pipeline.id],
                 }))
               }
+              onSkip={() => skip(d.pipeline.id)}
             />
           ))}
         </ul>
@@ -185,53 +202,72 @@ function ThresholdControl({
   );
 }
 
-function DiscoverCard({
+/* ─────────────────────── Job card ─────────────────────── */
+
+function JobCard({
   item,
   expanded,
   onToggle,
+  onSkip,
 }: {
   item: DiscoverItem;
   expanded: boolean;
   onToggle: () => void;
+  onSkip: () => void;
 }) {
-  const { pipeline, report, excerpt } = item;
-  const score = pipeline.score ?? 0;
-  const subScores = report?.subScores ?? {};
+  const { pipeline, report, excerpt, reportDate } = item;
+  const score = pipeline.score;
+  const hasReport = !!report;
 
   return (
     <li>
       <Card>
         <div className="space-y-3">
+          {/* Header: company bold, role underneath, meta pinned right */}
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-[10px] uppercase tracking-wider text-subtle tabular-nums">
-                #{pipeline.num ?? "—"}
-              </div>
-              <h2 className="text-sm font-semibold text-foreground truncate">
-                {pipeline.title ?? "Untitled role"}
-              </h2>
-              <div className="text-xs text-muted truncate">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-foreground truncate">
                 {pipeline.company ?? "Unknown company"}
+              </h2>
+              <div className="text-xs text-muted truncate mt-0.5">
+                {pipeline.title ?? "Untitled role"}
               </div>
             </div>
-            <StarRating score={score} size="md" />
+            <div className="shrink-0 text-[10px] text-subtle tabular-nums whitespace-nowrap">
+              {pipeline.num !== null && <span>#{pipeline.num}</span>}
+              {pipeline.num !== null && reportDate && (
+                <span className="mx-1">·</span>
+              )}
+              {reportDate && <span>{formatShortDate(reportDate)}</span>}
+            </div>
           </div>
 
-          {report && (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-1">
-              <ScoreBar label="CV match" score={subScores.cvMatch} />
-              <ScoreBar label="North star" score={subScores.northStar} />
-              <ScoreBar label="Comp" score={subScores.comp} />
-              <ScoreBar label="Cultural" score={subScores.cultural} />
-            </div>
-          )}
+          {/* Status pill row */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {hasReport && (
+              <Badge variant="success">
+                <CheckIcon /> Evaluated
+              </Badge>
+            )}
+            {score !== null && (
+              <Badge variant="outline">
+                <span className="tabular-nums">{score.toFixed(1)}/5</span>
+              </Badge>
+            )}
+            {pipeline.pdfReady && <Badge variant="outline">PDF</Badge>}
+            {hasReport && !pipeline.pdfReady && (
+              <Badge variant="warning">PDF pending</Badge>
+            )}
+          </div>
 
+          {/* Excerpt */}
           {excerpt && (
             <p className="text-xs leading-relaxed text-muted line-clamp-3">
               {excerpt}
             </p>
           )}
 
+          {/* Expanded full report */}
           {expanded && report && (
             <div className="rounded-xl border border-border bg-surface-muted p-3">
               <div className="text-[10px] uppercase tracking-wider text-muted font-semibold mb-2">
@@ -243,38 +279,89 @@ function DiscoverCard({
             </div>
           )}
 
+          {/* Action row — the big Approve + Skip pair */}
           <div className="flex items-center gap-2 pt-1">
             <Link
               href={`/apply/${pipeline.num ?? pipeline.id}`}
               className="flex-1"
             >
-              <Button variant="primary" size="sm" className="w-full">
-                Approve → chat
+              <Button variant="primary" size="md" className="w-full">
+                Approve
               </Button>
             </Link>
-            {report && (
-              <Button variant="secondary" size="sm" onClick={onToggle}>
-                {expanded ? "Hide" : "Read"} report
-              </Button>
+            <Button variant="secondary" size="md" onClick={onSkip}>
+              Skip
+            </Button>
+          </div>
+
+          {/* Tertiary actions — low-visual-weight links below the main CTA */}
+          <div className="flex items-center justify-between pt-1 text-[11px]">
+            {report ? (
+              <button
+                type="button"
+                onClick={onToggle}
+                className="text-muted hover:text-accent transition"
+              >
+                {expanded ? "Hide" : "Read"} full report
+              </button>
+            ) : (
+              <span />
             )}
             <a
               href={pipeline.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-subtle hover:text-accent px-2 transition"
-              aria-label="Open job posting in new tab"
+              className="text-muted hover:text-accent transition"
             >
-              ↗
+              Open posting ↗
             </a>
           </div>
-
-          {!pipeline.pdfReady && report && (
-            <div className="text-[10px] text-warning">
-              ⚠ PDF report not yet generated
-            </div>
-          )}
         </div>
       </Card>
     </li>
+  );
+}
+
+function formatShortDate(iso: string): string {
+  // iso is YYYY-MM-DD. Parse without timezone shenanigans and format as "7 Apr".
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const [, , mm, dd] = m;
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const monthIdx = parseInt(mm, 10) - 1;
+  const day = parseInt(dd, 10);
+  if (monthIdx < 0 || monthIdx > 11 || Number.isNaN(day)) return iso;
+  return `${day} ${months[monthIdx]}`;
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      className="h-3 w-3 shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        d="m3.5 8 3 3 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

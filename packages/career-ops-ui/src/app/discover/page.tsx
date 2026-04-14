@@ -17,6 +17,10 @@ export type DiscoverItem = {
   pipeline: PipelineItem;
   report: ReportContent | null;
   excerpt: string;
+  // ISO date string parsed from the report filename (`143-acme-2026-01-15.md`),
+  // or null when the filename doesn't match the pattern. Used for the `7 Apr`
+  // meta stamp in the top-right of each card.
+  reportDate: string | null;
 };
 
 type LastScan = {
@@ -44,12 +48,22 @@ async function loadDiscoverItems(): Promise<DiscoverItem[]> {
         pipeline,
         report,
         excerpt: report ? excerptFromReport(report.raw) : "",
+        reportDate: report ? dateFromReportFilename(report.path) : null,
       };
     }),
   );
 
   enriched.sort((a, b) => (b.pipeline.score ?? 0) - (a.pipeline.score ?? 0));
   return enriched;
+}
+
+// Report filenames are `NNN-{company-slug}-YYYY-MM-DD.md` per modes/auto-pipeline.md.
+// Extract the trailing YYYY-MM-DD as an ISO date so the card can stamp
+// "7 Apr" in the corner without another file stat call.
+function dateFromReportFilename(filePath: string): string | null {
+  const base = filePath.split("/").pop() ?? "";
+  const m = base.match(/-(\d{4}-\d{2}-\d{2})\.md$/);
+  return m ? m[1] : null;
 }
 
 function excerptFromReport(raw: string, maxChars = 320): string {
