@@ -23,3 +23,9 @@ This project uses **bd (beads)** for ALL task tracking. No exceptions.
 Before brainstorming, designing, or proposing plans, read the relevant files under `docs/` (currently `docs/career-ops-vps/`). These capture project intent, constraints, and prior decisions. Do not propose approaches that contradict them without calling out the conflict explicitly.
 
 When a brainstorm produces an agreed plan, immediately capture it as bd issues (epic + sub-tasks with `bd-<id>.<n>` hierarchy) before touching code.
+
+## VPS access
+
+- Host: `ssh root@95.217.185.93` (Hetzner, runs career-ops-ui via Coolify).
+- `career-ops` checkout lives at `/home/career/work/career-ops`, owned by the `career` user — run git/file ops via `sudo -u career ...`, not as root (root triggers git's "dubious ownership" guard).
+- `career-ops` remote `origin` points to our fork `https://github.com/BadMask121/career-ops.git` (HTTPS, public — no auth needed for fetch). The `career` user has no GitHub SSH key, so do not switch to `git@github.com:...` URLs without first installing a deploy key.
