@@ -57,6 +57,8 @@ export function runClaudeAction(opts: {
     [
       "-p",
       promptBody,
+      "--model",
+      "haiku",
       "--output-format",
       "stream-json",
       "--verbose",
