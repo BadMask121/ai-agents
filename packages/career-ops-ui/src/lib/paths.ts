@@ -16,4 +16,6 @@ export const p = {
   output: path.join(WORKSPACE, "output"),
   logs: path.join(WORKSPACE, "logs"),
   applySessions: path.join(WORKSPACE, "data", "apply-sessions"),
+  autofillProfile: path.join(WORKSPACE, "data", "autofill-profile.json"),
+  autofillToken: path.join(WORKSPACE, "data", "autofill-token.txt"),
 };

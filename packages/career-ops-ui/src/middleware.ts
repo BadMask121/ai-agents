@@ -7,7 +7,15 @@ import { jwtVerify } from "jose";
 export const runtime = "nodejs";
 
 const COOKIE_NAME = "career_ops_session";
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+// /api/profile and /autofill.js are reachable cross-origin from a bookmarklet
+// running on a third-party job site; they enforce their own Bearer-token auth
+// (or are intentionally public) inside the route handler.
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/api/profile",
+  "/autofill.js",
+];
 
 function getSecret(): Uint8Array | null {
   const secret = process.env.AUTH_SECRET;

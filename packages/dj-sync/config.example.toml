@@ -1,0 +1,20 @@
+# Copy to ~/.dj-sync/config.toml and edit.
+
+[library]
+# Where your local audio files live. Recursively scanned.
+roots = ["/Users/you/Music/DJ"]
+
+[rekordbox]
+# Configure this folder as the AutoImport folder inside Rekordbox
+# (Preferences -> Advanced -> Database -> AutoImport).
+autoimport_dir = "/Users/you/Music/Rekordbox-AutoImport"
+
+[matcher]
+# Above this Jaro-Winkler score, accept a fuzzy hit.
+fuzzy_accept = 0.92
+# Max tracks per playlist that may consume the AI rung.
+ai_budget_per_playlist = 20
+
+[usb]
+# Optional. If unset, USB sync step is skipped.
+# mount = "/Volumes/CDJ"
