@@ -33,6 +33,7 @@ tool*, not a code-fixing / selector-export tool. See [02-stack-decisions.md](02-
 | [01-architecture.md](01-architecture.md) | Components, data flow, permissions, error handling, testing |
 | [02-stack-decisions.md](02-stack-decisions.md) | Key technology choices + rationale + alternatives weighed |
 | [03-roadmap.md](03-roadmap.md) | v1 scope, fast-follow, and explicitly-deferred future work |
+| [04-implementation-plan.md](04-implementation-plan.md) | Task-by-task TDD build plan (bd epic ai-agents-de5) |
 
 ## Open decisions (to confirm)
 
