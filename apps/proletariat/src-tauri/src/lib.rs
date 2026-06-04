@@ -6,11 +6,14 @@ mod permission;
 mod settings;
 mod windows;
 
+use std::sync::Mutex;
+
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(Mutex::<Option<std::path::PathBuf>>::new(None))
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
