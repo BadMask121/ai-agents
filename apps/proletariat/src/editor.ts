@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { wrapText, computeCanvasHeight } from "./lib/compositor";
+import { wrapText } from "./lib/compositor";
 
 type Tool = "rect" | "arrow" | "pen" | "text";
 interface Shape { tool: Tool; x: number; y: number; x2: number; y2: number; points?: {x:number;y:number}[]; text?: string; }
@@ -80,12 +80,45 @@ document.getElementById("clear")!.addEventListener("click", () => { shapes = [];
 document.getElementById("cancel")!.addEventListener("click", () => getCurrentWindow().close());
 document.getElementById("copy")!.addEventListener("click", onCopy);
 
-// onCopy: caption-band compositing implemented in a later task. Placeholder keeps the build typed.
+const CAPTION = { fontSize: 16, lineHeight: 22, padding: 12, bg: "#111", fg: "#fff" };
+
 async function onCopy() {
-  // TODO(next task): composite caption band + invoke copy_composite
+  if (!baseImage) return;
+  const message = messageEl.value.trim();
+
+  // Measure wrapping against the image width using a scratch context.
+  const scratch = document.createElement("canvas").getContext("2d")!;
+  scratch.font = `${CAPTION.fontSize}px -apple-system, sans-serif`;
+  const measure = (t: string) => scratch.measureText(t).width;
+  const maxTextWidth = baseImage.width - CAPTION.padding * 2;
+  const lines = message ? wrapText(message, maxTextWidth, measure) : [];
+
+  const bandHeight = lines.length ? lines.length * CAPTION.lineHeight + CAPTION.padding * 2 : 0;
+
+  // Build the final composite: annotated image on top, caption band below.
+  const out = document.createElement("canvas");
+  out.width = baseImage.width;
+  out.height = baseImage.height + bandHeight;
+  const octx = out.getContext("2d")!;
+
+  // 1) annotated screenshot (reuse the on-screen canvas, which already has shapes)
+  octx.drawImage(canvas, 0, 0);
+
+  // 2) caption band
+  if (bandHeight) {
+    octx.fillStyle = CAPTION.bg;
+    octx.fillRect(0, baseImage.height, out.width, bandHeight);
+    octx.fillStyle = CAPTION.fg;
+    octx.font = `${CAPTION.fontSize}px -apple-system, sans-serif`;
+    octx.textBaseline = "top";
+    lines.forEach((line, i) =>
+      octx.fillText(line, CAPTION.padding, baseImage!.height + CAPTION.padding + i * CAPTION.lineHeight));
+  }
+
+  const b64 = out.toDataURL("image/png").split(",")[1];
+  await invoke("copy_composite", { pngBase64: b64 });
+  await getCurrentWindow().close();
 }
 
 listen("capture-updated", () => { shapes = []; loadCapture(); });
 loadCapture();
-// keep imports + the message field referenced until the next task uses them in onCopy
-void wrapText; void computeCanvasHeight; void messageEl;
