@@ -1,3 +1,4 @@
+mod apply;
 mod capture;
 mod clipboard;
 mod commands;

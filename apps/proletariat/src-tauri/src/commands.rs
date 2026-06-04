@@ -18,12 +18,18 @@ pub fn copy_composite(_png_base64: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_settings() -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({}))
+pub fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    Ok(crate::settings::read_all(&app))
 }
 
 #[tauri::command]
-pub fn set_setting(_key: String, _value: serde_json::Value) -> Result<(), String> {
+pub fn set_setting(
+    app: tauri::AppHandle,
+    key: String,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    crate::settings::set(&app, &key, value);
+    crate::apply::on_setting_changed(&app, &key);
     Ok(())
 }
 
