@@ -197,3 +197,73 @@ body:has(#stage) {
   background: #ff2d55;
   border-color: #ff2d55;
 }
+
+/* ── Floating button (floating.html) ───────────────────────── */
+body.floating {
+  margin: 0;
+  width: 64px;
+  height: 64px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+body.floating button {
+  margin: 0;
+  padding: 0;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+  line-height: 1;
+}
+
+body.floating #grip {
+  width: 18px;
+  height: 28px;
+  background: rgba(40, 40, 40, 0.85);
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: grab;
+}
+
+body.floating #grip:active {
+  cursor: grabbing;
+}
+
+body.floating #snap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ff2d55;
+  font-size: 20px;
+}
+
+body.floating #snap:hover {
+  background: #e02749;
+}
+
+/* ── Settings window (settings.html) ───────────────────────── */
+body.settings {
+  margin: 0;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body.settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+body.settings input[type="text"] {
+  flex: 1;
+  padding: 0.4em 0.6em;
+  font-size: 13px;
+}

@@ -55,6 +55,7 @@ pub fn run() {
             if settings::floating_enabled(app.handle()) {
                 let _ = windows::show_floating(app.handle());
             }
+            crate::apply::register_hotkey(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -30,8 +30,9 @@ export default defineConfig(async () => ({
   build: {
     rollupOptions: {
       input: {
+        floating: resolve(__dirname, "src/floating.html"),
         editor: resolve(__dirname, "src/editor.html"),
-        // floating/settings added in a later task
+        settings: resolve(__dirname, "src/settings.html"),
       },
     },
   },
