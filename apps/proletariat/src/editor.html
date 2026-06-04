@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><link rel="stylesheet" href="./styles.css" /></head>
+  <body>
+    <div id="toolbar">
+      <button data-tool="rect">▭ Rect</button>
+      <button data-tool="arrow">↗ Arrow</button>
+      <button data-tool="pen">✎ Pen</button>
+      <button data-tool="text">A Text</button>
+      <button id="undo">↶ Undo</button>
+      <button id="clear">Clear</button>
+    </div>
+    <div id="stage"><canvas id="canvas"></canvas></div>
+    <div id="message-bar">
+      <textarea id="message" placeholder="Message to Claude (added as a caption when you copy)…"></textarea>
+      <button id="cancel">Cancel</button>
+      <button id="copy">Copy to clipboard</button>
+    </div>
+    <script type="module" src="./editor.ts"></script>
+  </body>
+</html>

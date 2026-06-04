@@ -114,3 +114,86 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+/* ── Markup editor (editor.html) ───────────────────────────── */
+body:has(#stage) {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+  color: #f6f6f6;
+  overflow: hidden;
+}
+
+#toolbar,
+#message-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #000;
+}
+
+#message-bar {
+  border-top: 1px solid #000;
+  border-bottom: none;
+}
+
+#toolbar button,
+#message-bar button {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #3a3a3a;
+  color: #f6f6f6;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+#toolbar button:hover,
+#message-bar button:hover {
+  border-color: #ff2d55;
+}
+
+#clear {
+  margin-left: auto;
+}
+
+#stage {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  background: #141414;
+}
+
+#canvas {
+  background: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  cursor: crosshair;
+  max-width: 100%;
+}
+
+#message {
+  flex: 1;
+  min-height: 38px;
+  max-height: 120px;
+  resize: vertical;
+  padding: 8px;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #f6f6f6;
+}
+
+#copy {
+  background: #ff2d55;
+  border-color: #ff2d55;
+}
