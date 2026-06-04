@@ -65,6 +65,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
             commands::save_floating_position,
+            commands::open_screen_recording_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Proletariat");

@@ -33,6 +33,7 @@ export default defineConfig(async () => ({
         floating: resolve(__dirname, "src/floating.html"),
         editor: resolve(__dirname, "src/editor.html"),
         settings: resolve(__dirname, "src/settings.html"),
+        permission: resolve(__dirname, "src/permission.html"),
       },
     },
   },

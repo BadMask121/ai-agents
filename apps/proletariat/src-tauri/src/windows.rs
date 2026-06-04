@@ -64,3 +64,16 @@ pub fn toggle_floating(app: &AppHandle) -> tauri::Result<()> {
     }
     Ok(())
 }
+
+pub fn open_permission_guide(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("permission") {
+        w.set_focus()?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(app, "permission", WebviewUrl::App("src/permission.html".into()))
+        .title("Proletariat — Permission needed")
+        .inner_size(440.0, 280.0)
+        .resizable(false)
+        .build()?;
+    Ok(())
+}

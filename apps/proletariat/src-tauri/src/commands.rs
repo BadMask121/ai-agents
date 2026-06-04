@@ -67,3 +67,9 @@ pub fn save_floating_position(app: AppHandle, x: f64, y: f64) -> Result<(), Stri
     crate::settings::set(&app, "floating_y", y.into());
     Ok(())
 }
+
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    crate::permission::open_screen_recording_settings();
+    Ok(())
+}

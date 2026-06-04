@@ -267,3 +267,48 @@ body.settings input[type="text"] {
   padding: 0.4em 0.6em;
   font-size: 13px;
 }
+
+/* ── Permission guide window (permission.html) ─────────────── */
+body.permission {
+  padding: 20px;
+  font-family: -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+body.permission h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+body.permission p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #555;
+}
+
+body.permission button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #396cd8;
+  background: #396cd8;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+body.permission button:hover {
+  background: #2a54b0;
+  border-color: #2a54b0;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.permission p {
+    color: #aaa;
+  }
+}
