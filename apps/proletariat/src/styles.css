@@ -164,6 +164,11 @@ body.floating {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 22px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+
+#bar:active {
+  cursor: grabbing;
 }
 
 #grip {
@@ -194,6 +199,7 @@ body.floating {
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
+  cursor: pointer;
   transition: background 0.12s;
 }
 
