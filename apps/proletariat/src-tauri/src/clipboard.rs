@@ -14,23 +14,20 @@ pub fn png_to_rgba(png_bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), ClipboardErr
     Ok((w, h, img.into_raw()))
 }
 
-/// Put the composite image AND (if non-empty) the message as editable plain
-/// text on the system clipboard, in one operation, so both are available when
-/// pasting into Claude. `arboard` can only set one format at a time, so we use
-/// `clipboard-rs`, which writes multiple `ClipboardContent` formats at once.
-pub fn set_clipboard_image_and_text(png_bytes: &[u8], text: &str) -> Result<(), String> {
+/// Put the annotated image on the system clipboard.
+///
+/// Image only — no accompanying text. A single paste into Claude can carry
+/// only one representation, and when text is also present Claude prefers the
+/// text and drops the image. Any message therefore lives as a text annotation
+/// drawn onto the image itself, so it travels in the one image we copy.
+pub fn set_clipboard_image(png_bytes: &[u8]) -> Result<(), String> {
     // Validate the PNG decodes first so we surface a clear error early.
     png_to_rgba(png_bytes).map_err(|e| e.to_string())?;
 
     let image = RustImageData::from_bytes(png_bytes).map_err(|e| e.to_string())?;
-    let mut contents = vec![ClipboardContent::Image(image)];
-    let trimmed = text.trim();
-    if !trimmed.is_empty() {
-        contents.push(ClipboardContent::Text(trimmed.to_string()));
-    }
-
     let ctx = ClipboardContext::new().map_err(|e| e.to_string())?;
-    ctx.set(contents).map_err(|e| e.to_string())
+    ctx.set(vec![ClipboardContent::Image(image)])
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

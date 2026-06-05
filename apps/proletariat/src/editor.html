@@ -16,6 +16,9 @@
         <button class="tool" data-tool="pen" title="Pen" aria-label="Pen">
           <svg viewBox="0 0 24 24"><path d="M14 4l6 6M3.5 20.5l1.2-4.2L15 6l3 3-10.3 10.3z" /></svg>
         </button>
+        <button class="tool" data-tool="text" title="Text" aria-label="Text">
+          <svg viewBox="0 0 24 24"><path d="M5 6V5h14v1M12 5v14M9 19h6" /></svg>
+        </button>
       </div>
       <div class="group">
         <button class="icon" id="undo" title="Undo" aria-label="Undo">
@@ -29,19 +32,15 @@
       <button class="icon ghost" id="cancel" title="Cancel" aria-label="Cancel">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
-    </div>
-
-    <div id="stage"><canvas id="canvas"></canvas></div>
-
-    <div id="message-bar">
-      <textarea id="message" rows="1" placeholder="Message to Claude…"></textarea>
-      <button id="copy" title="Copy to clipboard" aria-label="Copy to clipboard">
+      <button class="primary" id="copy" title="Copy image to clipboard" aria-label="Copy image to clipboard">
         <svg viewBox="0 0 24 24">
           <rect x="9" y="9" width="11" height="11" rx="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
       </button>
     </div>
+
+    <div id="stage"><canvas id="canvas"></canvas></div>
 
     <script type="module" src="./editor.ts"></script>
   </body>

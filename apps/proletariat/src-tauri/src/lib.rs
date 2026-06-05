@@ -61,7 +61,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::start_capture,
             commands::get_capture,
-            commands::copy_to_clipboard,
+            commands::copy_image,
             commands::get_settings,
             commands::set_setting,
             commands::save_floating_position,
