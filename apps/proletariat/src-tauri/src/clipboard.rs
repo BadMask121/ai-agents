@@ -1,9 +1,10 @@
+use clipboard_rs::common::RustImage;
+use clipboard_rs::{Clipboard, ClipboardContent, ClipboardContext, RustImageData};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
     #[error("image decode failed: {0}")]
     Decode(#[from] image::ImageError),
-    #[error("clipboard error: {0}")]
-    Clipboard(#[from] arboard::Error),
 }
 
 /// Decode PNG bytes into (width, height, RGBA8 pixels). Pure + unit-tested.
@@ -13,17 +14,23 @@ pub fn png_to_rgba(png_bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), ClipboardErr
     Ok((w, h, img.into_raw()))
 }
 
-use std::borrow::Cow;
+/// Put the composite image AND (if non-empty) the message as editable plain
+/// text on the system clipboard, in one operation, so both are available when
+/// pasting into Claude. `arboard` can only set one format at a time, so we use
+/// `clipboard-rs`, which writes multiple `ClipboardContent` formats at once.
+pub fn set_clipboard_image_and_text(png_bytes: &[u8], text: &str) -> Result<(), String> {
+    // Validate the PNG decodes first so we surface a clear error early.
+    png_to_rgba(png_bytes).map_err(|e| e.to_string())?;
 
-pub fn set_clipboard_image(png_bytes: &[u8]) -> Result<(), ClipboardError> {
-    let (w, h, rgba) = png_to_rgba(png_bytes)?;
-    let mut cb = arboard::Clipboard::new()?;
-    cb.set_image(arboard::ImageData {
-        width: w as usize,
-        height: h as usize,
-        bytes: Cow::Owned(rgba),
-    })?;
-    Ok(())
+    let image = RustImageData::from_bytes(png_bytes).map_err(|e| e.to_string())?;
+    let mut contents = vec![ClipboardContent::Image(image)];
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        contents.push(ClipboardContent::Text(trimmed.to_string()));
+    }
+
+    let ctx = ClipboardContext::new().map_err(|e| e.to_string())?;
+    ctx.set(contents).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

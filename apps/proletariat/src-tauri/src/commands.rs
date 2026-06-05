@@ -38,11 +38,11 @@ pub fn get_capture(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn copy_composite(png_base64: String) -> Result<(), String> {
+pub fn copy_to_clipboard(png_base64: String, text: String) -> Result<(), String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(png_base64)
         .map_err(|e| e.to_string())?;
-    crate::clipboard::set_clipboard_image(&bytes).map_err(|e| e.to_string())
+    crate::clipboard::set_clipboard_image_and_text(&bytes, &text)
 }
 
 #[tauri::command]
