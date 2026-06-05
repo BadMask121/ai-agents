@@ -40,7 +40,7 @@ pub fn show_floating(app: &AppHandle) -> tauri::Result<()> {
         .unwrap_or(80.0);
     WebviewWindowBuilder::new(app, "floating", WebviewUrl::App("src/floating.html".into()))
         .title("Proletariat")
-        .inner_size(64.0, 64.0)
+        .inner_size(112.0, 48.0)
         .position(x, y)
         .resizable(false)
         .decorations(false)
