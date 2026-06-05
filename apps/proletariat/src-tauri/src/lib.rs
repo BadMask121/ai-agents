@@ -67,6 +67,18 @@ pub fn run() {
             commands::save_floating_position,
             commands::open_screen_recording_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Proletariat");
+        .build(tauri::generate_context!())
+        .expect("error while running Proletariat")
+        .run(|_app, event| {
+            // Menu-bar app: closing the last window (e.g. toggling off the
+            // floating button, or closing the editor) must NOT quit the app.
+            // Tauri fires ExitRequested with code=None on last-window-closed,
+            // and code=Some(_) for an explicit app.exit() (tray "Quit"), which
+            // we let proceed.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                if code.is_none() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }
