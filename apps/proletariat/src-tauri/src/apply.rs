@@ -9,7 +9,10 @@ pub fn on_setting_changed(app: &AppHandle, key: &str) {
             if enabled {
                 let _ = crate::windows::show_floating(app);
             } else if let Some(w) = tauri::Manager::get_webview_window(app, "floating") {
-                let _ = w.close();
+                // hide(), not close(): keep the window alive so the tray toggle
+                // and the Settings toggle agree on one source of truth
+                // (visibility) and never race window teardown. See toggle_floating.
+                let _ = w.hide();
             }
         }
         "launch_at_login" => {

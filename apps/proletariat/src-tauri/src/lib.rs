@@ -42,7 +42,9 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "capture" => commands::trigger_capture(app.clone()),
                     "toggle_float" => {
-                        let _ = windows::toggle_floating(app);
+                        if let Err(e) = windows::toggle_floating(app) {
+                            eprintln!("toggle_floating failed: {e}");
+                        }
                     }
                     "settings" => {
                         let _ = windows::open_settings(app);
