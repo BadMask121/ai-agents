@@ -59,11 +59,11 @@ Revisit this only if a future feature needs sub-second user→bot reaction time,
 - The Rust core itself is portable; only the Rekordbox path and the USB-detection bits are platform-specific.
 - We will write macOS first, leave Windows shims as `cfg(target_os = "windows")` stubs that bail with a "not yet" message, and not pretend Linux is a goal.
 
-## Workspace placement: `packages/dj-sync/`
+## Workspace placement: `apps/dj-sync/`
 
-Sibling to `packages/career-ops-ui/` and `packages/sample-agent/`. The `pnpm-workspace.yaml` does not pull Rust crates into the JS install graph, so this is free real estate. The Rust crate brings its own `Cargo.toml` and `target/`; nothing to wire into `turbo.json`.
+Sibling to `apps/career-ops-ui/` and `apps/sample-agent/`. The `pnpm-workspace.yaml` does not pull Rust crates into the JS install graph, so this is free real estate. The Rust crate brings its own `Cargo.toml` and `target/`; nothing to wire into `turbo.json`.
 
-If we later want a TS-side helper (e.g., a tray icon app), it lives in `packages/dj-sync-ui/` and stays a thin wrapper that shells out to the Rust binary.
+If we later want a TS-side helper (e.g., a tray icon app), it lives in `apps/dj-sync-ui/` and stays a thin wrapper that shells out to the Rust binary.
 
 ## Things explicitly NOT chosen
 

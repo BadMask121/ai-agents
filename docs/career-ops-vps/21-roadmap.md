@@ -64,23 +64,23 @@ read-modify-write.
 
 ### Files to create
 
-- `packages/career-ops-ui/src/lib/portals.ts` — parse, inference, surgical
+- `apps/career-ops-ui/src/lib/portals.ts` — parse, inference, surgical
   edit primitives (`appendEntry`, `toggleEnabled`, `removeEntry`),
   atomic write, mutex
-- `packages/career-ops-ui/src/app/api/portals/route.ts` — GET + POST
-- `packages/career-ops-ui/src/app/api/portals/[name]/route.ts` — PATCH + DELETE
-- `packages/career-ops-ui/src/app/settings/portals/PortalsManager.tsx` —
+- `apps/career-ops-ui/src/app/api/portals/route.ts` — GET + POST
+- `apps/career-ops-ui/src/app/api/portals/[name]/route.ts` — PATCH + DELETE
+- `apps/career-ops-ui/src/app/settings/portals/PortalsManager.tsx` —
   client island with list + filter + toggle + delete + collapsed raw
   fallback + "Run scan now" button (reuses existing `POST /api/actions`
   with `mode: "scan"`)
-- `packages/career-ops-ui/src/app/settings/portals/AddPortalForm.tsx` —
+- `apps/career-ops-ui/src/app/settings/portals/AddPortalForm.tsx` —
   URL input with live inference preview ("detected: ashby · name: PolyAI")
 
 ### Files to modify
 
-- `packages/career-ops-ui/src/app/settings/portals/page.tsx` — swap
+- `apps/career-ops-ui/src/app/settings/portals/page.tsx` — swap
   `ConfigEditor` for `PortalsManager`
-- `packages/career-ops-ui/src/app/settings/page.tsx` — update the Portals
+- `apps/career-ops-ui/src/app/settings/page.tsx` — update the Portals
   tile subtitle
 
 ### URL → company inference

@@ -3,9 +3,9 @@
 # career-ops-ui
 #
 # This Dockerfile expects the BUILD CONTEXT to be the monorepo root,
-# not packages/career-ops-ui. From Coolify or docker build, use:
+# not apps/career-ops-ui. From Coolify or docker build, use:
 #
-#   docker build -f packages/career-ops-ui/Dockerfile -t career-ops-ui .
+#   docker build -f apps/career-ops-ui/Dockerfile -t career-ops-ui .
 #
 # That way we can see pnpm-workspace.yaml, pnpm-lock.yaml, and turbo.json
 # and get deterministic installs via pnpm deploy.
@@ -26,12 +26,12 @@ WORKDIR /repo
 
 # Copy just the files needed to resolve the dependency graph
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY packages/career-ops-ui/package.json ./packages/career-ops-ui/package.json
+COPY apps/career-ops-ui/package.json ./apps/career-ops-ui/package.json
 
 # Also copy other package manifests if they exist, so pnpm's workspace
 # resolution doesn't break. Add more lines here if you add packages.
-COPY packages/shared/package.json ./packages/shared/package.json
-COPY packages/sample-agent/package.json ./packages/sample-agent/package.json
+COPY apps/shared/package.json ./apps/shared/package.json
+COPY apps/sample-agent/package.json ./apps/sample-agent/package.json
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @ai-agents/career-ops-ui...
@@ -42,7 +42,7 @@ FROM base AS build
 WORKDIR /repo
 
 COPY --from=deps /repo ./
-COPY packages/career-ops-ui ./packages/career-ops-ui
+COPY apps/career-ops-ui ./apps/career-ops-ui
 
 RUN pnpm --filter @ai-agents/career-ops-ui run build
 
@@ -111,14 +111,14 @@ WORKDIR /app
 # Mirror the /repo layout from the build stage. pnpm's per-package node_modules
 # contain symlinks like `next -> ../../../node_modules/.pnpm/next@.../node_modules/next`,
 # which only resolve correctly if the workspace root sits 3 levels up from
-# packages/<pkg>/node_modules/<dep>. Flattening the package into /app breaks both
-# the symlinks and the bin lookup (next is at packages/.../node_modules/.bin/next,
+# apps/<pkg>/node_modules/<dep>. Flattening the package into /app breaks both
+# the symlinks and the bin lookup (next is at apps/.../node_modules/.bin/next,
 # not the workspace-root node_modules/.bin).
 COPY --from=build /repo/node_modules ./node_modules
-COPY --from=build /repo/packages/career-ops-ui/.next ./packages/career-ops-ui/.next
-COPY --from=build /repo/packages/career-ops-ui/package.json ./packages/career-ops-ui/package.json
-COPY --from=build /repo/packages/career-ops-ui/next.config.ts ./packages/career-ops-ui/next.config.ts
-COPY --from=build /repo/packages/career-ops-ui/node_modules ./packages/career-ops-ui/node_modules
+COPY --from=build /repo/apps/career-ops-ui/.next ./apps/career-ops-ui/.next
+COPY --from=build /repo/apps/career-ops-ui/package.json ./apps/career-ops-ui/package.json
+COPY --from=build /repo/apps/career-ops-ui/next.config.ts ./apps/career-ops-ui/next.config.ts
+COPY --from=build /repo/apps/career-ops-ui/node_modules ./apps/career-ops-ui/node_modules
 
 # Runtime dir for career-ops workspace — bind-mounted from host in prod
 RUN mkdir -p /workspace/career-ops && chown -R node:node /workspace /app
@@ -140,7 +140,7 @@ RUN mkdir -p /home/node/.claude \
     '  }' \
     '}' > /home/node/.claude.json
 
-WORKDIR /app/packages/career-ops-ui
+WORKDIR /app/apps/career-ops-ui
 EXPOSE 3000
 
 ENV PORT=3000 \

@@ -55,7 +55,7 @@ Files marked _(deferred)_ are placeholders — the architecture is locked in `01
 
 ## Where the code will live
 
-`packages/dj-sync/` (workspace package, Rust). Sibling to existing `packages/career-ops-ui/` and `packages/sample-agent/`. The `pnpm` workspace ignores Rust crates, so this stays out of the JS dependency graph.
+`apps/dj-sync/` (workspace package, Rust). Sibling to existing `apps/career-ops-ui/` and `apps/sample-agent/`. The `pnpm` workspace ignores Rust crates, so this stays out of the JS dependency graph.
 
 ## Out of scope
 

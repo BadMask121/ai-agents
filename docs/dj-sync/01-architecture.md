@@ -22,7 +22,7 @@ No database in v1. State that needs to survive a restart (Spotify token cache, l
 ## Module layout (Rust crate)
 
 ```
-packages/dj-sync/
+apps/dj-sync/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs           # binary entrypoint, wires bot + core

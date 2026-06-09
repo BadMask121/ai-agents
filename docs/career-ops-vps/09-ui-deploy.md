@@ -6,7 +6,7 @@ This walks you through deploying the `career-ops-ui` Next.js app from the `ai-ag
 
 - Steps 01–08 are done. career-ops is installed at `/home/career/work/career-ops` on the VPS and the scheduled scan is running.
 - You have a public domain (or subdomain) pointing at the VPS. Coolify will issue Let's Encrypt TLS automatically.
-- The repo is pushed to `github.com/BadMask121/ai-agents` (or wherever you host it) and the `packages/career-ops-ui/` directory is committed.
+- The repo is pushed to `github.com/BadMask121/ai-agents` (or wherever you host it) and the `apps/career-ops-ui/` directory is committed.
 - **Coolify's reverse proxy is installed and running.** Coolify ships without a proxy active — ports 80 and 443 are closed until you install one. See [10-deploy-checklist.md § Phase 0](10-deploy-checklist.md#phase-0--install-coolifys-reverse-proxy-one-time) for the one-time setup (pick Traefik). Verify with `curl -sI http://<vps-ip>/` — you should get an HTTP response (probably 404 for an unrouted host), not `Connection refused`.
 
 ## Where to access Coolify
@@ -28,7 +28,7 @@ Generate a random session secret and a bcrypt hash of your login password. Run t
 openssl rand -hex 32
 
 # bcrypt hash of your chosen password — pick a strong one
-cd packages/career-ops-ui
+cd apps/career-ops-ui
 node scripts/hash-password.mjs 'your-login-password-here'
 ```
 
@@ -41,8 +41,8 @@ Copy both values somewhere safe (password manager). You'll paste them into Cooli
 3. Repository URL: `https://github.com/BadMask121/ai-agents`
 4. Branch: `main`
 5. Build pack: **Dockerfile**
-6. Dockerfile location: `packages/career-ops-ui/Dockerfile`
-7. **Build context: the monorepo root (leave as `.` — do NOT set it to `packages/career-ops-ui`).** The Dockerfile needs `pnpm-lock.yaml` and `turbo.json` at the root to work.
+6. Dockerfile location: `apps/career-ops-ui/Dockerfile`
+7. **Build context: the monorepo root (leave as `.` — do NOT set it to `apps/career-ops-ui`).** The Dockerfile needs `pnpm-lock.yaml` and `turbo.json` at the root to work.
 8. Ports exposes: `3000`
 
 Click **Save** but don't deploy yet.
@@ -90,7 +90,7 @@ Point your DNS A record at the VPS public IP `95.217.185.93` before deploying, s
 Click **Deploy**. Coolify will:
 
 1. Clone the repo
-2. Build the Docker image using `packages/career-ops-ui/Dockerfile` with the monorepo as context
+2. Build the Docker image using `apps/career-ops-ui/Dockerfile` with the monorepo as context
 3. Start the container on an internal network
 4. Wire up Traefik/Caddy to route your domain to `:3000` with TLS
 
@@ -127,9 +127,9 @@ If you want to trigger the scan from the UI instead of cron, use the `/api/actio
 
 ### Build fails on `pnpm install`
 
-**Cause:** Dockerfile build context is wrong. Coolify built with the `packages/career-ops-ui/` directory as context, so `pnpm-lock.yaml` and `turbo.json` aren't visible.
+**Cause:** Dockerfile build context is wrong. Coolify built with the `apps/career-ops-ui/` directory as context, so `pnpm-lock.yaml` and `turbo.json` aren't visible.
 
-**Fix:** In the Coolify app settings, set **Build context** to the repo root (`.`), leave the Dockerfile path as `packages/career-ops-ui/Dockerfile`.
+**Fix:** In the Coolify app settings, set **Build context** to the repo root (`.`), leave the Dockerfile path as `apps/career-ops-ui/Dockerfile`.
 
 ### Build fails with `Cannot find module 'sharp'` or similar
 
@@ -186,7 +186,7 @@ Push changes to `main` on GitHub → Coolify has a webhook and auto-deploys. Or 
 For local development without deploying, run:
 
 ```bash
-cd packages/career-ops-ui
+cd apps/career-ops-ui
 cp .env.example .env.local
 # fill in AUTH_SECRET, AUTH_PASSWORD_HASH, ANTHROPIC_API_KEY, and
 # set CAREER_OPS_WORKSPACE to a real workspace directory (can be a local

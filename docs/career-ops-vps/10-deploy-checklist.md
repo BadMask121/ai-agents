@@ -51,9 +51,9 @@ Open your Coolify dashboard at **<http://95.217.185.93:8000>** — the `:8000` i
 - [ ] **Repository:** `https://github.com/BadMask121/ai-agents`
 - [ ] **Branch:** `main`
 - [ ] **Build pack:** `Dockerfile`
-- [ ] **Dockerfile path:** `packages/career-ops-ui/Dockerfile`
+- [ ] **Dockerfile path:** `apps/career-ops-ui/Dockerfile`
 - [ ] **Base directory / Build context:** `.` (the monorepo root — leave blank or set to `.`)
-  - ⚠️ Critical: if you set this to `packages/career-ops-ui`, the build will fail because `pnpm-lock.yaml` and `turbo.json` won't be visible.
+  - ⚠️ Critical: if you set this to `apps/career-ops-ui`, the build will fail because `pnpm-lock.yaml` and `turbo.json` won't be visible.
 - [ ] **Ports Exposes:** `3000`
 
 Click **Save** (don't deploy yet — we need to add secrets and the volume first).

@@ -101,14 +101,14 @@ ssh root@95.217.185.93 '
     > /tmp/career-env.tmp
   chown career:career /tmp/career-env.tmp
   chmod 600 /tmp/career-env.tmp
-  mv /tmp/career-env.tmp /home/career/ai-agents/packages/career-ops-ui/.env.local
+  mv /tmp/career-env.tmp /home/career/ai-agents/apps/career-ops-ui/.env.local
 '
 ```
 
 Then fix `CAREER_OPS_WORKSPACE` — inside the container it's `/workspace/career-ops`, but dev runs on the **host** so it needs the host path:
 
 ```bash
-ssh career@95.217.185.93 'sed -i "s|^CAREER_OPS_WORKSPACE=.*|CAREER_OPS_WORKSPACE=/home/career/work/career-ops|" /home/career/ai-agents/packages/career-ops-ui/.env.local'
+ssh career@95.217.185.93 'sed -i "s|^CAREER_OPS_WORKSPACE=.*|CAREER_OPS_WORKSPACE=/home/career/work/career-ops|" /home/career/ai-agents/apps/career-ops-ui/.env.local'
 ```
 
 Replace `utvvmofv` with the actual Coolify container name prefix if it changes (find it with `docker ps`).
@@ -120,7 +120,7 @@ The fix is to escape every `$` in the value with a backslash. The other three va
 ```bash
 ssh career@95.217.185.93 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; node -e "
 const fs = require(\"fs\");
-const p = \"/home/career/ai-agents/packages/career-ops-ui/.env.local\";
+const p = \"/home/career/ai-agents/apps/career-ops-ui/.env.local\";
 const out = fs.readFileSync(p, \"utf8\").split(\"\n\").map(line => {
   if (!line.startsWith(\"AUTH_PASSWORD_HASH=\")) return line;
   let v = line.slice(\"AUTH_PASSWORD_HASH=\".length);
@@ -137,7 +137,7 @@ You can verify the result by loading the file via `@next/env` directly:
 ```bash
 ssh career@95.217.185.93 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; node -e "
 const {loadEnvConfig} = require(\"/home/career/ai-agents/node_modules/.pnpm/@next+env@16.2.3/node_modules/@next/env\");
-loadEnvConfig(\"/home/career/ai-agents/packages/career-ops-ui\", true);
+loadEnvConfig(\"/home/career/ai-agents/apps/career-ops-ui\", true);
 console.log(\"AUTH_PASSWORD_HASH starts:\", (process.env.AUTH_PASSWORD_HASH||\"\").slice(0,7));
 console.log(\"length:\", (process.env.AUTH_PASSWORD_HASH||\"\").length);
 "'
@@ -153,10 +153,10 @@ You have two options. Pick whichever matches what you're doing.
 
 ### Option A — `pnpm dev:vps` (one-command, from your Mac)
 
-A helper script in `packages/career-ops-ui/package.json` opens an SSH tunnel and starts the dev server in a single foreground process:
+A helper script in `apps/career-ops-ui/package.json` opens an SSH tunnel and starts the dev server in a single foreground process:
 
 ```bash
-cd packages/career-ops-ui
+cd apps/career-ops-ui
 pnpm dev:vps
 ```
 
@@ -180,7 +180,7 @@ This is the way for actual development. Edits, file navigation, terminal, source
 3. **File → Open Folder** → `/home/career/ai-agents`.
 4. Open the integrated terminal (it opens *on the VPS*, not your Mac), then:
    ```bash
-   cd packages/career-ops-ui && pnpm dev
+   cd apps/career-ops-ui && pnpm dev
    ```
 5. Cursor auto-detects port 3000 and forwards it to `localhost:3000` on your Mac. Open in your browser.
 
@@ -195,7 +195,7 @@ Run through the same first-run checks as the Coolify deploy (see `09-ui-deploy.m
 3. Pipeline → approve a test JD → watch Claude's output stream into the log box. This confirms the `claude` CLI subprocess and SSE path work from dev.
 4. A view that triggers Playwright (prepareApplication agent) should launch headless Chromium on the VPS. If it fails: `pnpm exec playwright install chromium`.
 
-If any of those fail in dev but work in prod, the dev clone is missing a dependency Coolify's Dockerfile installs. Compare against `packages/career-ops-ui/Dockerfile` — usually it's `pandoc`, Playwright browsers, or the globally-installed `claude` CLI.
+If any of those fail in dev but work in prod, the dev clone is missing a dependency Coolify's Dockerfile installs. Compare against `apps/career-ops-ui/Dockerfile` — usually it's `pandoc`, Playwright browsers, or the globally-installed `claude` CLI.
 
 ## Daily git flow (VPS-as-primary)
 
@@ -284,7 +284,7 @@ Adding the nvm sourcing to `~/.bashrc` outside the interactive-only block will f
 ### Playwright launches Chromium but it can't find a browser
 
 ```bash
-cd ~/ai-agents/packages/career-ops-ui
+cd ~/ai-agents/apps/career-ops-ui
 pnpm exec playwright install chromium
 ```
 

@@ -1,0 +1,28 @@
+{
+  "name": "@ai-agents/booking-ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "distill": "node dist/distill.js",
+    "auth": "node dist/auth.js",
+    "start:local": "node --env-file=.env dist/index.js",
+    "distill:local": "node --env-file=.env dist/distill.js",
+    "auth:local": "node --env-file=.env dist/auth.js"
+  },
+  "dependencies": {
+    "@ai-agents/shared": "workspace:*",
+    "@anthropic-ai/sdk": "^0.100.1",
+    "googleapis": "^173.0.0",
+    "loops": "^6.3.0",
+    "nanoid": "^5.1.11",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "typescript": "~5.8.3"
+  }
+}

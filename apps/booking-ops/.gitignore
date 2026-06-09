@@ -1,0 +1,8 @@
+dist/
+node_modules/
+.env
+.env.local
+# Local-dev workspace artifacts (tokens, client records) must never be committed.
+workspace/
+*.local.json
+google-token.json

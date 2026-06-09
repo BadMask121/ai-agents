@@ -23,7 +23,7 @@ Handoff doc so work can resume after a break. The detailed plan lives at `~/.cla
 The career-ops backend on the VPS (`/home/career/work/career-ops`) already produces scored jobs with a rich pipeline.md format and per-job reports with 5 sub-scores (CV Match, North Star, Comp, Cultural, Global — all out of 5). **The UI parser is stale** — it only understands `- [ ] URL | Company | Role` but the backend writes `- [x] #NNN | URL | Company | Role | X.X/5 | PDF ✅`. Phase 1 of the plan fixes this.
 
 ### Hard rule
-**Never modify `/home/career/work/career-ops` on the VPS.** It's the source-of-truth backend, updated separately from upstream. All new agent behavior goes in `packages/career-ops-ui/src/agents/` instead. Details in `feedback_career_ops_readonly.md` in Claude's memory.
+**Never modify `/home/career/work/career-ops` on the VPS.** It's the source-of-truth backend, updated separately from upstream. All new agent behavior goes in `apps/career-ops-ui/src/agents/` instead. Details in `feedback_career_ops_readonly.md` in Claude's memory.
 
 ---
 
@@ -47,7 +47,7 @@ The big one. Three flows that share one session state:
 
 2. **Primary submit flow — VPS dispatch with live screenshot stream** *(mobile-first, matches the reference UX)*: user hits **Dispatch**, Playwright spawns inside the career-ops-ui container and drives Chromium through the real job portal, screenshots stream back to the user's phone at 1-2fps via SSE. User watches the agent fill fields live, hits an approval gate before the final submit click. Uses the built-in Playwright MCP we installed in Phase 0.
 
-3. **Fallback submit flow — Chrome extension takeover** *(laptop, for when dispatch is blocked by CAPTCHA/SSO/weird form)*: user taps **Take over on laptop** on their phone, a full-screen QR code appears, scanning it from a laptop opens a takeover landing page in career-ops-ui which in turn opens the job posting in a new tab. A Chrome extension the user installed once (MV3, `packages/career-ops-extension/`) auto-fills the form from the same session payload. User solves the CAPTCHA themselves, clicks the portal's real submit button, extension pings career-ops-ui so the phone sees "submitted!" in real-time.
+3. **Fallback submit flow — Chrome extension takeover** *(laptop, for when dispatch is blocked by CAPTCHA/SSO/weird form)*: user taps **Take over on laptop** on their phone, a full-screen QR code appears, scanning it from a laptop opens a takeover landing page in career-ops-ui which in turn opens the job posting in a new tab. A Chrome extension the user installed once (MV3, `apps/career-ops-extension/`) auto-fills the form from the same session payload. User solves the CAPTCHA themselves, clicks the portal's real submit button, extension pings career-ops-ui so the phone sees "submitted!" in real-time.
 
 Session state lives in `data/apply-sessions/{id}.json` with a state machine: `draft → ready → dispatch_active → (applied | handoff_pending → laptop_takeover_active → applied)`.
 
@@ -70,7 +70,7 @@ Both bd issues for Phase 0 closed. Original status checklist preserved below for
 
 ### ✅ Done
 
-- [x] Dockerfile updated at `packages/career-ops-ui/Dockerfile`:
+- [x] Dockerfile updated at `apps/career-ops-ui/Dockerfile`:
   - `ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`
   - `mkdir -p /opt/ms-playwright` before install
   - `npm install -g @anthropic-ai/claude-code@2.1.104 @playwright/mcp`
@@ -126,7 +126,7 @@ Checked `@playwright/mcp`'s CLI flags via `npx @playwright/mcp --help`:
    Run chromium as a sidecar service with `--remote-debugging-port=9222`, configure @playwright/mcp with `--cdp-endpoint http://localhost:9222`. Decouples the browser from the MCP server, keeps the chromium we already installed.
 
 4. **Write our own Playwright MCP wrapper**
-   Thin Node script in `packages/career-ops-ui/src/agents/` that uses Playwright directly with the chromium binary, exposes the same tool interface as @playwright/mcp via stdio. More work but gives us full control.
+   Thin Node script in `apps/career-ops-ui/src/agents/` that uses Playwright directly with the chromium binary, exposes the same tool interface as @playwright/mcp via stdio. More work but gives us full control.
 
 **Recommendation**: Option 1 for production (amd64 match), with a local-dev fallback of Option 2 if you want to iterate on an M1/M2 Mac without cross-compile. Or Option 3 if we want to decouple the browser for future flexibility (e.g., connecting to a remote chromium, or running multiple dispatches concurrently).
 
@@ -171,7 +171,7 @@ Run `bd ready` and `bd show <id>` to see current state when you resume.
 2. Read `~/.claude/plans/virtual-nibbling-popcorn.md` for the full phase plan with ASCII diagrams, API route definitions, component lists, verification steps
 3. Resume Phase 0:
    - Pick one of the Fix Options above (probably Option 1 — install Google Chrome)
-   - Update `packages/career-ops-ui/Dockerfile`
+   - Update `apps/career-ops-ui/Dockerfile`
    - Rebuild `career-ops-ui:mcp-test` (note: if on Apple Silicon, use `--platform linux/amd64` or switch to msedge / chromium-via-CDP for local dev)
    - Re-run spike test 1 with the updated image and a **fresh, rotated** API key
    - Run spike test 2 (pause/resume)
@@ -185,5 +185,5 @@ Run `bd ready` and `bd show <id>` to see current state when you resume.
 - Plan file: `~/.claude/plans/virtual-nibbling-popcorn.md` (ignored by git, lives in Claude's state dir)
 - Memory files: `~/.claude/projects/.../memory/` with `feedback_career_ops_readonly.md` + `project_career_ops_ui_architecture.md` + `MEMORY.md` index
 - bd issues: dolt db under `.beads/dolt/` (not pushed to remote — `bd dolt push` fails because no remote is configured, see earlier note about switching to JSONL mode or setting up DoltHub)
-- Uncommitted Dockerfile changes: `git status` will show `packages/career-ops-ui/Dockerfile` as modified
+- Uncommitted Dockerfile changes: `git status` will show `apps/career-ops-ui/Dockerfile` as modified
 - Smoke test image: `career-ops-ui:mcp-test` (local OrbStack)
