@@ -1,22 +1,22 @@
 # Prole
 
-> Prole is a free, native macOS menu-bar app that captures any region of your screen, lets you annotate it (arrows, pen, and a text tool that writes right on the snip), then copies the annotated image for you to paste into Claude — or anywhere you can paste an image. It is a visual "ask about my screen" tool — pixels and your notes only, no DOM or code extraction. Claude is the flagship use case, but the copied image is a standard screenshot that works in any app.
+> Prole is a free macOS menu bar app. Snip anything on your screen, mark it up (arrows, a pen, and a text tool that writes right on the image), then copy it and paste it into Claude or any app that takes an image. It is a visual "ask about my screen" tool. It captures pixels and your notes only, with no DOM or code extraction. Claude is the main use case, but the copied image is a normal screenshot that works anywhere.
 
-Prole runs on macOS 12 or later (universal — Apple Silicon and Intel). It is ad-hoc signed, so first launch needs a right-click → Open. Download: https://prole.jeffrey.build/download/Prole.dmg
+Prole runs on macOS 12 or later (universal, Apple Silicon and Intel). It isn't notarized yet, so the first launch needs a right-click then Open. Download: https://prole.jeffrey.build/download/Prole.dmg
 
 ## How it works
 
-1. Trigger a snip from the menu bar, a floating button, or a global hotkey, then draw a rectangle around any region of any app.
-2. Annotate it with rectangles, arrows, and freehand pen, and use the text tool to write your question directly on the snip.
-3. Hit Copy — the annotated image lands on your clipboard. Paste it into Claude to ask — or into ChatGPT, Slack, email, a doc, or any app that accepts a pasted image.
+1. Hit your hotkey or the menu bar icon, then draw a box around anything on screen.
+2. Mark it up with boxes, arrows, and a freehand pen. Use the text tool to write your question right on the image.
+3. Hit Copy. The image is on your clipboard. Paste it into Claude, ChatGPT, Slack, email, or any app that takes an image.
 
 ## Key facts
 
 - Price: free
 - Platform: macOS 12+ (universal: Apple Silicon and Intel)
-- Distribution: ad-hoc signed .dmg (right-click → Open on first launch; grant Screen Recording permission on first capture)
-- What it captures: screen pixels plus any notes you annotate onto the image (no source code, selectors, or DOM)
-- Made for pasting into: Claude (flagship use case), or any app that accepts a pasted image (ChatGPT, Slack, email, docs, etc.)
+- Install: download the .dmg, drag Prole to Applications, right-click then Open on first launch, and grant Screen Recording on first capture
+- What it captures: screen pixels plus any notes you write on the image (no source code, selectors, or DOM)
+- Where it pastes: Claude (main use case) or any app that accepts a pasted image
 
 ## Links
 
