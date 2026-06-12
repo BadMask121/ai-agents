@@ -1,7 +1,7 @@
 FROM nginx:alpine
 
 # Static site
-COPY index.html styles.css /usr/share/nginx/html/
+COPY index.html styles.css robots.txt sitemap.xml llms.txt /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
 
 # Server config (landing page + /download artifact location)

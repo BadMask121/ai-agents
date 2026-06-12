@@ -3,18 +3,106 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Prole — Snip anything on screen, ask Claude</title>
+
+    <title>Prole — Snip anything on screen, ask Claude (macOS)</title>
     <meta
       name="description"
-      content="Prole is a native macOS menu-bar tool. Snip any region of your screen, mark it up, type a question, and paste it straight into Claude."
+      content="Prole is a free native macOS menu-bar app. Snip any region of your screen, mark it up, type a question, and paste a single composite image straight into Claude. Apple Silicon and Intel."
     />
-    <meta property="og:title" content="Prole — Snip anything, ask Claude" />
+    <meta
+      name="keywords"
+      content="Prole, snip to Claude, macOS screenshot tool, ask Claude about screenshot, screen capture annotate, menu bar app, Claude desktop, visual question, screenshot markup macOS"
+    />
+    <meta name="author" content="Jeffrey Emakpor" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="theme-color" content="#0b0c0f" />
+    <link rel="canonical" href="https://prole.jeffrey.build/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Prole" />
+    <meta property="og:url" content="https://prole.jeffrey.build/" />
+    <meta property="og:title" content="Prole — Snip anything on screen, ask Claude" />
     <meta
       property="og:description"
-      content="Native macOS snip-to-Claude capture tool. Mark up any region of your screen and ask."
+      content="Free native macOS menu-bar capture tool. Mark up any region of your screen, type a question, and paste it straight into Claude."
     />
+    <meta property="og:image" content="https://prole.jeffrey.build/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Prole — snip anything on screen, ask Claude" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Prole — Snip anything on screen, ask Claude" />
+    <meta
+      name="twitter:description"
+      content="Free native macOS menu-bar capture tool. Mark up any region of your screen and ask Claude."
+    />
+    <meta name="twitter:image" content="https://prole.jeffrey.build/assets/og.png" />
+    <meta name="twitter:image:alt" content="Prole — snip anything on screen, ask Claude" />
+
     <link rel="icon" href="/assets/prole-icon.png" />
+    <link rel="apple-touch-icon" href="/assets/prole-icon.png" />
     <link rel="stylesheet" href="/styles.css" />
+
+    <!-- Structured data: helps Google rich results and AI assistants understand the app -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Prole",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "macOS 12.0 or later",
+        "url": "https://prole.jeffrey.build/",
+        "downloadUrl": "https://prole.jeffrey.build/download/Prole.dmg",
+        "softwareVersion": "0.1.0",
+        "image": "https://prole.jeffrey.build/assets/og.png",
+        "screenshot": "https://prole.jeffrey.build/assets/og.png",
+        "description": "Prole is a free native macOS menu-bar app for capturing any region of your screen, marking it up, and asking Claude about it. Draw a rectangle around anything, annotate with arrows, pen and text, type a question, and paste a single composite image straight into the Claude desktop or web app.",
+        "featureList": [
+          "Snip any region of any app from the menu bar, a floating button, or a global hotkey",
+          "Markup: rectangles, arrows, freehand pen, text labels",
+          "Type a question that travels with the snip",
+          "Copies the annotated image and note together for pasting into Claude"
+        ],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": { "@type": "Person", "name": "Jeffrey Emakpor" }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is Prole?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Prole is a free native macOS menu-bar app that lets you snip any region of your screen, mark it up, type a question, and paste a single composite image into Claude to ask about it."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is Prole free?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Prole is free to download as a universal macOS .dmg for Apple Silicon and Intel Macs running macOS 12 or later."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I install Prole on macOS?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Download the .dmg, drag Prole into Applications, then right-click Prole and choose Open on first launch (it is ad-hoc signed). On the first capture, grant Screen Recording permission in System Settings."
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <header class="nav">
