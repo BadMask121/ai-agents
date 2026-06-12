@@ -1,0 +1,9 @@
+{
+  "name": "prole-site",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Static landing page for Prole — download + install the macOS app.",
+  "scripts": {
+    "preview": "docker build -t prole-site . && docker run --rm -p 8080:80 prole-site"
+  }
+}

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prole — Snip anything on screen, ask Claude</title>
+    <meta
+      name="description"
+      content="Prole is a native macOS menu-bar tool. Snip any region of your screen, mark it up, type a question, and paste it straight into Claude."
+    />
+    <meta property="og:title" content="Prole — Snip anything, ask Claude" />
+    <meta
+      property="og:description"
+      content="Native macOS snip-to-Claude capture tool. Mark up any region of your screen and ask."
+    />
+    <link rel="icon" href="/assets/prole-icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="/">
+        <img src="/assets/prole-icon.png" alt="" width="28" height="28" />
+        <span>Prole</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a class="nav-cta" href="/download/Prole.dmg">Download</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <img class="hero-icon" src="/assets/prole-icon.png" alt="Prole app icon" width="96" height="96" />
+        <h1>Snip anything on screen.<br />Ask Claude.</h1>
+        <p class="lede">
+          Prole lives in your macOS menu bar. Draw a rectangle around <em>anything</em> —
+          mark it up, type your question, and paste a single composite image straight into Claude.
+          No DOM, no extensions. Just pixels and your note.
+        </p>
+        <div class="cta-row">
+          <a class="btn-primary" href="/download/Prole.dmg">
+            Download for macOS
+            <span class="btn-sub">Universal · .dmg</span>
+          </a>
+          <a class="btn-ghost" href="#install">Install guide</a>
+        </div>
+        <p class="fine-print">macOS 12+ · Apple Silicon &amp; Intel · ~Free, ad-hoc signed</p>
+      </section>
+
+      <section class="how" id="how">
+        <h2>Three steps to a question</h2>
+        <ol class="steps">
+          <li>
+            <span class="step-n">1</span>
+            <h3>Trigger a snip</h3>
+            <p>From the menu bar, the floating button, or your global hotkey. Draw a rectangle around any region of any app.</p>
+          </li>
+          <li>
+            <span class="step-n">2</span>
+            <h3>Mark it up &amp; ask</h3>
+            <p>Rectangles, arrows, freehand pen, text labels. Then type your “Message to Claude” in the caption box.</p>
+          </li>
+          <li>
+            <span class="step-n">3</span>
+            <h3>Paste into Claude</h3>
+            <p>Hit Copy — the snip and your note land on the clipboard together. Paste into the Claude desktop or web app and ask.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="install" id="install">
+        <h2>Installing Prole</h2>
+        <p class="install-intro">
+          Prole is ad-hoc signed (not yet notarized through the Apple Developer Program), so macOS
+          Gatekeeper needs a one-time nudge on first launch. Here’s the whole flow:
+        </p>
+        <ol class="install-steps">
+          <li>
+            <strong>Open the download.</strong> Double-click <code>Prole.dmg</code>, then drag
+            <strong>Prole</strong> into your <strong>Applications</strong> folder.
+          </li>
+          <li>
+            <strong>First launch — right-click → Open.</strong> In Applications, right-click (or
+            Control-click) <strong>Prole</strong> and choose <strong>Open</strong>. Confirm
+            <strong>Open</strong> in the dialog. You only do this once.
+            <div class="callout">
+              Prefer the terminal? Run:
+              <pre><code>xattr -dr com.apple.quarantine /Applications/Prole.app</code></pre>
+              then open it normally.
+            </div>
+          </li>
+          <li>
+            <strong>Grant Screen Recording.</strong> On your first capture, macOS asks for Screen
+            Recording permission. Enable <strong>Prole</strong> in
+            <em>System Settings → Privacy &amp; Security → Screen Recording</em>, then quit and reopen
+            Prole if prompted.
+          </li>
+        </ol>
+        <a class="btn-primary install-dl" href="/download/Prole.dmg">Download Prole.dmg</a>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Prole — native macOS snip-to-Claude capture.</span>
+      <a href="https://github.com/BadMask121/ai-agents">Source</a>
+    </footer>
+  </body>
+</html>
