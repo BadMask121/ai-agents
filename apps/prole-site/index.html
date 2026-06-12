@@ -172,7 +172,16 @@
             <strong>Prole</strong> and choose <strong>Open</strong>, then confirm. You only do this once.
             <div class="callout">
               Prefer the terminal? Run:
-              <pre><code>xattr -dr com.apple.quarantine /Applications/Prole.app</code></pre>
+              <div class="code-block">
+                <pre><code>xattr -dr com.apple.quarantine /Applications/Prole.app</code></pre>
+                <button class="copy-btn" type="button" aria-label="Copy command" title="Copy">
+                  <svg class="ic-copy" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <svg class="ic-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
+                </button>
+              </div>
               then open it normally.
             </div>
           </li>
@@ -190,5 +199,24 @@
       <span>Prole. Snip anything, paste anywhere.</span>
       <a href="https://github.com/BadMask121/ai-agents">Source</a>
     </footer>
+
+    <script>
+      document.querySelectorAll(".copy-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const code = btn.closest(".code-block").querySelector("code");
+          try {
+            await navigator.clipboard.writeText(code.innerText.trim());
+            btn.classList.add("copied");
+            btn.setAttribute("title", "Copied");
+            setTimeout(() => {
+              btn.classList.remove("copied");
+              btn.setAttribute("title", "Copy");
+            }, 1600);
+          } catch (e) {
+            /* clipboard unavailable (e.g. insecure context) — ignore */
+          }
+        });
+      });
+    </script>
   </body>
 </html>

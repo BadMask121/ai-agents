@@ -301,6 +301,65 @@ section h2 {
   font-size: 13px;
 }
 
+/* Code block with copy button */
+.code-block {
+  position: relative;
+}
+
+.code-block pre {
+  padding-right: 52px; /* room for the copy button */
+}
+
+.copy-btn {
+  position: absolute;
+  top: 14px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.copy-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+
+.copy-btn .ic-check {
+  display: none;
+}
+
+.copy-btn.copied {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.copy-btn.copied .ic-copy {
+  display: none;
+}
+
+.copy-btn.copied .ic-check {
+  display: block;
+}
+
 .install-dl {
   display: inline-flex;
   margin: 36px auto 0;
