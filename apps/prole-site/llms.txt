@@ -1,22 +1,22 @@
 # Prole
 
-> Prole is a free, native macOS menu-bar app that captures any region of your screen, lets you mark it up and type a question, then copies a single composite image you paste into Claude. It is a visual "ask about my screen" tool — pixels and your note only, no DOM or code extraction.
+> Prole is a free, native macOS menu-bar app that captures any region of your screen, lets you annotate it (arrows, pen, and a text tool that writes right on the snip), then copies the annotated image for you to paste into Claude — or anywhere you can paste an image. It is a visual "ask about my screen" tool — pixels and your notes only, no DOM or code extraction. Claude is the flagship use case, but the copied image is a standard screenshot that works in any app.
 
 Prole runs on macOS 12 or later (universal — Apple Silicon and Intel). It is ad-hoc signed, so first launch needs a right-click → Open. Download: https://prole.jeffrey.build/download/Prole.dmg
 
 ## How it works
 
 1. Trigger a snip from the menu bar, a floating button, or a global hotkey, then draw a rectangle around any region of any app.
-2. Mark it up with rectangles, arrows, freehand pen, and text labels, then type a "Message to Claude".
-3. Hit Copy — the annotated image and your note land on the clipboard together. Paste into the Claude desktop or web app and ask.
+2. Annotate it with rectangles, arrows, and freehand pen, and use the text tool to write your question directly on the snip.
+3. Hit Copy — the annotated image lands on your clipboard. Paste it into Claude to ask — or into ChatGPT, Slack, email, a doc, or any app that accepts a pasted image.
 
 ## Key facts
 
 - Price: free
 - Platform: macOS 12+ (universal: Apple Silicon and Intel)
 - Distribution: ad-hoc signed .dmg (right-click → Open on first launch; grant Screen Recording permission on first capture)
-- What it captures: screen pixels plus your typed note (no source code, selectors, or DOM)
-- Made for pasting into: the Claude desktop or web app
+- What it captures: screen pixels plus any notes you annotate onto the image (no source code, selectors, or DOM)
+- Made for pasting into: Claude (flagship use case), or any app that accepts a pasted image (ChatGPT, Slack, email, docs, etc.)
 
 ## Links
 
