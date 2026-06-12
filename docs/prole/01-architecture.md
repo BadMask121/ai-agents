@@ -2,7 +2,7 @@
 
 ## Overview
 
-Proletariat is a Rust + Tauri v2 macOS app. The **Rust backend** owns system integration (tray, windows,
+Prole is a Rust + Tauri v2 macOS app. The **Rust backend** owns system integration (tray, windows,
 capture invocation, clipboard). The **webview** owns the markup editor UI. The two communicate via Tauri's
 `invoke` bridge.
 

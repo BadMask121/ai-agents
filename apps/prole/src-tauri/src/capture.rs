@@ -37,7 +37,7 @@ pub fn capture_region_with<R: CommandRunner>(
 
 /// Convenience wrapper used by the app: captures to a fresh temp file.
 pub fn capture_region() -> Result<PathBuf, CaptureError> {
-    let out = std::env::temp_dir().join(format!("proletariat-{}.png", std::process::id()));
+    let out = std::env::temp_dir().join(format!("prole-{}.png", std::process::id()));
     capture_region_with(&ScreencaptureRunner, &out)
 }
 

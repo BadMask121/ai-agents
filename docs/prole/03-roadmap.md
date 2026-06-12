@@ -36,5 +36,5 @@ These are **out of scope** and noted only so the architecture doesn't preclude t
 
 ## Open decisions (carried from README)
 
-1. **Project location** — proposed `apps/proletariat/` vs standalone repo.
+1. **Project location** — proposed `apps/prole/` vs standalone repo.
 2. **Global hotkey + launch-at-login** — v1 vs fast-follow.

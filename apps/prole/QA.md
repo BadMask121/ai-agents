@@ -1,12 +1,12 @@
-# Proletariat — Manual QA
+# Prole — Manual QA
 
-Run `pnpm tauri dev` (from `apps/proletariat/`), then work through this list. Anything
+Run `pnpm tauri dev` (from `apps/prole/`), then work through this list. Anything
 that can't be verified in code lives here. File follow-up bd issues for failures.
 
 ## First run / presence
 - [ ] Tray icon appears in the menu bar; no dock icon (accessory app).
-- [ ] Tray menu shows: Capture / Toggle Floating Button / Settings… / Quit Proletariat.
-- [ ] Quit Proletariat exits the app.
+- [ ] Tray menu shows: Capture / Toggle Floating Button / Settings… / Quit Prole.
+- [ ] Quit Prole exits the app.
 
 ## Capture + editor
 - [ ] Tray → Capture opens the native crosshair; selecting a region opens the editor with the snip.

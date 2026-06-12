@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-CERT_NAME="Proletariat Code Signing"
+CERT_NAME="Prole Code Signing"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 if ! security find-identity -v -p codesigning | grep -qF "$CERT_NAME"; then
@@ -24,9 +24,9 @@ fi
 
 signed_any=0
 for target in \
-  "$ROOT/src-tauri/target/debug/proletariat" \
-  "$ROOT/src-tauri/target/debug/bundle/macos/Proletariat.app" \
-  "$ROOT/src-tauri/target/release/bundle/macos/Proletariat.app"; do
+  "$ROOT/src-tauri/target/debug/prole" \
+  "$ROOT/src-tauri/target/debug/bundle/macos/Prole.app" \
+  "$ROOT/src-tauri/target/release/bundle/macos/Prole.app"; do
   if [ -e "$target" ]; then
     codesign --force --sign "$CERT_NAME" "$target"
     echo "✓ Signed $target"

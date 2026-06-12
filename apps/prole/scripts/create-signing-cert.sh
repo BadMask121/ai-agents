@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Create a stable, self-signed code-signing identity for Proletariat so macOS
+# Create a stable, self-signed code-signing identity for Prole so macOS
 # stops re-asking for Screen Recording permission on every rebuild.
 #
 # Why this is needed:
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-CERT_NAME="Proletariat Code Signing"
+CERT_NAME="Prole Code Signing"
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -v -p codesigning | grep -qF "$CERT_NAME"; then
@@ -38,7 +38,7 @@ distinguished_name = dn
 x509_extensions = v3
 prompt = no
 [dn]
-CN = Proletariat Code Signing
+CN = Prole Code Signing
 [v3]
 basicConstraints = critical,CA:false
 keyUsage = critical,digitalSignature

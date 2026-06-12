@@ -33,7 +33,7 @@ pub fn run() {
                 None::<&str>,
             )?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Proletariat", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Prole", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&capture, &toggle, &settings, &quit])?;
 
             TrayIconBuilder::new()
@@ -70,7 +70,7 @@ pub fn run() {
             commands::open_screen_recording_settings,
         ])
         .build(tauri::generate_context!())
-        .expect("error while running Proletariat")
+        .expect("error while running Prole")
         .run(|_app, event| {
             // Menu-bar app: closing the last window (e.g. toggling off the
             // floating button, or closing the editor) must NOT quit the app.

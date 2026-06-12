@@ -1,4 +1,4 @@
-# Proletariat Implementation Plan
+# Prole Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,14 +10,14 @@
 
 **bd tracking:** Epic `ai-agents-de5`; sub-tasks `de5.1`–`de5.9`. Claim each issue (`bd update <id> --claim`) when its task starts and close it (`bd close <id>`) when its task's final commit lands. Run `bd ready` to confirm the next unblocked task.
 
-**Conventions:** macOS only. Project lives at `apps/proletariat/`. Run all commands from `apps/proletariat/` unless noted. Frontend source in `apps/proletariat/src/`, Rust in `apps/proletariat/src-tauri/`.
+**Conventions:** macOS only. Project lives at `apps/prole/`. Run all commands from `apps/prole/` unless noted. Frontend source in `apps/prole/src/`, Rust in `apps/prole/src-tauri/`.
 
 ---
 
 ## File Structure
 
 ```
-apps/proletariat/
+apps/prole/
 ├── package.json                      # frontend deps + scripts (vite, vitest)
 ├── vite.config.ts                    # multi-page build (floating/editor/settings)
 ├── tsconfig.json
@@ -91,8 +91,8 @@ git commit -m "chore: include apps/* in pnpm workspace"
 ## Task 1: Scaffold + tray (bd de5.1)
 
 **Files:**
-- Create: the whole `apps/proletariat/` skeleton (via Tauri CLI), then edit the files below.
-- Modify: `apps/proletariat/src-tauri/Cargo.toml`, `.../tauri.conf.json`, `.../src/main.rs`, `.../src/lib.rs`
+- Create: the whole `apps/prole/` skeleton (via Tauri CLI), then edit the files below.
+- Modify: `apps/prole/src-tauri/Cargo.toml`, `.../tauri.conf.json`, `.../src/main.rs`, `.../src/lib.rs`
 
 - [ ] **Step 1: Claim the bd issue**
 
@@ -103,18 +103,18 @@ Expected: status → in_progress.
 
 Run from `apps/`:
 ```bash
-pnpm create tauri-app@latest proletariat --template vanilla-ts --manager pnpm --yes
-cd proletariat && pnpm install
+pnpm create tauri-app@latest prole --template vanilla-ts --manager pnpm --yes
+cd prole && pnpm install
 ```
-Expected: an `apps/proletariat/` directory containing `src/`, `src-tauri/`, `package.json`, `vite.config.ts`.
+Expected: an `apps/prole/` directory containing `src/`, `src-tauri/`, `package.json`, `vite.config.ts`.
 
 - [ ] **Step 3: Set the app identifier and product name in `src-tauri/tauri.conf.json`**
 
 Set these top-level / nested fields (leave the rest of the generated file intact):
 ```json
 {
-  "productName": "Proletariat",
-  "identifier": "com.proletariat.app",
+  "productName": "Prole",
+  "identifier": "com.prole.app",
   "app": {
     "windows": [],
     "trayIcon": { "iconPath": "icons/icon.png", "iconAsTemplate": true }
@@ -143,10 +143,10 @@ tauri-plugin-autostart = "2"
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    proletariat_lib::run();
+    prole_lib::run();
 }
 ```
-(The crate name is `proletariat_lib` per the generated `Cargo.toml` `[lib] name`. If the generated lib name differs, match it.)
+(The crate name is `prole_lib` per the generated `Cargo.toml` `[lib] name`. If the generated lib name differs, match it.)
 
 - [ ] **Step 6: Write `src-tauri/src/lib.rs` with the tray + accessory policy**
 
@@ -178,7 +178,7 @@ pub fn run() {
             let capture = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
             let toggle = MenuItem::with_id(app, "toggle_float", "Toggle Floating Button", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Proletariat", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Prole", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&capture, &toggle, &settings, &quit])?;
 
             TrayIconBuilder::new()
@@ -208,7 +208,7 @@ pub fn run() {
             commands::save_floating_position,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Proletariat");
+        .expect("error while running Prole");
 }
 ```
 This references modules built in later tasks. To compile now, create empty stub modules in the next step.
@@ -247,13 +247,13 @@ pub fn trigger_capture(_app: AppHandle) {}
 - [ ] **Step 8: Build and run; verify the tray appears**
 
 Run: `pnpm tauri dev`
-Expected: the app compiles, no window appears, and a tray icon shows in the macOS menu bar. Clicking it shows the four menu items. "Quit Proletariat" exits. (Other items are no-ops until later tasks.)
+Expected: the app compiles, no window appears, and a tray icon shows in the macOS menu bar. Clicking it shows the four menu items. "Quit Prole" exits. (Other items are no-ops until later tasks.)
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/proletariat
-git commit -m "feat(proletariat): scaffold Tauri v2 menu-bar app with tray (de5.1)"
+git add apps/prole
+git commit -m "feat(prole): scaffold Tauri v2 menu-bar app with tray (de5.1)"
 ```
 
 - [ ] **Step 10: Close the bd issue**
@@ -363,7 +363,7 @@ Append to `capture.rs`:
 ```rust
 /// Convenience wrapper used by the app: captures to a fresh temp file.
 pub fn capture_region() -> Result<PathBuf, CaptureError> {
-    let out = std::env::temp_dir().join(format!("proletariat-{}.png", std::process::id()));
+    let out = std::env::temp_dir().join(format!("prole-{}.png", std::process::id()));
     capture_region_with(&ScreencaptureRunner, &out)
 }
 ```
@@ -378,7 +378,7 @@ Expected: success, no warnings about unused `capture_region` (it is `pub`).
 
 ```bash
 git add src-tauri/src/capture.rs
-git commit -m "feat(proletariat): screencapture wrapper with cancel detection + tests (de5.2)"
+git commit -m "feat(prole): screencapture wrapper with cancel detection + tests (de5.2)"
 ```
 
 - [ ] **Step 7: Close the bd issue**
@@ -473,7 +473,7 @@ Expected: success.
 
 ```bash
 git add src-tauri/src/clipboard.rs
-git commit -m "feat(proletariat): PNG→RGBA decode + arboard clipboard write + test (de5.6)"
+git commit -m "feat(prole): PNG→RGBA decode + arboard clipboard write + test (de5.6)"
 ```
 
 - [ ] **Step 7: Close the bd issue**
@@ -570,7 +570,7 @@ Expected: success.
 
 ```bash
 git add src-tauri/src/settings.rs src-tauri/src/commands.rs src-tauri/src/apply.rs src-tauri/src/lib.rs
-git commit -m "feat(proletariat): typed settings store + settings commands"
+git commit -m "feat(prole): typed settings store + settings commands"
 ```
 
 ---
@@ -651,7 +651,7 @@ pub fn open_editor(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "editor", WebviewUrl::App("src/editor.html".into()))
-        .title("Proletariat — Markup")
+        .title("Prole — Markup")
         .inner_size(1000.0, 760.0)
         .resizable(true)
         .build()?;
@@ -661,7 +661,7 @@ pub fn open_editor(app: &AppHandle) -> tauri::Result<()> {
 pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("settings") { w.set_focus()?; return Ok(()); }
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("src/settings.html".into()))
-        .title("Proletariat — Settings")
+        .title("Prole — Settings")
         .inner_size(420.0, 360.0)
         .resizable(false)
         .build()?;
@@ -673,7 +673,7 @@ pub fn show_floating(app: &AppHandle) -> tauri::Result<()> {
     let x = crate::settings::get(app, "floating_x").and_then(|v| v.as_f64()).unwrap_or(80.0);
     let y = crate::settings::get(app, "floating_y").and_then(|v| v.as_f64()).unwrap_or(80.0);
     WebviewWindowBuilder::new(app, "floating", WebviewUrl::App("src/floating.html".into()))
-        .title("Proletariat")
+        .title("Prole")
         .inner_size(64.0, 64.0)
         .position(x, y)
         .resizable(false)
@@ -719,7 +719,7 @@ Expected: compiles. (Runtime verification happens in Task 6/7.)
 
 ```bash
 git add src-tauri/src/commands.rs src-tauri/src/windows.rs src-tauri/src/lib.rs src-tauri/capabilities
-git commit -m "feat(proletariat): capture→editor wiring, window builders, floating position persistence"
+git commit -m "feat(prole): capture→editor wiring, window builders, floating position persistence"
 ```
 
 ---
@@ -967,8 +967,8 @@ Expected: the editor window opens with the screenshot; you can draw rect/arrow/p
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/proletariat/src apps/proletariat/vite.config.ts apps/proletariat/package.json
-git commit -m "feat(proletariat): markup editor drawing tools + compositor math + tests (de5.4)"
+git add apps/prole/src apps/prole/vite.config.ts apps/prole/package.json
+git commit -m "feat(prole): markup editor drawing tools + compositor math + tests (de5.4)"
 ```
 
 - [ ] **Step 10: Close the bd issue**
@@ -1045,8 +1045,8 @@ Expected: the pasted image is exactly the screenshot size with no caption band.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/proletariat/src/editor.ts
-git commit -m "feat(proletariat): composite caption band + copy to clipboard (de5.5)"
+git add apps/prole/src/editor.ts
+git commit -m "feat(prole): composite caption band + copy to clipboard (de5.5)"
 ```
 
 - [ ] **Step 6: Close the bd issue**
@@ -1183,8 +1183,8 @@ Expected:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/proletariat/src apps/proletariat/src-tauri/src/apply.rs apps/proletariat/src-tauri/src/lib.rs
-git commit -m "feat(proletariat): floating button, global hotkey, launch-at-login (de5.3, de5.8)"
+git add apps/prole/src apps/prole/src-tauri/src/apply.rs apps/prole/src-tauri/src/lib.rs
+git commit -m "feat(prole): floating button, global hotkey, launch-at-login (de5.3, de5.8)"
 ```
 
 - [ ] **Step 8: Close both bd issues**
@@ -1230,7 +1230,7 @@ In `windows.rs`:
 pub fn open_permission_guide(app: &AppHandle) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("permission") { w.set_focus()?; return Ok(()); }
     WebviewWindowBuilder::new(app, "permission", WebviewUrl::App("src/permission.html".into()))
-        .title("Proletariat — Permission needed")
+        .title("Prole — Permission needed")
         .inner_size(440.0, 280.0)
         .resizable(false)
         .build()?;
@@ -1256,8 +1256,8 @@ Add `commands::open_screen_recording_settings` to the `generate_handler!` list i
   <head><meta charset="utf-8" /><link rel="stylesheet" href="./styles.css" /></head>
   <body class="permission">
     <h2>Screen Recording permission</h2>
-    <p>Proletariat needs Screen Recording permission to capture your screen.
-       Enable it for Proletariat, then try Capture again.</p>
+    <p>Prole needs Screen Recording permission to capture your screen.
+       Enable it for Prole, then try Capture again.</p>
     <button id="open">Open Screen Recording settings</button>
     <script type="module" src="./permission.ts"></script>
   </body>
@@ -1272,15 +1272,15 @@ Add `permission: resolve(__dirname, "src/permission.html")` to `vite.config.ts` 
 
 - [ ] **Step 5: Manual verification**
 
-To simulate: revoke Proletariat's Screen Recording permission in *System Settings → Privacy & Security → Screen Recording*, then trigger Capture.
+To simulate: revoke Prole's Screen Recording permission in *System Settings → Privacy & Security → Screen Recording*, then trigger Capture.
 Expected: capture yields a black/failed image; on the error path the guide window opens; clicking the button opens the Screen Recording settings pane. After granting and relaunching, capture works.
 Note: macOS sometimes requires an app relaunch after granting; mention this in the guide copy if testing shows it.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/proletariat/src apps/proletariat/src-tauri/src
-git commit -m "feat(proletariat): Screen Recording permission detection + guide window (de5.7)"
+git add apps/prole/src apps/prole/src-tauri/src
+git commit -m "feat(prole): Screen Recording permission detection + guide window (de5.7)"
 ```
 
 - [ ] **Step 7: Close the bd issue**
@@ -1292,8 +1292,8 @@ Run: `bd close ai-agents-de5.7`
 ## Task 10: Test wiring + QA checklist + epic close (bd de5.9)
 
 **Files:**
-- Create: `apps/proletariat/QA.md`
-- Modify: `apps/proletariat/package.json` (test scripts)
+- Create: `apps/prole/QA.md`
+- Modify: `apps/prole/package.json` (test scripts)
 
 - [ ] **Step 1: Claim the bd issue**
 
@@ -1301,7 +1301,7 @@ Run: `bd update ai-agents-de5.9 --claim`
 
 - [ ] **Step 2: Add convenience test scripts**
 
-In `apps/proletariat/package.json` `scripts`:
+In `apps/prole/package.json` `scripts`:
 ```json
 {
   "test": "vitest run",
@@ -1317,9 +1317,9 @@ Expected: Vitest compositor tests PASS; `cargo test` capture + clipboard tests P
 
 - [ ] **Step 4: Write the manual QA checklist**
 
-`apps/proletariat/QA.md`:
+`apps/prole/QA.md`:
 ```markdown
-# Proletariat — Manual QA
+# Prole — Manual QA
 
 - [ ] First-run: tray icon appears, no dock icon.
 - [ ] Capture from tray → native crosshair → editor opens with the snip.
@@ -1343,8 +1343,8 @@ Run: `pnpm tauri dev`, then work through `QA.md`. Fix any failures (file follow-
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/proletariat/QA.md apps/proletariat/package.json
-git commit -m "test(proletariat): test scripts + manual QA checklist (de5.9)"
+git add apps/prole/QA.md apps/prole/package.json
+git commit -m "test(prole): test scripts + manual QA checklist (de5.9)"
 ```
 
 - [ ] **Step 7: Close the issue and the epic**

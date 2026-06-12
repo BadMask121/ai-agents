@@ -12,7 +12,7 @@ ai-agents/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
 │   ├── dj-sync/         # Rust bot — Spotify → Rekordbox prep via Telegram
-│   ├── proletariat/     # Rust + Tauri — native macOS "snip → ask Claude" app
+│   ├── prole/     # Rust + Tauri — native macOS "snip → ask Claude" app
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
 │   └── sample-agent/    # TS example — minimal agent using @ai-agents/shared
 ├── docs/                # Per-project documentation (see each member below)
@@ -31,13 +31,13 @@ ai-agents/
 - **Task runner:** [Turborepo](https://turbo.build) — `turbo run <task>` fans a
   task across members (with caching + topological ordering via `^build`).
 - **Languages:** TypeScript (Node 20+) for the web/worker apps and shared libs;
-  **Rust** for `dj-sync` and `proletariat`.
+  **Rust** for `dj-sync` and `prole`.
 - **Shared TS config:** every TS member extends `tsconfig.base.json`
   (ES2022, NodeNext, strict).
 
 > **TS vs Rust members.** `career-ops-ui`, `booking-ops`, `shared`, and
 > `sample-agent` are pnpm workspace members (have `package.json`).
-> `proletariat` is also a pnpm member (Tauri frontend) **and** contains a Cargo
+> `prole` is also a pnpm member (Tauri frontend) **and** contains a Cargo
 > project in `src-tauri/`. `dj-sync` is a **standalone Cargo project** (no
 > `package.json`) — it is not part of the pnpm/turbo graph and is run directly
 > with `cargo`.
@@ -129,7 +129,7 @@ can sync to USB.
 - **Docs:** [`docs/dj-sync/`](docs/dj-sync/) (architecture, flow, stack
   decisions, Rekordbox design).
 
-### `apps/proletariat` — "snip → ask Claude" (Rust + Tauri, macOS)
+### `apps/prole` — "snip → ask Claude" (Rust + Tauri, macOS)
 
 A native macOS menu-bar app: capture a screen region (`screencapture`), mark it
 up (rectangle / arrow / pen / on-image text), and copy the annotated image to
@@ -138,8 +138,8 @@ global hotkey.
 
 - **Stack:** Rust + Tauri v2, `clipboard-rs`, `image`; TypeScript + Vite + Vitest
   frontend. Cargo project lives in `src-tauri/` (toolchain pinned to 1.90).
-- **Package:** `proletariat` (pnpm member for the frontend).
-- **Run (from `apps/proletariat/`):**
+- **Package:** `prole` (pnpm member for the frontend).
+- **Run (from `apps/prole/`):**
   ```bash
   pnpm install
   pnpm tauri dev            # build + launch the app (menu-bar; no main window)
@@ -147,8 +147,8 @@ global hotkey.
   pnpm test:rust            # cargo test (capture + clipboard)
   ```
   First capture needs macOS **Screen Recording** permission.
-- **Docs:** [`docs/proletariat/`](docs/proletariat/) (README, architecture,
-  stack decisions, roadmap, implementation plan) and `apps/proletariat/QA.md`.
+- **Docs:** [`docs/prole/`](docs/prole/) (README, architecture,
+  stack decisions, roadmap, implementation plan) and `apps/prole/QA.md`.
 
 ### `apps/shared` — shared agent types (`@ai-agents/shared`)
 
@@ -186,5 +186,5 @@ template for new TS agents.
 | career-ops-ui | [`docs/career-ops-vps/`](docs/career-ops-vps/) |
 | booking-ops | [`docs/booking-ops/`](docs/booking-ops/) |
 | dj-sync | [`docs/dj-sync/`](docs/dj-sync/) |
-| proletariat | [`docs/proletariat/`](docs/proletariat/) |
+| prole | [`docs/prole/`](docs/prole/) |
 | shared / sample-agent | (documented inline above) |

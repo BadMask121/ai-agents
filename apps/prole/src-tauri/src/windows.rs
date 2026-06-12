@@ -7,7 +7,7 @@ pub fn open_editor(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "editor", WebviewUrl::App("src/editor.html".into()))
-        .title("Proletariat — Markup")
+        .title("Prole — Markup")
         .inner_size(1000.0, 760.0)
         .resizable(true)
         .build()?;
@@ -20,7 +20,7 @@ pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("src/settings.html".into()))
-        .title("Proletariat — Settings")
+        .title("Prole — Settings")
         .inner_size(420.0, 360.0)
         .resizable(false)
         .build()?;
@@ -60,7 +60,7 @@ pub fn show_floating(app: &AppHandle) -> tauri::Result<()> {
         y = 80.0;
     }
     WebviewWindowBuilder::new(app, "floating", WebviewUrl::App("src/floating.html".into()))
-        .title("Proletariat")
+        .title("Prole")
         .inner_size(112.0, 48.0)
         .position(x, y)
         .resizable(false)
@@ -103,7 +103,7 @@ pub fn open_permission_guide(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, "permission", WebviewUrl::App("src/permission.html".into()))
-        .title("Proletariat — Permission needed")
+        .title("Prole — Permission needed")
         .inner_size(440.0, 280.0)
         .resizable(false)
         .build()?;
