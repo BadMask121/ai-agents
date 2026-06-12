@@ -20,6 +20,27 @@
           <svg viewBox="0 0 24 24"><path d="M5 6V5h14v1M12 5v14M9 19h6" /></svg>
         </button>
       </div>
+      <div class="group text-props" id="textProps" hidden>
+        <span class="prop-icon" title="Text size" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M5 6V5h14v1M12 5v14M9 19h6" /></svg>
+        </span>
+        <button class="icon step" id="sizeDown" title="Smaller (−)" aria-label="Decrease text size">
+          <svg viewBox="0 0 24 24"><path d="M6 12h12" /></svg>
+        </button>
+        <input
+          id="sizeInput"
+          class="size-input"
+          type="number"
+          min="8"
+          max="240"
+          step="2"
+          value="52"
+          aria-label="Text size in pixels"
+        />
+        <button class="icon step" id="sizeUp" title="Larger (+)" aria-label="Increase text size">
+          <svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12" /></svg>
+        </button>
+      </div>
       <div class="group">
         <button class="icon" id="undo" title="Undo" aria-label="Undo">
           <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12H8" /></svg>

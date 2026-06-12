@@ -127,6 +127,51 @@ body:has(#stage) {
   color: #fff;
 }
 
+/* Text-size control (shown only when the text tool is active) */
+#toolbar .group[hidden] {
+  display: none; /* override `.group { display: flex }` so [hidden] takes effect */
+}
+#toolbar .text-props {
+  align-items: center;
+  gap: 6px;
+}
+#toolbar .prop-icon {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  padding: 0 2px;
+}
+#toolbar .prop-icon svg {
+  width: 18px;
+  height: 18px;
+}
+#toolbar button.step {
+  width: 28px;
+  height: 28px;
+}
+.size-input {
+  width: 54px;
+  height: 30px;
+  text-align: center;
+  background: var(--bg-700);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.size-input::-webkit-inner-spin-button,
+.size-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.size-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* Inline text-annotation input (placed over the canvas at click point) */
 .text-input {
   position: fixed;

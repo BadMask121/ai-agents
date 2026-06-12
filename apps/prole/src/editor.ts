@@ -11,10 +11,12 @@ interface Shape {
   y2: number;
   points?: { x: number; y: number }[];
   text?: string;
+  size?: number; // canvas-space px for text annotations
 }
 
 const ACCENT = "#ff2d55";
-const TEXT_SIZE = 22; // canvas-space px for text annotations
+const DEFAULT_TEXT_SIZE = 52; // canvas-space px; bigger default reads well on hi-res snips
+let textSize = DEFAULT_TEXT_SIZE; // current size applied to new text annotations
 
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -70,7 +72,7 @@ function drawShape(s: Shape) {
     for (const p of s.points) ctx.lineTo(p.x, p.y);
     ctx.stroke();
   } else if (s.tool === "text" && s.text) {
-    ctx.font = `600 ${TEXT_SIZE}px -apple-system, sans-serif`;
+    ctx.font = `600 ${s.size ?? DEFAULT_TEXT_SIZE}px -apple-system, sans-serif`;
     ctx.textBaseline = "top";
     ctx.fillText(s.text, s.x, s.y);
   }
@@ -94,7 +96,7 @@ function placeTextInput(e: MouseEvent) {
   input.className = "text-input";
   input.style.left = `${e.clientX}px`;
   input.style.top = `${e.clientY}px`;
-  input.style.fontSize = `${TEXT_SIZE * scale}px`;
+  input.style.fontSize = `${textSize * scale}px`;
   document.body.appendChild(input);
   textInput = input;
   // Defer focus so the click that created it doesn't immediately blur it.
@@ -106,7 +108,7 @@ function placeTextInput(e: MouseEvent) {
     done = true;
     const value = input.value.trim();
     if (commit && value) {
-      shapes.push({ tool: "text", x, y, x2: x, y2: y, text: value });
+      shapes.push({ tool: "text", x, y, x2: x, y2: y, text: value, size: textSize });
     }
     input.remove();
     if (textInput === input) textInput = null;
@@ -150,13 +152,38 @@ window.addEventListener("mouseup", () => {
 });
 
 const toolButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tool]"));
+const textProps = document.getElementById("textProps") as HTMLElement;
 function selectTool(next: Tool) {
   tool = next;
   canvas.style.cursor = next === "text" ? "text" : "crosshair";
   for (const b of toolButtons) b.classList.toggle("active", b.dataset.tool === next);
+  textProps.hidden = next !== "text"; // text-size control only applies to the text tool
 }
 toolButtons.forEach((b) => b.addEventListener("click", () => selectTool(b.dataset.tool as Tool)));
 selectTool("rect");
+
+// Text size control (numeric field + steppers). Applies to new text annotations.
+const MIN_TEXT_SIZE = 8;
+const MAX_TEXT_SIZE = 240;
+const sizeInput = document.getElementById("sizeInput") as HTMLInputElement;
+function setTextSize(next: number) {
+  if (!Number.isFinite(next)) return;
+  textSize = Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, Math.round(next)));
+  sizeInput.value = String(textSize);
+  // If a text annotation is mid-edit, reflect the new size live.
+  if (textInput) {
+    const scale = canvas.getBoundingClientRect().width / canvas.width;
+    textInput.style.fontSize = `${textSize * scale}px`;
+  }
+}
+sizeInput.value = String(textSize);
+sizeInput.addEventListener("input", () => setTextSize(Number(sizeInput.value)));
+// Don't let clicking the steppers blur (and commit) an in-progress text input.
+for (const id of ["sizeDown", "sizeUp"]) {
+  const btn = document.getElementById(id)!;
+  btn.addEventListener("mousedown", (e) => e.preventDefault());
+  btn.addEventListener("click", () => setTextSize(textSize + (id === "sizeUp" ? 4 : -4)));
+}
 
 document.getElementById("undo")!.addEventListener("click", () => {
   shapes.pop();
