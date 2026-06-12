@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Sequence } from "remotion";
+import { AbsoluteFill, Audio, interpolate, Sequence, staticFile } from "remotion";
 import { SceneAnnotate, SceneCopy, SceneHook, SceneOutro, ScenePaste, SceneSnip } from "./scenes";
 
 // Scene durations in frames (30fps). Total = 450 = 15s.
@@ -25,6 +25,16 @@ export const ProleDemo: React.FC = () => {
           "#0b0c0f",
       }}
     >
+      {/* Music bed: first 15s of the track, gentle fade in/out. */}
+      <Audio
+        src={staticFile("demo-audio.mp3")}
+        volume={(f) =>
+          interpolate(f, [0, 10, TOTAL - 26, TOTAL], [0, 0.85, 0.85, 0], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          })
+        }
+      />
       <Sequence from={off.hook} durationInFrames={D.hook}>
         <SceneHook dur={D.hook} />
       </Sequence>

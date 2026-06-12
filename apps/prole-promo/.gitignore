@@ -5,3 +5,6 @@ dist
 
 # Ignore the output video from Git but not videos you import into src/.
 out
+
+# raw audio track kept local (licensing); MP4 ships with it baked in
+public/demo-audio.mp3
