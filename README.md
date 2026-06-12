@@ -12,7 +12,8 @@ ai-agents/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
 │   ├── dj-sync/         # Rust bot — Spotify → Rekordbox prep via Telegram
-│   ├── prole/     # Rust + Tauri — native macOS "snip → ask Claude" app
+│   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
+│   ├── prole-promo/     # Remotion promo video for Prole
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
 │   └── sample-agent/    # TS example — minimal agent using @ai-agents/shared
 ├── docs/                # Per-project documentation (see each member below)
@@ -31,16 +32,15 @@ ai-agents/
 - **Task runner:** [Turborepo](https://turbo.build) — `turbo run <task>` fans a
   task across members (with caching + topological ordering via `^build`).
 - **Languages:** TypeScript (Node 20+) for the web/worker apps and shared libs;
-  **Rust** for `dj-sync` and `prole`.
+  **Rust** for `dj-sync`. (The Prole macOS app, also Rust + Tauri, now lives in
+  its own repo: [github.com/BadMask121/prole](https://github.com/BadMask121/prole).)
 - **Shared TS config:** every TS member extends `tsconfig.base.json`
   (ES2022, NodeNext, strict).
 
 > **TS vs Rust members.** `career-ops-ui`, `booking-ops`, `shared`, and
 > `sample-agent` are pnpm workspace members (have `package.json`).
-> `prole` is also a pnpm member (Tauri frontend) **and** contains a Cargo
-> project in `src-tauri/`. `dj-sync` is a **standalone Cargo project** (no
-> `package.json`) — it is not part of the pnpm/turbo graph and is run directly
-> with `cargo`.
+> `dj-sync` is a **standalone Cargo project** (no `package.json`) — it is not
+> part of the pnpm/turbo graph and is run directly with `cargo`.
 
 ## Root commands
 
@@ -129,26 +129,15 @@ can sync to USB.
 - **Docs:** [`docs/dj-sync/`](docs/dj-sync/) (architecture, flow, stack
   decisions, Rekordbox design).
 
-### `apps/prole` — "snip → ask Claude" (Rust + Tauri, macOS)
+### Prole — "snip → paste anywhere" (moved to its own repo)
 
-A native macOS menu-bar app: capture a screen region (`screencapture`), mark it
-up (rectangle / arrow / pen / on-image text), and copy the annotated image to
-the clipboard to paste into the Claude desktop app. Floating capture button +
-global hotkey.
+The Prole macOS app now lives in its own open-source repo:
+**[github.com/BadMask121/prole](https://github.com/BadMask121/prole)** (MIT). This
+monorepo keeps the two Prole-related pieces that ship from here:
 
-- **Stack:** Rust + Tauri v2, `clipboard-rs`, `image`; TypeScript + Vite + Vitest
-  frontend. Cargo project lives in `src-tauri/` (toolchain pinned to 1.90).
-- **Package:** `prole` (pnpm member for the frontend).
-- **Run (from `apps/prole/`):**
-  ```bash
-  pnpm install
-  pnpm tauri dev            # build + launch the app (menu-bar; no main window)
-  pnpm test                 # frontend unit tests (vitest)
-  pnpm test:rust            # cargo test (capture + clipboard)
-  ```
-  First capture needs macOS **Screen Recording** permission.
-- **Docs:** [`docs/prole/`](docs/prole/) (README, architecture,
-  stack decisions, roadmap, implementation plan) and `apps/prole/QA.md`.
+- [`apps/prole-site/`](apps/prole-site/) — the landing page at
+  [prole.jeffrey.build](https://prole.jeffrey.build), deployed via Coolify.
+- [`apps/prole-promo/`](apps/prole-promo/) — the Remotion promo video.
 
 ### `apps/shared` — shared agent types (`@ai-agents/shared`)
 
@@ -186,5 +175,5 @@ template for new TS agents.
 | career-ops-ui | [`docs/career-ops-vps/`](docs/career-ops-vps/) |
 | booking-ops | [`docs/booking-ops/`](docs/booking-ops/) |
 | dj-sync | [`docs/dj-sync/`](docs/dj-sync/) |
-| prole | [`docs/prole/`](docs/prole/) |
+| prole | [github.com/BadMask121/prole](https://github.com/BadMask121/prole) (own repo) |
 | shared / sample-agent | (documented inline above) |

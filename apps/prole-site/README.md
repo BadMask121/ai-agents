@@ -23,11 +23,11 @@ The `.dmg` is a rebuilt binary and is **never committed to git**. nginx serves `
 `/data/prole-releases`. The release script uploads the DMG there:
 
 ```sh
-# from apps/prole/ — builds locally (ad-hoc signed) and uploads
+# from the Prole app repo (github.com/BadMask121/prole) — builds locally (ad-hoc) and uploads
 ./scripts/release.sh
 ```
 
-See `apps/prole/scripts/release.sh`.
+The Prole app now lives in its own repo: <https://github.com/BadMask121/prole> (see `scripts/release.sh` there).
 
 ## Local preview
 
