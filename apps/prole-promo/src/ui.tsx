@@ -160,6 +160,55 @@ export const Toolbar: React.FC<{ active: string }> = ({ active }) => (
   </div>
 );
 
+// The floating capture pill (matches apps/prole/src/floating.html): grip + accent snap button.
+export const FloatingPill: React.FC<{ pressed?: boolean }> = ({ pressed = false }) => (
+  <div
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "10px 14px",
+      background: "rgba(28,28,31,0.96)",
+      border: "1px solid rgba(255,255,255,0.10)",
+      borderRadius: 46,
+      boxShadow: "0 16px 46px rgba(0,0,0,0.55)",
+    }}
+  >
+    <div style={{ display: "grid", placeItems: "center", width: 52, height: 76, color: C.dim }}>
+      <svg width={52} height={52} viewBox="0 0 24 24" style={{ fill: "currentColor", stroke: "none" }}>
+        <circle cx="9" cy="6" r="1.4" />
+        <circle cx="9" cy="12" r="1.4" />
+        <circle cx="9" cy="18" r="1.4" />
+        <circle cx="15" cy="6" r="1.4" />
+        <circle cx="15" cy="12" r="1.4" />
+        <circle cx="15" cy="18" r="1.4" />
+      </svg>
+    </div>
+    <div
+      style={{
+        width: 76,
+        height: 76,
+        display: "grid",
+        placeItems: "center",
+        borderRadius: "50%",
+        background: pressed ? C.accentSoft : C.accent,
+        transform: `scale(${pressed ? 0.9 : 1})`,
+        boxShadow: pressed ? "none" : `0 8px 22px -6px ${C.accent}`,
+      }}
+    >
+      <svg
+        width={42}
+        height={42}
+        viewBox="0 0 24 24"
+        style={{ fill: "none", stroke: "#fff", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }}
+      >
+        <path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" />
+        <circle cx="12" cy="12" r="2.5" />
+      </svg>
+    </div>
+  </div>
+);
+
 // The real "Copy" primary button (accent background, white copy glyph + label).
 export const CopyButton: React.FC<{ scale?: number; pressed?: boolean }> = ({ scale = 1, pressed = false }) => (
   <div

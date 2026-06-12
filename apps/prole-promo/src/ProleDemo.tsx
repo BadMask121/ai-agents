@@ -1,18 +1,19 @@
 import React from "react";
 import { AbsoluteFill, Audio, interpolate, Sequence, staticFile } from "remotion";
-import { SceneAnnotate, SceneCopy, SceneHook, SceneOutro, ScenePaste, SceneSnip } from "./scenes";
+import { SceneAnnotate, SceneCopy, SceneFloating, SceneHook, SceneOutro, ScenePaste, SceneSnip } from "./scenes";
 
 // Scene durations in frames (30fps). Total = 450 = 15s.
-export const D = { hook: 45, snip: 72, annotate: 108, copy: 60, paste: 105, outro: 60 };
-export const TOTAL = D.hook + D.snip + D.annotate + D.copy + D.paste + D.outro;
+export const D = { hook: 42, floating: 48, snip: 57, annotate: 96, copy: 54, paste: 99, outro: 54 };
+export const TOTAL = D.hook + D.floating + D.snip + D.annotate + D.copy + D.paste + D.outro;
 
 const off = {
   hook: 0,
-  snip: D.hook,
-  annotate: D.hook + D.snip,
-  copy: D.hook + D.snip + D.annotate,
-  paste: D.hook + D.snip + D.annotate + D.copy,
-  outro: D.hook + D.snip + D.annotate + D.copy + D.paste,
+  floating: D.hook,
+  snip: D.hook + D.floating,
+  annotate: D.hook + D.floating + D.snip,
+  copy: D.hook + D.floating + D.snip + D.annotate,
+  paste: D.hook + D.floating + D.snip + D.annotate + D.copy,
+  outro: D.hook + D.floating + D.snip + D.annotate + D.copy + D.paste,
 };
 
 export const ProleDemo: React.FC = () => {
@@ -37,6 +38,9 @@ export const ProleDemo: React.FC = () => {
       />
       <Sequence from={off.hook} durationInFrames={D.hook}>
         <SceneHook dur={D.hook} />
+      </Sequence>
+      <Sequence from={off.floating} durationInFrames={D.floating}>
+        <SceneFloating dur={D.floating} />
       </Sequence>
       <Sequence from={off.snip} durationInFrames={D.snip}>
         <SceneSnip dur={D.snip} />

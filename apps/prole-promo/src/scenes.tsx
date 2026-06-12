@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig, Easing } from "remotion";
 import { C, FONT } from "./theme";
-import { BrandIcon, Chip, CopyButton, Cursor, SpikeChart, Toolbar, Window } from "./ui";
+import { BrandIcon, Chip, CopyButton, Cursor, FloatingPill, SpikeChart, Toolbar, Window } from "./ui";
 
 const ease = (f: number, a: number[], b: number[]) =>
   interpolate(f, a, b, { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.bezier(0.16, 1, 0.3, 1) });
@@ -29,19 +29,18 @@ const CHART_H = 520;
 /* ---------------- 1. HOOK (45f) ---------------- */
 export const SceneHook: React.FC<{ dur: number }> = ({ dur }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
   const pop = spring({ frame, fps, config: { damping: 200 } });
   return (
     <Content dur={dur}>
       <Center>
-        <div style={{ transform: `scale(${interpolate(pop, [0, 1], [0.92, 1])})` }}>
+        <div style={{ transform: `translateY(${height * 0.08}px) scale(${interpolate(pop, [0, 1], [0.92, 1])})` }}>
           <Window width={CHART_W} height={CHART_H} title="Analytics · Traffic">
             <SpikeChart width={CHART_W} height={CHART_H - 52} draw={1} />
           </Window>
         </div>
-        <Cursor x={CHART_W / 2 + 120} y={CHART_H / 2 + 260} />
       </Center>
-      <AbsoluteFill style={{ alignItems: "center", justifyContent: "flex-start", paddingTop: 360 }}>
+      <AbsoluteFill style={{ alignItems: "center", justifyContent: "flex-start", paddingTop: height * 0.14 }}>
         <div
           style={{
             fontFamily: FONT, fontSize: 84, fontWeight: 800, color: C.text,
@@ -55,6 +54,31 @@ export const SceneHook: React.FC<{ dur: number }> = ({ dur }) => {
           <span style={{ color: C.accent }}>worth asking about?</span>
         </div>
       </AbsoluteFill>
+    </Content>
+  );
+};
+
+/* ---------------- 1b. FLOATING BUTTON ---------------- */
+export const SceneFloating: React.FC<{ dur: number }> = ({ dur }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const popIn = spring({ frame, fps, config: { damping: 200 } });
+  const pressed = frame >= 30 && frame < 40;
+  const t = ease(frame, [6, 28], [0, 1]); // cursor glides to the snap button
+  const cursorX = interpolate(t, [0, 1], [240, 96]);
+  const cursorY = interpolate(t, [0, 1], [210, 18]);
+  // a quick flash as the capture fires
+  const flash = ease(frame, [38, 44], [0, 0.5]) * ease(frame, [44, dur], [1, 0]);
+  return (
+    <Content dur={dur}>
+      <Center>
+        <div style={{ position: "relative", transform: `scale(${interpolate(popIn, [0, 1], [0.8, 1])})`, opacity: popIn }}>
+          <FloatingPill pressed={pressed} />
+          <Cursor x={cursorX} y={cursorY} />
+        </div>
+      </Center>
+      <AbsoluteFill style={{ background: "#fff", opacity: flash }} />
+      <Label>Always one click away</Label>
     </Content>
   );
 };
@@ -180,7 +204,7 @@ export const ScenePaste: React.FC<{ dur: number }> = ({ dur }) => {
   const apps = ["Claude", "ChatGPT", "Slack", "Mail", "anywhere"];
   return (
     <Content dur={dur}>
-      <Center style={{ justifyContent: "flex-start", paddingTop: 200 }}>
+      <Center style={{ justifyContent: "flex-start", paddingTop: useVideoConfig().height * 0.105 }}>
         <Window width={860} height={680} title="Claude">
           <div style={{ padding: 34, display: "flex", flexDirection: "column", gap: 22 }}>
             <div style={{ alignSelf: "flex-end", transform: `translateY(${interpolate(drop, [0, 1], [40, 0])}px)`, opacity: drop }}>
