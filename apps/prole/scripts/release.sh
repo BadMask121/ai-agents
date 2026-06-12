@@ -23,7 +23,7 @@ set -euo pipefail
 PROLE_HOST="${PROLE_HOST:-root@95.217.185.93}"
 PROLE_REMOTE_DIR="${PROLE_REMOTE_DIR:-/data/prole-releases}"
 PROLE_TARGET="${PROLE_TARGET:-universal-apple-darwin}"
-REMOTE_NAME="Prole.dmg"   # stable filename → stable /download/Prole.dmg URL
+REMOTE_NAME="Prole.dmg"   # stable filename -> stable /download/Prole.dmg URL
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -44,10 +44,10 @@ echo "Prole release"
 echo "  target:    $PROLE_TARGET"
 echo "  dmg dir:   $DMG_DIR"
 echo "  dest:      $PROLE_HOST:$PROLE_REMOTE_DIR/$REMOTE_NAME"
-echo "  → served:  /download/$REMOTE_NAME"
+echo "  -> served:  /download/$REMOTE_NAME"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "(dry run — nothing built or uploaded)"
+  echo "(dry run - nothing built or uploaded)"
   exit 0
 fi
 
@@ -56,21 +56,21 @@ if [ "$PROLE_TARGET" = "universal-apple-darwin" ]; then
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
 fi
 
-echo "→ Building (this compiles release; universal builds both arches)…"
+echo "-> Building (this compiles release; universal builds both arches)"
 pnpm tauri build "${BUILD_ARGS[@]}"
 
 DMG="$(ls -t "$DMG_DIR"/*.dmg 2>/dev/null | head -n1 || true)"
 if [ -z "$DMG" ]; then
-  echo "✗ No .dmg found in $DMG_DIR after build." >&2
+  echo "[x] No .dmg found in $DMG_DIR after build." >&2
   exit 1
 fi
-echo "✓ Built $DMG"
+echo "[ok] Built $DMG"
 
-echo "→ Uploading to $PROLE_HOST…"
+echo "-> Uploading to ${PROLE_HOST}"
 ssh "$PROLE_HOST" "mkdir -p '$PROLE_REMOTE_DIR'"
 # Upload to a temp name then move, so a download mid-upload never gets a partial file.
 scp "$DMG" "$PROLE_HOST:$PROLE_REMOTE_DIR/.$REMOTE_NAME.tmp"
 ssh "$PROLE_HOST" "mv '$PROLE_REMOTE_DIR/.$REMOTE_NAME.tmp' '$PROLE_REMOTE_DIR/$REMOTE_NAME'"
 
-echo "✓ Released. Download path: /download/$REMOTE_NAME"
+echo "[ok] Released. Download path: /download/$REMOTE_NAME"
 echo "  (live at <coolify-url>/download/$REMOTE_NAME)"

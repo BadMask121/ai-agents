@@ -26,3 +26,6 @@ dist/
 .dolt/
 *.db
 .beads-credential-key
+
+# local secret — never commit
+coolify.pwd
