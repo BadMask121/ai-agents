@@ -95,13 +95,38 @@ export const Cursor: React.FC<{ x: number; y: number; scale?: number }> = ({ x, 
   </svg>
 );
 
-// Markup editor toolbar with the four tools; `active` highlights one.
-const TOOLS = [
-  { key: "rect", glyph: "▭" },
-  { key: "arrow", glyph: "↗" },
-  { key: "pen", glyph: "✎" },
-  { key: "text", glyph: "T" },
-];
+// Real Prole editor icons (stroke paths, matching apps/prole/src/editor.html).
+const ICON_PATHS: Record<string, React.ReactNode> = {
+  rect: <rect x="4" y="6" width="16" height="12" rx="1.5" />,
+  arrow: (
+    <>
+      <path d="M5 19 L19 5" />
+      <path d="M11 5 H19 V13" />
+    </>
+  ),
+  pen: <path d="M14 4l6 6M3.5 20.5l1.2-4.2L15 6l3 3-10.3 10.3z" />,
+  text: <path d="M5 6V5h14v1M12 5v14M9 19h6" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
+};
+
+const ToolGlyph: React.FC<{ name: string; size?: number; color: string }> = ({ name, size = 36, color }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    style={{ fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }}
+  >
+    {ICON_PATHS[name]}
+  </svg>
+);
+
+// Markup editor toolbar with the four real tools; `active` highlights one.
+const TOOLS = ["rect", "arrow", "pen", "text"];
 export const Toolbar: React.FC<{ active: string }> = ({ active }) => (
   <div
     style={{
@@ -111,29 +136,47 @@ export const Toolbar: React.FC<{ active: string }> = ({ active }) => (
       borderRadius: 18,
       background: "#0f1116ee",
       border: `1px solid ${C.border}`,
-      backdropFilter: "blur(6px)",
     }}
   >
-    {TOOLS.map((t) => (
-      <div
-        key={t.key}
-        style={{
-          width: 64,
-          height: 64,
-          display: "grid",
-          placeItems: "center",
-          borderRadius: 12,
-          fontFamily: FONT,
-          fontSize: 32,
-          fontWeight: 700,
-          color: active === t.key ? "#1a0f0a" : C.dim,
-          background: active === t.key ? C.accent : "transparent",
-          border: `1px solid ${active === t.key ? C.accent : C.border}`,
-        }}
-      >
-        {t.glyph}
-      </div>
-    ))}
+    {TOOLS.map((t) => {
+      const on = active === t;
+      return (
+        <div
+          key={t}
+          style={{
+            width: 64,
+            height: 64,
+            display: "grid",
+            placeItems: "center",
+            borderRadius: 12,
+            background: on ? "rgba(217,119,87,0.16)" : "transparent",
+            border: `1px solid ${on ? C.accent : C.border}`,
+          }}
+        >
+          <ToolGlyph name={t} color={on ? C.accent : C.dim} />
+        </div>
+      );
+    })}
+  </div>
+);
+
+// The real "Copy" primary button (accent background, white copy glyph + label).
+export const CopyButton: React.FC<{ scale?: number; pressed?: boolean }> = ({ scale = 1, pressed = false }) => (
+  <div
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 16,
+      padding: "20px 34px",
+      borderRadius: 16,
+      background: pressed ? C.accentSoft : C.accent,
+      border: `1px solid ${C.accent}`,
+      transform: `scale(${scale * (pressed ? 0.96 : 1)})`,
+      boxShadow: `0 16px 40px -14px ${C.accent}aa`,
+    }}
+  >
+    <ToolGlyph name="copy" size={44} color="#fff" />
+    <span style={{ fontFamily: FONT, fontWeight: 700, fontSize: 42, color: "#fff" }}>Copy</span>
   </div>
 );
 

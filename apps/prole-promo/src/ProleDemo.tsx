@@ -2,8 +2,8 @@ import React from "react";
 import { AbsoluteFill, Sequence } from "remotion";
 import { SceneAnnotate, SceneCopy, SceneHook, SceneOutro, ScenePaste, SceneSnip } from "./scenes";
 
-// Scene durations in frames (30fps). Total = 840 = 28s.
-export const D = { hook: 72, snip: 138, annotate: 210, copy: 84, paste: 210, outro: 126 };
+// Scene durations in frames (30fps). Total = 450 = 15s.
+export const D = { hook: 45, snip: 72, annotate: 108, copy: 60, paste: 105, outro: 60 };
 export const TOTAL = D.hook + D.snip + D.annotate + D.copy + D.paste + D.outro;
 
 const off = {
