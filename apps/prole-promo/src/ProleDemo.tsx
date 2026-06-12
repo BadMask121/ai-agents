@@ -1,0 +1,48 @@
+import React from "react";
+import { AbsoluteFill, Sequence } from "remotion";
+import { SceneAnnotate, SceneCopy, SceneHook, SceneOutro, ScenePaste, SceneSnip } from "./scenes";
+
+// Scene durations in frames (30fps). Total = 840 = 28s.
+export const D = { hook: 72, snip: 138, annotate: 210, copy: 84, paste: 210, outro: 126 };
+export const TOTAL = D.hook + D.snip + D.annotate + D.copy + D.paste + D.outro;
+
+const off = {
+  hook: 0,
+  snip: D.hook,
+  annotate: D.hook + D.snip,
+  copy: D.hook + D.snip + D.annotate,
+  paste: D.hook + D.snip + D.annotate + D.copy,
+  outro: D.hook + D.snip + D.annotate + D.copy + D.paste,
+};
+
+export const ProleDemo: React.FC = () => {
+  return (
+    <AbsoluteFill
+      style={{
+        background:
+          "radial-gradient(1000px 700px at 50% -160px, #20242d 0%, rgba(11,12,15,0) 60%)," +
+          "radial-gradient(800px 700px at 100% 110%, #2a1d18 0%, rgba(11,12,15,0) 55%)," +
+          "#0b0c0f",
+      }}
+    >
+      <Sequence from={off.hook} durationInFrames={D.hook}>
+        <SceneHook dur={D.hook} />
+      </Sequence>
+      <Sequence from={off.snip} durationInFrames={D.snip}>
+        <SceneSnip dur={D.snip} />
+      </Sequence>
+      <Sequence from={off.annotate} durationInFrames={D.annotate}>
+        <SceneAnnotate dur={D.annotate} />
+      </Sequence>
+      <Sequence from={off.copy} durationInFrames={D.copy}>
+        <SceneCopy dur={D.copy} />
+      </Sequence>
+      <Sequence from={off.paste} durationInFrames={D.paste}>
+        <ScenePaste dur={D.paste} />
+      </Sequence>
+      <Sequence from={off.outro} durationInFrames={D.outro}>
+        <SceneOutro dur={D.outro} />
+      </Sequence>
+    </AbsoluteFill>
+  );
+};
