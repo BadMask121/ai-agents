@@ -16,6 +16,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Config } from "./config.js";
 import type { Mailbox } from "./mailbox.js";
 import { registerTools } from "./tools/index.js";
+import { LANDING_HTML } from "./landing.js";
 
 function buildMcpServer(mailbox: Mailbox): McpServer {
   const server = new McpServer(
@@ -32,6 +33,10 @@ export function createApp(cfg: Config, mailbox: Mailbox): Express {
 
   const mcpPath = `/${cfg.secretPath}/mcp`;
   const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  app.get("/", (_req: Request, res: Response) => {
+    res.status(200).type("html").send(LANDING_HTML);
+  });
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok" });
