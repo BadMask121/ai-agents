@@ -3,6 +3,11 @@
 Remote MCP server exposing a **privateemail.com** (Namecheap Private Email /
 Open-Xchange) mailbox to **ChatGPT** over the MCP **Streamable HTTP** transport.
 
+**Live:** `https://mail-mcp.jeffrey.build` (Coolify on Hetzner; TLS via Let's Encrypt).
+MCP endpoint: `https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp`. Pushes touching
+`apps/mail-mcp/**` on the `mail-mcp` branch auto-deploy via
+`.github/workflows/deploy-mail-mcp.yml`.
+
 Product overview & tool reference: [`docs/mail-mcp/README.md`](../../docs/mail-mcp/README.md).
 Design: [`docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md`](../../docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md).
 
