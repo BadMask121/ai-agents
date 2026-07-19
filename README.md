@@ -11,6 +11,7 @@ ai-agents/
 ├── apps/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
+│   ├── mail-mcp/        # Node MCP server — ChatGPT ⇄ privateemail mailbox (IMAP/SMTP)
 │   ├── dj-sync/         # Rust bot — Spotify → Rekordbox prep via Telegram
 │   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
 │   ├── prole-promo/     # Remotion promo video for Prole
@@ -106,6 +107,33 @@ confirmation. No web UI — Telegram is the control surface.
 - **Deploy:** Docker (build context = repo root); outbound-only, no exposed port.
 - **Docs:** [`docs/booking-ops/`](docs/booking-ops/) (overview, architecture,
   data model, Google/Telegram setup, Loops, roadmap).
+
+### `apps/mail-mcp` — ChatGPT ⇄ privateemail mailbox (MCP server)
+
+A remote **MCP server** (Streamable HTTP) that gives **ChatGPT** read/send/manage
+access to a Namecheap **Private Email** (Open-Xchange) mailbox over standard
+**IMAP/SMTP** — no web-UI scraping. ChatGPT connects it as a custom connector in
+Developer Mode.
+
+- **Stack:** TypeScript, `@modelcontextprotocol/sdk` (Streamable HTTP), `imapflow`,
+  `nodemailer`, `mailparser`, Express, Zod. Unit-tested with Vitest.
+- **Package:** `@ai-agents/mail-mcp`
+- **Tools:** `list_folders`, `search_email`, `list_messages`, `read_email`,
+  `get_attachment`, `send_email`, `move_email`, `delete_email`, `mark_email`,
+  plus read-only `search`/`fetch` aliases for standard connector mode.
+- **Run:**
+  ```bash
+  pnpm --filter @ai-agents/mail-mcp dev        # http://localhost:8080/<secret>/mcp
+  pnpm --filter @ai-agents/mail-mcp typecheck
+  pnpm --filter @ai-agents/mail-mcp test
+  ```
+- **Live:** <https://mail-mcp.jeffrey.build> (Coolify on Hetzner, TLS via Let's
+  Encrypt). Auth is a long random secret path + TLS; env-var mailbox credentials.
+- **Deploy:** Dockerfile (context = `apps/mail-mcp`). Auto-deploys on push to
+  `apps/mail-mcp/**` (branch `mail-mcp`) via
+  [`.github/workflows/deploy-mail-mcp.yml`](.github/workflows/deploy-mail-mcp.yml).
+- **Docs:** [`docs/mail-mcp/`](docs/mail-mcp/) (product overview, tool reference,
+  ChatGPT connect + deploy steps).
 
 ### `apps/dj-sync` — Spotify → Rekordbox prep (Rust bot)
 

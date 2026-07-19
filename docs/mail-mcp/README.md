@@ -1,6 +1,7 @@
 # mail-mcp — ChatGPT-connectable MCP for your privateemail.com mailbox
 
-**Status:** built (v1) · **App:** `apps/mail-mcp/` · **Design:**
+**Status:** 🟢 live (v1) at <https://mail-mcp.jeffrey.build> · **App:** `apps/mail-mcp/` ·
+**Design:**
 [`docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md`](../superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md)
 
 ## What it is
@@ -80,13 +81,23 @@ npx @modelcontextprotocol/inspector
 3. The full tool set appears. Write actions (`send_email`, `delete_email`,
    `move_email`) prompt for confirmation in ChatGPT before running.
 
-## Deploy (Hetzner / Coolify)
+## Deploy (Hetzner / Coolify) — live
 
-Own Coolify app, built from `apps/mail-mcp/Dockerfile`, domain e.g.
-`mail-mcp.jeffrey.build`. Set the env vars above as Coolify secrets. Follows the
-same Coolify v4 deploy mechanics as `apps/prole-site` (dockerfile_location
-relative to base_dir; token needs write+deploy; trigger deploy via API/UI — no
-webhook). See `apps/mail-mcp/README.md` for the deploy checklist.
+Deployed as its own Coolify application on the Hetzner box, built from
+`apps/mail-mcp/Dockerfile` (build context `apps/mail-mcp`), served at
+`https://mail-mcp.jeffrey.build` with Let's Encrypt TLS. Mailbox credentials and
+`MCP_SECRET_PATH` are set as Coolify env secrets. Coolify app `mail-mcp`
+(project `mail-mcp`), health check `GET /health`.
+
+**Auto-deploy:** unlike `apps/prole-site` (which has no webhook), this app
+redeploys automatically. `.github/workflows/deploy-mail-mcp.yml` fires on any
+push touching `apps/mail-mcp/**` on the `mail-mcp` branch and calls Coolify's
+deploy API (token + app uuid in encrypted GitHub Actions secrets). Pushing to
+`main` does **not** deploy — only the `mail-mcp` branch does.
+
+> Manual "Run workflow" (workflow_dispatch) only appears once the workflow file
+> exists on the default branch (`main`) — a GitHub rule. Push-triggered deploys
+> work regardless.
 
 ## Safety
 
