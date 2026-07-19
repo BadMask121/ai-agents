@@ -1,0 +1,27 @@
+name: Deploy mail-mcp to Coolify
+
+# Auto-deploy the mail-mcp app whenever its source changes on the mail-mcp branch.
+# This Coolify instance has no GitHub App/webhook, so we trigger the deploy via
+# Coolify's API. Secrets (COOLIFY_TOKEN, COOLIFY_APP_UUID) live in repo Actions
+# secrets — never in the tree.
+on:
+  push:
+    branches: [mail-mcp]
+    paths:
+      - "apps/mail-mcp/**"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify deploy
+        run: |
+          echo "Triggering Coolify deploy for mail-mcp…"
+          code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            "http://95.217.185.93:8000/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}")
+          echo "HTTP $code"
+          cat /tmp/resp.json
+          echo
+          test "$code" = "200"
