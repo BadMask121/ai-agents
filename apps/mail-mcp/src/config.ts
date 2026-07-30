@@ -43,7 +43,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       imapHost: env.IMAP_HOST?.trim() || "mail.privateemail.com",
       imapPort: intEnv("IMAP_PORT", 993),
       smtpHost: env.SMTP_HOST?.trim() || "mail.privateemail.com",
-      smtpPort: intEnv("SMTP_PORT", 465),
+      // 587 (submission/STARTTLS), not 465: Hetzner blocks outbound 465/25.
+      smtpPort: intEnv("SMTP_PORT", 587),
       user: required("PRIVATEEMAIL_USER"),
       pass: required("PRIVATEEMAIL_PASS"),
       secretPath: required("MCP_SECRET_PATH").replace(/^\/+|\/+$/g, ""),

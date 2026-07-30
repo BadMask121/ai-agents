@@ -52,7 +52,7 @@ connectors dial.
 | `IMAP_HOST` | | `mail.privateemail.com` | |
 | `IMAP_PORT` | | `993` | TLS |
 | `SMTP_HOST` | | `mail.privateemail.com` | |
-| `SMTP_PORT` | | `465` | TLS |
+| `SMTP_PORT` | | `587` | STARTTLS (465 = implicit TLS; blocked outbound on Hetzner) |
 | `PORT` | | `8080` | HTTP listen port |
 | `MAX_BODY_BYTES` | | `100000` | Truncate returned text bodies |
 | `MAX_ATTACHMENT_BYTES` | | `5000000` | Cap `get_attachment` payload |

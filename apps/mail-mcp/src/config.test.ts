@@ -13,7 +13,7 @@ describe("loadConfig", () => {
     expect(cfg.imapHost).toBe("mail.privateemail.com");
     expect(cfg.imapPort).toBe(993);
     expect(cfg.smtpHost).toBe("mail.privateemail.com");
-    expect(cfg.smtpPort).toBe(465);
+    expect(cfg.smtpPort).toBe(587);
     expect(cfg.port).toBe(8080);
     expect(cfg.secretPath).toBe("abc123");
     expect(cfg.maxBodyBytes).toBe(100_000);
