@@ -217,7 +217,8 @@ p {
   }
 }
 
-@media (max-width: 640px) {
+/* Four guide links fit from about 900px; below that, home and the footer list them. */
+@media (max-width: 900px) {
   .nav .hide-sm {
     display: none;
   }
@@ -526,6 +527,56 @@ p {
 
 .grid .card {
   padding: 22px;
+}
+
+/* "Works with": four linked cards. */
+.grid.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 880px) {
+  .grid.four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .grid.four {
+    grid-template-columns: 1fr;
+  }
+}
+
+a.card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+a.card:active {
+  transform: scale(0.98);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  a.card:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  }
+}
+
+.price {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin-bottom: 10px;
+}
+
+.price.paid {
+  color: var(--text-2);
+  background: var(--bg-elev-2);
 }
 
 .icon {

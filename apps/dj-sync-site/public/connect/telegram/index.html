@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect Telegram · DJ Sync</title>
+<meta name="description" content="Pair the free DJ Sync Telegram bot with your Mac by QR code, then send Spotify or YouTube links and they land in your Rekordbox playlists.">
+<meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="canonical" href="https://djsync.jeffrey.build/connect/telegram/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Connect Telegram · DJ Sync">
+<meta property="og:description" content="Pair the free DJ Sync Telegram bot with your Mac by QR code, then send Spotify or YouTube links and they land in your Rekordbox playlists.">
+<meta property="og:url" content="https://djsync.jeffrey.build/connect/telegram/">
+<script src="/assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/install/">Install</a>
+      <a href="/connect/telegram/" class="hide-sm" aria-current="page">Telegram</a>
+      <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/faq/">FAQ</a>
+      <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="page">
+  <article class="prose">
+    <h1>Connect Telegram</h1>
+    <p class="lead">Send links to the DJ Sync bot on Telegram and they land in Rekordbox. Free, on any phone, with no AI subscription.</p>
+    <ol class="howto">
+      <li>
+        <h3>Pair Telegram with your Mac</h3>
+        <p>Click the DJ Sync icon in your menu bar, go to <span class="ui">Assistants</span> and click <span class="ui">Connect Telegram</span>. DJ Sync shows a QR code.</p>
+        <ul>
+          <li><strong>On your phone:</strong> scan the QR code with the camera. It opens Telegram.</li>
+          <li><strong>Or on your Mac:</strong> click <span class="ui">Open Telegram</span> if you use Telegram there.</li>
+        </ul>
+        <p>Tap <span class="ui">Start</span> in the chat with the DJ Sync bot. The bot says hello, and the DJ Sync menu shows <span class="ui">Telegram (@your-name)</span>.</p>
+        <div class="note">The code works once, for 10 minutes. If it expired, click <span class="ui">New code</span> in the same place. Pairing again from another chat moves DJ Sync to that chat.</div>
+      </li>
+      <li>
+        <h3>Send a link</h3>
+        <p>Paste a Spotify or YouTube link into the chat, or share it straight from the Spotify or YouTube app: <span class="ui">Share → Telegram → DJ Sync</span>. Add a playlist name after the link to choose where it goes:</p>
+        <p class="say">https://open.spotify.com/track/… gqom</p>
+        <p>Names don’t need to be exact. If it isn’t clear which playlist you mean, or you didn’t say, the bot shows buttons: the closest playlists, <span class="ui">Default (ChatGPT Downloads)</span>, and <span class="ui">New playlist</span> with the name you typed. Tap one.</p>
+      </li>
+      <li>
+        <h3>Get told when it’s done</h3>
+        <p>The bot messages you ✅ when the tracks are in Rekordbox, or ⚠️ with the reason if something failed. If your Mac is asleep or offline, the request waits and runs as soon as it’s back.</p>
+      </li>
+    </ol>
+
+    <h2>Commands</h2>
+    <ul>
+      <li><code>/playlists</code> lists your playlists with track counts. Add words to filter, like <code>/playlists afro</code>.</li>
+      <li><code>/search</code> followed by words finds tracks in your library, like <code>/search burna boy</code>.</li>
+      <li><code>/status</code> shows your last few downloads and changes.</li>
+      <li><code>/help</code> shows what the bot can do.</li>
+      <li><code>/stop</code> disconnects this chat from your Mac. You can also click <span class="ui">Disconnect</span> next to Telegram in the DJ Sync menu.</li>
+    </ul>
+    <p>What the bot stores is in the <a href="/privacy/">privacy policy</a>.</p>
+
+    <h2>Other ways to connect</h2>
+    <p><a href="/connect/telegram/">Telegram</a> (free, any phone) · <a href="/connect/claude/">Claude</a> (free plan) · <a href="/connect/iphone/">iPhone Shortcut</a> (free) · <a href="/connect/chatgpt/">ChatGPT</a> (paid plan). See <a href="/faq/#which-way">which way to connect</a>.</p>
+  </article>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>DJ Sync — free for DJs. No account.</div>
+      <nav aria-label="Footer">
+        <a href="/install/">Install</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
+        <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/faq/">FAQ</a>
+        <a href="/privacy/">Privacy</a>
+        <a href="/terms/">Terms</a>
+      </nav>
+    </div>
+    <p class="support" id="support">Need help? In DJ Sync, open <span class="ui">About → Copy diagnostics</span>. It copies versions and recent errors, never your links or passwords. <span data-support-contact hidden></span></p>
+    <p class="disclaimer">DJ Sync is an independent project. It isn’t affiliated with or endorsed by AlphaTheta / Pioneer DJ (Rekordbox), OpenAI (ChatGPT), Anthropic (Claude), Spotify or YouTube. Their names and marks belong to their owners.</p>
+  </div>
+</footer>
+</body>
+</html>

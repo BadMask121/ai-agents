@@ -23,8 +23,10 @@
     <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
     <nav class="nav" aria-label="Main">
       <a href="/install/">Install</a>
-      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
       <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
       <a href="/faq/" aria-current="page">FAQ</a>
       <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
     </nav>
@@ -34,14 +36,16 @@
   <article class="prose faq">
     <h1>Questions</h1>
     <p class="lead">Short answers to what DJs ask most.</p>
+    <details id="which-way"><summary>Which way should I connect?</summary><div><p>Any of these works, and you can use several at once:</p><ul><li><strong><a href="/connect/telegram/">Telegram</a></strong>: free, on any phone. The simplest option: send or share a link, tap a playlist. Best if you don’t pay for an AI.</li><li><strong><a href="/connect/claude/">Claude</a></strong>: free plan, one custom connector. Best if you want to chat about your library, like “make a playlist of my 120 BPM house”.</li><li><strong><a href="/connect/iphone/">iPhone Shortcut</a></strong>: free. Share from Spotify or YouTube and pick a playlist, with no chat.</li><li><strong><a href="/connect/chatgpt/">ChatGPT</a></strong>: needs a paid plan (Plus or higher) for custom connectors. Best if you already pay for ChatGPT.</li></ul></div></details>
+    <details id="chatgpt-refresh"><summary>Why doesn’t ChatGPT see my playlists?</summary><div><p>ChatGPT keeps its own copy of DJ Sync’s tools from when you added it, so after DJ Sync gains new features it can still think DJ Sync “can only download”. On chatgpt.com, open <span class="ui">Settings → Apps &amp; Connectors → DJ Sync</span> and click <span class="ui">Refresh</span> (or remove it and add it again), then start a new chat. <a href="/connect/chatgpt/#refresh">More detail</a>.</p></div></details>
     <details><summary>Does Rekordbox need to be open or closed?</summary><div><p>Either works. With Rekordbox <strong>closed</strong>, new tracks and playlist changes reach your library within seconds. With Rekordbox <strong>open</strong>, they show up straight away under <span class="ui">rekordbox xml</span> in the browser, and go into your Collection and playlists the moment you quit Rekordbox. Rekordbox locks its library while it runs, so DJ Sync waits rather than risk it.</p></div></details>
     <details><summary>Where do downloaded tracks go?</summary><div><p>Into <code>Music › DJ Sync</code> by default. You can pick another folder from the DJ Sync menu. Playlists DJ Sync creates live in a <strong>DJ Sync</strong> folder in your Rekordbox playlists.</p></div></details>
     <details><summary>Is my Rekordbox library safe?</summary><div><p>DJ Sync backs up your library before every change it makes. The very first backup (v1.0.0) is your untouched library and is kept forever. To go back, open the DJ Sync menu, then <span class="ui">Rekordbox library → Backups</span>, and click <span class="ui">Restore</span> next to any version. A restore backs up your current library first, so you can undo it too. Keep Rekordbox closed while restoring.</p></div></details>
-    <details><summary>What if my Mac is asleep, off or offline?</summary><div><p>Your request still goes through. It waits in the DJ Sync cloud, and your Mac picks it up as soon as it’s back online. ChatGPT or Claude can tell you the status in the meantime. Browsing and searching your playlists works while your Mac is offline too, from the last copy your Mac shared.</p></div></details>
+    <details><summary>What if my Mac is asleep, off or offline?</summary><div><p>Your request still goes through. It waits in the DJ Sync cloud, and your Mac picks it up as soon as it’s back online. Your assistant or the Telegram bot can tell you the status in the meantime. Browsing and searching your playlists works while your Mac is offline too, from the last copy your Mac shared.</p></div></details>
     <details><summary>Which Macs does it run on? What about Windows?</summary><div><p>Any Mac with macOS 14 Sonoma or later, Apple silicon or Intel. A Windows version is planned.</p></div></details>
-    <details><summary>Does it cost anything? Do I need an account?</summary><div><p>It’s free, and there’s no account, email or password. On first launch your Mac gets its own private identity with the DJ Sync cloud. You’ll need ChatGPT or Claude: Claude’s free plan allows one custom connector, and custom MCP servers in ChatGPT may depend on your plan.</p></div></details>
+    <details><summary>Does it cost anything? Do I need an account?</summary><div><p>It’s free, and there’s no account, email or password. On first launch your Mac gets its own private identity with the DJ Sync cloud. To send it requests you need one of: <a href="/connect/telegram/">Telegram</a> (free), <a href="/connect/claude/">Claude</a> (free plan, one custom connector), the <a href="/connect/iphone/">iPhone Shortcuts app</a> (free), or <a href="/connect/chatgpt/">ChatGPT</a> on a paid plan.</p></div></details>
     <details><summary>Why did macOS block it the first time?</summary><div><p>DJ Sync is free and isn’t registered with Apple’s paid developer program, so macOS asks you to confirm it once. <a href="/install/">The install guide</a> shows exactly where to click. Updates install themselves without asking again.</p></div></details>
-    <details><summary>I shared my link by mistake. What now?</summary><div><p>Open the DJ Sync menu, go to <span class="ui">Assistants</span>, and click <span class="ui">Rotate</span> next to that link (or <span class="ui">Disconnect</span>). The old link stops working immediately. Paste the new one into ChatGPT or Claude.</p></div></details>
+    <details><summary>I shared my link by mistake. What now?</summary><div><p>Open the DJ Sync menu, go to <span class="ui">Assistants</span>, and click <span class="ui">Rotate</span> next to that link (or <span class="ui">Disconnect</span>). The old link stops working immediately. Paste the new one into ChatGPT or Claude, or put the new key in your iPhone Shortcut. For Telegram, send <code>/stop</code> in the chat or click <span class="ui">Disconnect</span>, then pair again.</p></div></details>
     <details><summary>What does DJ Sync send to the cloud?</summary><div><p>Only what it needs: the links you ask for, playlist names and job results, and a copy of your library’s track titles, artists, albums, genres, BPM, keys and lengths so your assistant can browse it while your Mac is offline. Never file paths, never audio, never your name or email. Details are in the <a href="/privacy/">privacy policy</a>.</p></div></details>
     <details><summary>How do I remove DJ Sync?</summary><div><p>Quit it from its menu and drag <span class="ui">DJ Sync</span> from Applications to the Bin. To remove everything else, delete the hidden <code>.dj-sync</code> folder in your home folder (it holds DJ Sync’s tools, settings and library backups, so keep the backups if you might want them) and <code>~/Library/LaunchAgents/com.triplejmusic.dj-sync.plist</code>. Your music and your Rekordbox library stay as they are. The cloud deletes data for Macs that haven’t connected for 90 days.</p></div></details>
     <details><summary>Can I download anything I want?</summary><div><p>DJ Sync is for your own prep. Only download music you have the right to use, respect the terms of the services you use, and buy what you play out. See the <a href="/terms/">terms</a>.</p></div></details>
@@ -53,8 +57,10 @@
       <div>DJ Sync — free for DJs. No account.</div>
       <nav aria-label="Footer">
         <a href="/install/">Install</a>
-        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
         <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
         <a href="/faq/">FAQ</a>
         <a href="/privacy/">Privacy</a>
         <a href="/terms/">Terms</a>

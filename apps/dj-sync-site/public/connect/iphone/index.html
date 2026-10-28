@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect iPhone · DJ Sync</title>
+<meta name="description" content="Add DJ Sync to your iPhone Share menu with a free Shortcut: share a Spotify or YouTube link, pick a Rekordbox playlist, and it downloads on your Mac.">
+<meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="canonical" href="https://djsync.jeffrey.build/connect/iphone/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Connect iPhone · DJ Sync">
+<meta property="og:description" content="Add DJ Sync to your iPhone Share menu with a free Shortcut: share a Spotify or YouTube link, pick a Rekordbox playlist, and it downloads on your Mac.">
+<meta property="og:url" content="https://djsync.jeffrey.build/connect/iphone/">
+<script src="/assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/install/">Install</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
+      <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm" aria-current="page">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/faq/">FAQ</a>
+      <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="page">
+  <article class="prose">
+    <h1>Connect iPhone</h1>
+    <p class="lead">Add <span class="ui">DJ Sync</span> to your iPhone’s Share menu. Share a song from Spotify or YouTube, pick a playlist, done. Free, no account, about five minutes to set up.</p>
+    <div class="note">This uses Apple’s Shortcuts app, so it’s for iPhone and iPad. On Android, use <a href="/connect/telegram/">Telegram</a>.</div>
+    <ol class="howto">
+      <li>
+        <h3>Get your API address and key</h3>
+        <p>Click the DJ Sync icon in your menu bar, go to <span class="ui">Assistants</span> and click <span class="ui">Connect iPhone</span>. DJ Sync shows two things, each with a <span class="ui">Copy</span> button:</p>
+        <ul>
+          <li><strong>API URL:</strong> <code>https://djsync.jeffrey.build/api/downloads</code></li>
+          <li><strong>Key:</strong> a long private code.</li>
+        </ul>
+        <p>To get the key onto your phone, copy it on your Mac and paste it on your iPhone (this works when both use the same Apple ID with Handoff on), or AirDrop it to yourself.</p>
+        <div class="note warn"><strong>Treat the key like a password.</strong> Anyone with it can send downloads to your Mac. If it leaks, use <span class="ui">Rotate</span> in the same place and update the key in your Shortcut.</div>
+      </li>
+      <li>
+        <h3>Build the Shortcut</h3>
+        <p>Open the <span class="ui">Shortcuts</span> app, tap <span class="ui">+</span>, name it <strong>DJ Sync</strong>, and add these actions in order. Wherever it says <code>Bearer YOUR-KEY</code>, type the word <code>Bearer</code>, a space, then paste your key.</p>
+        <ol>
+          <li><strong>Receive input from the Share Sheet.</strong> Tap the shortcut’s <span class="ui">ⓘ</span>, turn on <span class="ui">Show in Share Sheet</span>, and set the input it receives to <span class="ui">URLs</span>. The first action then reads <span class="ui">Receive URLs from Share Sheet</span>.</li>
+          <li><strong>Get Contents of URL</strong> (your playlists): URL <code>https://djsync.jeffrey.build/api/playlists</code>, method <span class="ui">GET</span>. Under <span class="ui">Headers</span>, add <code>Authorization</code> with the value <code>Bearer YOUR-KEY</code>.</li>
+          <li><strong>Get Dictionary Value:</strong> get the <span class="ui">Value</span> for <code>playlists</code> in <span class="ui">Contents of URL</span>. Then add a second <strong>Get Dictionary Value</strong>: the <span class="ui">Value</span> for <code>path</code> in <span class="ui">Dictionary Value</span>. This gives the list of playlist names, like <code>GQOM/Gqom</code>.</li>
+          <li><strong>Choose from List:</strong> choose from the second <span class="ui">Dictionary Value</span>, with the prompt <em>Add to which playlist?</em></li>
+          <li><strong>Get Contents of URL</strong> (send it): URL <code>https://djsync.jeffrey.build/api/downloads</code>, method <span class="ui">POST</span>, the same <code>Authorization</code> header, and <span class="ui">Request Body: JSON</span> with two fields:
+            <ul>
+              <li><code>url</code> (Text) = <span class="ui">Shortcut Input</span></li>
+              <li><code>playlist_name</code> (Text) = <span class="ui">Chosen Item</span></li>
+            </ul>
+          </li>
+          <li><strong>Show Notification:</strong> <em>Sent to DJ Sync</em>.</li>
+        </ol>
+        <div class="note">Your playlists come back with DJ Sync’s own folder first, then A to Z. Sending the playlist’s full name, <code>Folder/Name</code>, makes DJ Sync pick exactly that one, even if two playlists share a name.</div>
+      </li>
+      <li>
+        <h3>Share a song</h3>
+        <p>In Spotify or YouTube, tap <span class="ui">Share</span> (you may need <span class="ui">More</span>), choose <span class="ui">DJ Sync</span>, then pick a playlist. The track downloads on your Mac into that Rekordbox playlist. If your Mac is asleep or offline, it waits and runs as soon as it’s back. The DJ Sync menu shows it under <span class="ui">Recent</span>.</p>
+      </li>
+    </ol>
+
+    <h2>Other ways to connect</h2>
+    <p><a href="/connect/telegram/">Telegram</a> (free, any phone) · <a href="/connect/claude/">Claude</a> (free plan) · <a href="/connect/iphone/">iPhone Shortcut</a> (free) · <a href="/connect/chatgpt/">ChatGPT</a> (paid plan). See <a href="/faq/#which-way">which way to connect</a>.</p>
+  </article>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>DJ Sync — free for DJs. No account.</div>
+      <nav aria-label="Footer">
+        <a href="/install/">Install</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
+        <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/faq/">FAQ</a>
+        <a href="/privacy/">Privacy</a>
+        <a href="/terms/">Terms</a>
+      </nav>
+    </div>
+    <p class="support" id="support">Need help? In DJ Sync, open <span class="ui">About → Copy diagnostics</span>. It copies versions and recent errors, never your links or passwords. <span data-support-contact hidden></span></p>
+    <p class="disclaimer">DJ Sync is an independent project. It isn’t affiliated with or endorsed by AlphaTheta / Pioneer DJ (Rekordbox), OpenAI (ChatGPT), Anthropic (Claude), Spotify or YouTube. Their names and marks belong to their owners.</p>
+  </div>
+</footer>
+</body>
+</html>

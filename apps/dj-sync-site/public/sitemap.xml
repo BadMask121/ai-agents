@@ -2,8 +2,10 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://djsync.jeffrey.build/</loc></url>
   <url><loc>https://djsync.jeffrey.build/install/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/connect/chatgpt/</loc></url>
+  <url><loc>https://djsync.jeffrey.build/connect/telegram/</loc></url>
   <url><loc>https://djsync.jeffrey.build/connect/claude/</loc></url>
+  <url><loc>https://djsync.jeffrey.build/connect/iphone/</loc></url>
+  <url><loc>https://djsync.jeffrey.build/connect/chatgpt/</loc></url>
   <url><loc>https://djsync.jeffrey.build/faq/</loc></url>
   <url><loc>https://djsync.jeffrey.build/privacy/</loc></url>
   <url><loc>https://djsync.jeffrey.build/terms/</loc></url>

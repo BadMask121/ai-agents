@@ -2,7 +2,7 @@
 
 The public DJ Sync website: <https://djsync.jeffrey.build>.
 
-Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` §4.
+Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` §4, and the connect-anywhere addendum (`2026-10-28-dj-sync-connect-anywhere-design.md` §5) for the guides.
 
 ## What it is
 
@@ -30,8 +30,10 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
 public/
   index.html                home
   install/                  install guide, including the one-time "Open Anyway" step
-  connect/chatgpt/          adding DJ Sync to ChatGPT (custom MCP server)
-  connect/claude/           adding DJ Sync to Claude (custom connector)
+  connect/telegram/         pairing the shared DJ Sync Telegram bot (free, any phone)
+  connect/claude/           adding DJ Sync to Claude (custom connector; one free)
+  connect/iphone/           building the iPhone Share-sheet Shortcut (free)
+  connect/chatgpt/          adding DJ Sync to ChatGPT (custom MCP connector; paid plan)
   faq/  privacy/  terms/
   404.html
   assets/site.css           design tokens; dark first, light via prefers-color-scheme
