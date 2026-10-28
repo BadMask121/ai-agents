@@ -54,10 +54,12 @@
   "vars": {
     "DEFAULT_PLAYLIST": "ChatGPT Downloads",
     "MAX_URLS": "25",
-    "PUBLIC_HOST": "mcp.triplejmusic.art"
-    // Migration switches (spec §3.9), set when the owner's Mac is on protocol 2:
-    //   "LEGACY_TENANT_ID": "<the owner's tenant_id>",
-    //   "V1_RETIRED": "true"
+    "PUBLIC_HOST": "mcp.triplejmusic.art",
+    // Migration (spec §3.9), done 2026-10-28: the owner's Mac is on protocol 2
+    // as this tenant (an id, not a secret), and the legacy MCP secret path and
+    // Shortcut key now reach it.
+    "LEGACY_TENANT_ID": "u2dDy37bIx227JDdDMLBoA",
+    "V1_RETIRED": "true"
   },
   // Secrets (wrangler secret put …), never in this file:
   //   MCP_SECRET_PATH   — same value as ~/.dj-sync/.env, so the ChatGPT plugin URL is unchanged
