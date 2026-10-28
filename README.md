@@ -11,10 +11,9 @@ ai-agents/
 ├── apps/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
-│   ├── mail-mcp/        # Node MCP server — ChatGPT ⇄ privateemail mailbox (IMAP/SMTP)
+│   ├── mail-mcp/        # Cloudflare Worker MCP server — ChatGPT ⇄ privateemail mailbox (IMAP/SMTP)
 │   ├── dj-sync/         # Rust — Spotify/YouTube → Rekordbox prep via Telegram + ChatGPT MCP
 │   ├── dj-sync-cloud/   # Cloudflare Worker + D1 — always-on queue in front of dj-sync
-│   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
 │   ├── prole-promo/     # Remotion promo video for Prole
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
 │   └── sample-agent/    # TS example — minimal agent using @ai-agents/shared
@@ -83,7 +82,8 @@ Playwright), and track a pipeline. JWT auth.
   ```
 - **Entry points:** `src/app/` (routes: `/discover`, `/apply`, `/resume`,
   `/pipeline`, `/settings`, `/api/*`), `src/agents/`, `src/lib/`.
-- **Deploy:** Docker → Hetzner VPS (Coolify); see docs.
+- **Deploy:** not deployed. It ran as Docker on a Hetzner VPS (Coolify) until the
+  VPS was deleted on 2026-10-28; see docs.
 - **Docs:** [`docs/career-ops-vps/`](docs/career-ops-vps/) (VPS bootstrap,
   Claude Code setup, mobile access, scheduled scanning, deploy checklist).
 
@@ -116,23 +116,23 @@ access to a Namecheap **Private Email** (Open-Xchange) mailbox over standard
 **IMAP/SMTP** — no web-UI scraping. ChatGPT connects it as a custom connector in
 Developer Mode.
 
-- **Stack:** TypeScript, `@modelcontextprotocol/sdk` (Streamable HTTP), `imapflow`,
-  `nodemailer`, `mailparser`, Express, Zod. Unit-tested with Vitest.
+- **Stack:** TypeScript on Cloudflare Workers, `@modelcontextprotocol/sdk`
+  (stateless Streamable HTTP), an IMAP client on `cloudflare:sockets`, `nodemailer`,
+  Zod. Unit-tested with Vitest.
 - **Package:** `@ai-agents/mail-mcp`
 - **Tools:** `list_folders`, `search_email`, `list_messages`, `read_email`,
   `get_attachment`, `send_email`, `move_email`, `delete_email`, `mark_email`,
   plus read-only `search`/`fetch` aliases for standard connector mode.
 - **Run:**
   ```bash
-  pnpm --filter @ai-agents/mail-mcp dev        # http://localhost:8080/<secret>/mcp
+  pnpm --filter @ai-agents/mail-mcp dev        # wrangler dev: http://localhost:8787/<secret>/mcp
   pnpm --filter @ai-agents/mail-mcp typecheck
   pnpm --filter @ai-agents/mail-mcp test
   ```
-- **Live:** <https://mail-mcp.jeffrey.build> (Coolify on Hetzner, TLS via Let's
-  Encrypt). Auth is a long random secret path + TLS; env-var mailbox credentials.
-- **Deploy:** Dockerfile (context = `apps/mail-mcp`). Auto-deploys on push to
-  `apps/mail-mcp/**` (branch `mail-mcp`) via
-  [`.github/workflows/deploy-mail-mcp.yml`](.github/workflows/deploy-mail-mcp.yml).
+- **Live:** <https://mail-mcp.jeffrey.build> (Cloudflare Worker `mail-mcp`). Auth is
+  a long random secret path + TLS; mailbox credentials are Worker secrets.
+- **Deploy:** `pnpm --filter @ai-agents/mail-mcp deploy` (`wrangler deploy`), by hand
+  from `main`; no branch auto-deploys.
 - **Docs:** [`docs/mail-mcp/`](docs/mail-mcp/) (product overview, tool reference,
   ChatGPT connect + deploy steps).
 
@@ -198,10 +198,10 @@ reports back. The agent protocol has its own semver (1.0.0).
 
 The Prole macOS app now lives in its own open-source repo:
 **[github.com/BadMask121/prole](https://github.com/BadMask121/prole)** (MIT). This
-monorepo keeps the two Prole-related pieces that ship from here:
+monorepo keeps the Prole promo video; the landing page
+([prole.jeffrey.build](https://prole.jeffrey.build)) moved into that repo's `site/`
+(a Cloudflare Worker).
 
-- [`apps/prole-site/`](apps/prole-site/) — the landing page at
-  [prole.jeffrey.build](https://prole.jeffrey.build), deployed via Coolify.
 - [`apps/prole-promo/`](apps/prole-promo/) — the Remotion promo video.
 
 ### `apps/shared` — shared agent types (`@ai-agents/shared`)
