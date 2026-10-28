@@ -123,9 +123,9 @@ public enum Assistant: String, CaseIterable, Sendable, Identifiable {
       ]
     case .iphone:
       [
-        "Open the setup guide on your iPhone.",
-        "Build the Shortcut with the URL and key below.",
-        "Share a Spotify or YouTube link → Send to DJ Sync.",
+        "Scan the code with your iPhone camera.",
+        "Tap Add Shortcut.",
+        "In Spotify or YouTube, Share → DJ Sync, then pick a playlist.",
       ]
     }
   }
@@ -133,7 +133,7 @@ public enum Assistant: String, CaseIterable, Sendable, Identifiable {
   public var example: String {
     switch self {
     case .telegram: "send the bot a Spotify link"
-    case .iphone: "share a Spotify link → Send to DJ Sync"
+    case .iphone: "share a Spotify link → DJ Sync"
     default: "Add https://open.spotify.com/track/… to a playlist called Friday"
     }
   }
@@ -184,6 +184,13 @@ public struct LinksClient: Sendable {
     await request("POST", "local/links/\(id)/rotate").flatMap { decode(AssistantLink.self, $0) }
   }
 
+  /// One-scan iPhone setup: dj-sync builds the Shortcut with this link's
+  /// key, macOS signs it (a few seconds), and the cloud hosts it briefly.
+  public func installShortcut(_ id: String) async -> Result<ShortcutInstall, Failure> {
+    await request("POST", "local/links/\(id)/install", timeout: 90)
+      .flatMap { decode(ShortcutInstall.self, $0) }
+  }
+
   public func delete(_ id: String) async -> Result<Void, Failure> {
     await request("DELETE", "local/links/\(id)").map { _ in () }
   }
@@ -198,9 +205,11 @@ public struct LinksClient: Sendable {
     }
   }
 
-  private func request(_ method: String, _ path: String, body: [String: String]? = nil) async -> Result<Data, Failure> {
+  private func request(
+    _ method: String, _ path: String, body: [String: String]? = nil, timeout: TimeInterval = 30
+  ) async -> Result<Data, Failure> {
     let base = baseURL ?? ServiceEndpoint.base()
-    var request = URLRequest(url: base.appending(path: path), timeoutInterval: 30)
+    var request = URLRequest(url: base.appending(path: path), timeoutInterval: timeout)
     request.httpMethod = method
     request.cachePolicy = .reloadIgnoringLocalCacheData
     if let body {
@@ -216,3 +225,59 @@ public struct LinksClient: Sendable {
     return .success(data)
   }
 }
+
+/// Where an iPhone installs its DJ Sync Shortcut from: a private page that
+/// works for a few minutes (`POST /local/links/{id}/install`).
+public struct ShortcutInstall: Decodable, Equatable, Sendable {
+  public var installUrl: String
+  public var expiresAt: String?
+
+  public init(installUrl: String, expiresAt: String? = nil) {
+    self.installUrl = installUrl
+    self.expiresAt = expiresAt
+  }
+
+  public var expires: Date? { parseTimestamp(expiresAt) }
+
+  public func expired(now: Date = Date()) -> Bool {
+    guard let expires else { return false }
+    return expires <= now
+  }
+}
+
+/// The one-scan iPhone setup for one Shortcut link, as the menu shows it.
+public enum ShortcutSetup: Equatable, Sendable {
+  /// Nothing made yet (e.g. the app restarted): offer to make a QR code.
+  case idle
+  /// Building and signing (a few seconds).
+  case preparing
+  case ready(ShortcutInstall)
+  /// Signing or uploading failed; `signing` means this Mac couldn't sign
+  /// (usually not signed into iCloud), so the manual setup is the way.
+  case failed(message: String, signing: Bool)
+
+  public static func from(_ result: Result<ShortcutInstall, LinksClient.Failure>) -> ShortcutSetup {
+    switch result {
+    case .success(let install): .ready(install)
+    case .failure(let f): .failed(message: f.message, signing: f.code == "shortcut_signing_failed")
+    }
+  }
+
+  /// The QR code to show right now, if any.
+  public func installURL(now: Date = Date()) -> String? {
+    if case .ready(let install) = self, !install.expired(now: now) { return install.installUrl }
+    return nil
+  }
+
+  public func expired(now: Date = Date()) -> Bool {
+    if case .ready(let install) = self { return install.expired(now: now) }
+    return false
+  }
+
+  /// Open "Show key and URL" by default: signing isn't possible here.
+  public var wantsManualSetup: Bool {
+    if case .failed(_, let signing) = self { return signing }
+    return false
+  }
+}
+

@@ -1,7 +1,7 @@
 // node --test apps/dj-sync-site/test/*.test.mjs  (no dependencies)
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import worker, { isCloudPath } from "../src/worker.mjs";
+import worker, { IPHONE_GUIDE, isCloudPath } from "../src/worker.mjs";
 
 const bytes = new TextEncoder().encode("0123456789");
 function env() {
@@ -40,6 +40,7 @@ test("cloud paths go to dj-sync-cloud, pages to the static files", async () => {
   const e = env();
   for (const p of ["/health", "/v2/register", "/v2/agent", "/api/downloads", "/api/downloads/abc", "/agent/poll",
     "/api/playlists", "/telegram/webhook", "/v2/admin/telegram/setup",
+    "/i/u2dDy37bIx227JDdDMLBoA/abcdefghijklmnopqrstuv", "/i/u2dDy37bIx227JDdDMLBoA/abcdefghijklmnopqrstuv/DJ%20Sync.shortcut",
     "/u2dDy37bIx227JDdDMLBoA/secret/mcp", "/0123456789abcdef0123456789abcdef/mcp"]) {
     assert.equal(await (await worker.fetch(req(`https://djsync.jeffrey.build${p}`, { method: "POST" }), e)).text(), "cloud", p);
   }
@@ -71,4 +72,28 @@ test("downloads come from R2, with HEAD and byte ranges", async () => {
   // Traversal and nested keys never reach R2 (falls through to the 404 page).
   assert.equal(await (await worker.fetch(req("https://djsync.jeffrey.build/download/../secret"), e)).text(), "asset");
   assert.equal(await (await worker.fetch(req("https://djsync.jeffrey.build/download/a/b.dmg"), e)).text(), "asset");
+});
+
+test("a browser opening the Shortcut API gets the iPhone guide; API clients don't", async () => {
+  const e = env();
+  const html = { accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" };
+  for (const p of ["/api/downloads", "/api/playlists"]) {
+    const r = await worker.fetch(req(`https://djsync.jeffrey.build${p}`, { headers: html }), e);
+    assert.equal(r.status, 302, p);
+    assert.equal(r.headers.get("location"), IPHONE_GUIDE);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+  }
+  assert.deepEqual(e.calls.cloud, []);
+  // The Shortcut (Bearer), plain API calls, POSTs and job status still reach the cloud.
+  const api = [
+    ["/api/playlists", { headers: { ...html, authorization: "Bearer k" } }],
+    ["/api/playlists", { headers: { accept: "application/json" } }],
+    ["/api/playlists", {}],
+    ["/api/downloads", { method: "POST", headers: html, body: "{}" }],
+    ["/api/downloads/abc", { headers: html }],
+  ];
+  for (const [p, init] of api) {
+    assert.equal(await (await worker.fetch(req(`https://djsync.jeffrey.build${p}`, init), e)).text(), "cloud", p);
+  }
+  assert.equal(e.calls.cloud.length, api.length);
 });

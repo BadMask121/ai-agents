@@ -81,9 +81,52 @@ CREATE TABLE IF NOT EXISTS tg_jobs (
   job_id  TEXT PRIMARY KEY,
   chat_id TEXT NOT NULL
 );
+-- The Telegram assistant (spec §1c), added to older tenants by migrate()
+CREATE TABLE IF NOT EXISTS tg_memory (
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id    TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tg_memory_chat ON tg_memory (chat_id, seq);
+CREATE TABLE IF NOT EXISTS tg_confirm (
+  id         TEXT PRIMARY KEY,
+  chat_id    TEXT NOT NULL,
+  tool       TEXT NOT NULL,
+  args       TEXT NOT NULL,
+  prompt     TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+-- One-scan iPhone install (spec §2b), added to older tenants by migrate()
+CREATE TABLE IF NOT EXISTS shortcut_installs (
+  link_id    TEXT PRIMARY KEY,
+  code_hash  TEXT NOT NULL UNIQUE,
+  bytes      BLOB NOT NULL,
+  expires_at TEXT NOT NULL,
+  downloads  INTEGER NOT NULL DEFAULT 0
+);
 `;
 
-const TELEGRAM_TABLES = TENANT_SCHEMA.slice(TENANT_SCHEMA.indexOf("CREATE TABLE IF NOT EXISTS telegram_chats"));
+const TELEGRAM_TABLES = TENANT_SCHEMA.slice(
+  TENANT_SCHEMA.indexOf("CREATE TABLE IF NOT EXISTS telegram_chats"),
+  TENANT_SCHEMA.indexOf("-- The Telegram assistant"),
+);
+const AGENT_TABLES = TENANT_SCHEMA.slice(
+  TENANT_SCHEMA.indexOf("CREATE TABLE IF NOT EXISTS tg_memory"),
+  TENANT_SCHEMA.indexOf("-- One-scan iPhone install"),
+);
+const INSTALL_TABLES = TENANT_SCHEMA.slice(TENANT_SCHEMA.indexOf("CREATE TABLE IF NOT EXISTS shortcut_installs"));
+
+/** A delete / move-everything the assistant is waiting on the DJ to confirm. */
+export interface AgentConfirm {
+  id: string;
+  chat_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  prompt: string;
+  created_at: string;
+}
 
 export type LinkKind = "chatgpt" | "claude" | "shortcut" | "telegram" | "other";
 export const LINK_KINDS: readonly LinkKind[] = ["chatgpt", "claude", "shortcut", "telegram", "other"];
@@ -162,6 +205,14 @@ export class SqlStore implements Store {
     const tables = db.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'telegram_chats'").toArray();
     if (cols.length > 0 && tables.length === 0) {
       for (const stmt of TELEGRAM_TABLES.split(";").map((t) => t.trim()).filter(Boolean)) db.exec(stmt);
+    }
+    const agent = db.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tg_confirm'").toArray();
+    if (cols.length > 0 && agent.length === 0) {
+      for (const stmt of AGENT_TABLES.split(";").map((t) => t.trim()).filter(Boolean)) db.exec(stmt);
+    }
+    const installs = db.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'shortcut_installs'").toArray();
+    if (cols.length > 0 && installs.length === 0) {
+      for (const stmt of INSTALL_TABLES.split(";").map((t) => t.trim()).filter(Boolean)) db.exec(stmt);
     }
   }
 
@@ -444,7 +495,9 @@ export class SqlStore implements Store {
     );
   }
 
+  /** A new secret; a pending iPhone install (it holds the old key) goes too. */
   setLinkSecret(id: string, secretHash: string): boolean {
+    this.deleteInstall(id);
     return this.db.exec("UPDATE links SET secret_hash = ?, last_used_at = NULL WHERE id = ? RETURNING id", secretHash, id).toArray().length > 0;
   }
 
@@ -453,6 +506,7 @@ export class SqlStore implements Store {
   }
 
   deleteLink(id: string): boolean {
+    this.deleteInstall(id);
     return this.db.exec("DELETE FROM links WHERE id = ? RETURNING id", id).toArray().length > 0;
   }
 
@@ -494,11 +548,14 @@ export class SqlStore implements Store {
   /** Unpair a link; returns the chat it had. */
   unbindTelegramLink(linkId: string): string | null {
     const r = this.db.exec("DELETE FROM telegram_chats WHERE link_id = ? RETURNING chat_id", linkId).toArray()[0];
-    return (r?.chat_id as string | undefined) ?? null;
+    const chat = (r?.chat_id as string | undefined) ?? null;
+    if (chat) this.forgetAgentChat(chat);
+    return chat;
   }
 
   /** Forget a chat (it now belongs to another DJ). */
   unbindTelegramChat(chatId: string): void {
+    this.forgetAgentChat(chatId);
     this.db.exec("DELETE FROM telegram_chats WHERE chat_id = ?", chatId);
     this.db.exec("DELETE FROM tg_pending WHERE chat_id = ?", chatId);
     this.db.exec("DELETE FROM tg_jobs WHERE chat_id = ?", chatId);
@@ -543,6 +600,122 @@ export class SqlStore implements Store {
   takeTgJob(jobId: string): string | null {
     const r = this.db.exec("DELETE FROM tg_jobs WHERE job_id = ? RETURNING chat_id", jobId).toArray()[0];
     return (r?.chat_id as string | undefined) ?? null;
+  }
+
+  // ---------- one-scan iPhone install ----------
+
+  /** The link's signed Shortcut under a new code (replacing any earlier one). */
+  putInstall(linkId: string, codeHash: string, bytes: ArrayBuffer, expiresAt: string): void {
+    this.db.exec(
+      "INSERT OR REPLACE INTO shortcut_installs (link_id, code_hash, bytes, expires_at, downloads) VALUES (?, ?, ?, ?, 0)",
+      linkId,
+      codeHash,
+      bytes,
+      expiresAt,
+    );
+  }
+
+  /** Is this code live (not expired, downloads left)? */
+  installLive(codeHash: string, now: string, maxDownloads: number): boolean {
+    return (
+      this.db
+        .exec("SELECT 1 AS x FROM shortcut_installs WHERE code_hash = ? AND expires_at > ? AND downloads < ?", codeHash, now, maxDownloads)
+        .toArray().length > 0
+    );
+  }
+
+  /** Count one download and return the file, or null when the code is dead. */
+  takeInstallDownload(codeHash: string, now: string, maxDownloads: number): ArrayBuffer | null {
+    const r = this.db
+      .exec(
+        "UPDATE shortcut_installs SET downloads = downloads + 1 WHERE code_hash = ? AND expires_at > ? AND downloads < ? RETURNING bytes",
+        codeHash,
+        now,
+        maxDownloads,
+      )
+      .toArray()[0];
+    return (r?.bytes as ArrayBuffer | undefined) ?? null;
+  }
+
+  /** The file without counting (HEAD). */
+  installBytes(codeHash: string, now: string, maxDownloads: number): ArrayBuffer | null {
+    const r = this.db
+      .exec("SELECT bytes FROM shortcut_installs WHERE code_hash = ? AND expires_at > ? AND downloads < ?", codeHash, now, maxDownloads)
+      .toArray()[0];
+    return (r?.bytes as ArrayBuffer | undefined) ?? null;
+  }
+
+  deleteInstall(linkId: string): void {
+    this.db.exec("DELETE FROM shortcut_installs WHERE link_id = ?", linkId);
+  }
+
+  purgeInstallsBefore(now: string): void {
+    this.db.exec("DELETE FROM shortcut_installs WHERE expires_at <= ?", now);
+  }
+
+  // ---------- the Telegram assistant ----------
+
+  /** The chat's last `limit` turns since `since`, oldest first. */
+  agentTurns(chatId: string, since: string, limit: number): { role: "user" | "assistant"; content: string }[] {
+    return this.db
+      .exec(
+        "SELECT role, content FROM (SELECT seq, role, content FROM tg_memory WHERE chat_id = ? AND created_at >= ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
+        chatId,
+        since,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({ role: r.role as "user" | "assistant", content: r.content as string }));
+  }
+
+  addAgentTurn(chatId: string, role: "user" | "assistant", content: string, at: string): void {
+    this.db.exec("INSERT INTO tg_memory (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)", chatId, role, content, at);
+  }
+
+  /** Keep the newest `keep` turns of this chat, and nothing older than `before` anywhere. */
+  trimAgentTurns(chatId: string, keep: number, before: string): void {
+    this.db.exec(
+      "DELETE FROM tg_memory WHERE chat_id = ? AND seq NOT IN (SELECT seq FROM tg_memory WHERE chat_id = ? ORDER BY seq DESC LIMIT ?)",
+      chatId,
+      chatId,
+      keep,
+    );
+    this.db.exec("DELETE FROM tg_memory WHERE created_at < ?", before);
+  }
+
+  forgetAgentChat(chatId: string): void {
+    this.db.exec("DELETE FROM tg_memory WHERE chat_id = ?", chatId);
+    this.db.exec("DELETE FROM tg_confirm WHERE chat_id = ?", chatId);
+  }
+
+  addAgentConfirm(c: AgentConfirm): void {
+    this.db.exec(
+      "INSERT INTO tg_confirm (id, chat_id, tool, args, prompt, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      c.id,
+      c.chat_id,
+      c.tool,
+      JSON.stringify(c.args),
+      c.prompt,
+      c.created_at,
+    );
+  }
+
+  /** The confirmation (used once). */
+  takeAgentConfirm(id: string): AgentConfirm | null {
+    const r = this.db.exec("DELETE FROM tg_confirm WHERE id = ? RETURNING id, chat_id, tool, args, prompt, created_at", id).toArray()[0];
+    if (!r) return null;
+    return {
+      id: r.id as string,
+      chat_id: r.chat_id as string,
+      tool: r.tool as string,
+      args: JSON.parse(r.args as string) as Record<string, unknown>,
+      prompt: r.prompt as string,
+      created_at: r.created_at as string,
+    };
+  }
+
+  purgeAgentConfirmsBefore(before: string): void {
+    this.db.exec("DELETE FROM tg_confirm WHERE created_at < ?", before);
   }
 
   private count(query: string, ...bindings: SqlValue[]): number {

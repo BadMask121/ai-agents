@@ -32,6 +32,9 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   TELEGRAM_BOT_USERNAME?: string;
+  /** Workers AI (the Telegram assistant, connect-anywhere spec §1c) and an optional model override. */
+  AI?: Ai;
+  AI_MODEL?: string;
 }
 
 function deps(env: Env): Deps {

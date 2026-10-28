@@ -92,6 +92,19 @@ function err(reason: string): LinkResult {
   return { ok: false, reason };
 }
 
+/** A word that is a link (sentence punctuation after it dropped), or null. */
+export function asLink(word: string): string | null {
+  return /^(https?:\/\/|spotify:)/iu.test(word) ? word.replace(/[),.!?]+$/u, "") : null;
+}
+
+/** Every link in free text, in order: what a Share sheet or a chat message hands over. */
+export function linksIn(text: string): string[] {
+  return text
+    .split(/\s+/u)
+    .map(asLink)
+    .filter((l): l is string => l !== null && l !== "");
+}
+
 /** Share sheets sometimes hand over "Song by Artist https://…" — keep the link. */
 export function linkIn(text: string): string {
   const word = text.split(/\s+/u).find((w) => w.startsWith("https://") || w.startsWith("spotify:"));

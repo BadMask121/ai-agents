@@ -4,6 +4,46 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] — 2026-10-28
+### Pages
+- **`/connect/iphone/` is now three steps.** Scan the QR code in DJ Sync →
+  Assistants → Connect iPhone, tap Add Shortcut, then Share → DJ Sync from
+  Spotify or YouTube.
+  - **iCloud:** the page notes that the Mac must be signed into iCloud,
+    because macOS signs the Shortcut.
+  - **Building it by hand** moves under "Advanced: build it yourself". It now
+    uses the `names` list and the `{text, playlist_name}` body, and shows the
+    server's `message`.
+### SEO
+- **Every page has a unique, keyword-first title** (at most 55 characters)
+  and **meta description** (at most 144). The head also gets `robots`
+  (`noindex` on the 404 page), canonical URLs, Open Graph and Twitter
+  `summary_large_image` tags.
+- **Designed 1200×630 share cards** in `og/`: home, install, faq, the four
+  connect guides, and a default for privacy, terms and 404.
+- **Icons:** `favicon.svg`, `favicon-32.png`, `apple-touch-icon.png`,
+  `icon-192.png`, `icon-512.png` and `site.webmanifest`, linked from every
+  page.
+- **JSON-LD:**
+  - home: Organization, WebSite and a free SoftwareApplication
+  - faq: FAQPage, built from the page's own questions and answers
+  - install and the connect guides: HowTo, built from their own steps
+  - every subpage: BreadcrumbList
+- **Crawling:**
+  - `robots.txt` welcomes search and AI crawlers, keeps API, install and
+    download endpoints out, and points to the sitemap.
+  - `sitemap.xml` gains `<lastmod>` and image entries.
+  - `llms.txt` is new.
+  - `_headers` gives cards and icons a one-week cache.
+
+### Worker
+- **Opening the Shortcut API in a browser** (`GET /api/downloads` or
+  `/api/playlists` with `Accept: text/html` and no `Authorization`) now
+  redirects (302) to `/connect/iphone/` instead of showing a JSON 401. The
+  Shortcut and other API clients are unchanged.
+- **New cloud route forwarded:** `/i/*`, the one-scan iPhone install page
+  and file (connect-anywhere spec §2b).
+
 ## [1.2.0] — 2026-10-28
 ### Worker
 - **New cloud routes forwarded** to dj-sync-cloud: `/telegram/*` (the shared

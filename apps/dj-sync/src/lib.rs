@@ -17,6 +17,7 @@ pub mod rekordbox;
 pub mod rekordbox_db;
 pub mod rekordbox_xml;
 pub mod settings;
+pub mod shortcut;
 pub mod signing;
 pub mod spotify;
 pub mod toolbox;

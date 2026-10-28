@@ -32,6 +32,8 @@ final class MenuModel {
   // Assistants (links to this Mac through the cloud)
   private(set) var links: [AssistantLink] = []
   private(set) var linksBusy = false
+  /// One-scan iPhone setup, per Shortcut link (only while the app runs).
+  private(set) var shortcutSetups: [String: ShortcutSetup] = [:]
   @ObservationIgnored private var linksFetchedAt: Date?
   private let linksClient = LinksClient()
 
@@ -121,7 +123,7 @@ final class MenuModel {
 
   /// A link for `assistant`, reusing one this Mac already holds. Connector
   /// URLs (ChatGPT, Claude) are copied; Telegram shows a QR code to scan; the
-  /// iPhone Shortcut shows its URL and key.
+  /// iPhone gets a ready-made Shortcut behind a QR code.
   @discardableResult
   func connect(_ assistant: Assistant) async -> AssistantLink? {
     linksBusy = true
@@ -129,12 +131,14 @@ final class MenuModel {
     actionError = nil
     if let existing = links.first(where: { usable($0, for: assistant) }) {
       announce(existing, for: assistant)
+      if assistant == .iphone { prepareShortcut(existing) }
       return existing
     }
     switch await linksClient.create(assistant) {
     case .success(let link):
       links.append(link)
       announce(link, for: assistant)
+      if assistant == .iphone { prepareShortcut(link) }
       await refreshLinks(force: true)
       return links.first { $0.id == link.id } ?? link
     case .failure(let f):
@@ -160,7 +164,7 @@ final class MenuModel {
     case .telegram:
       note("Scan the code with your phone, then tap Start in Telegram.")
     case .iphone:
-      note("Follow the setup guide on your iPhone, using the URL and key shown here.")
+      note("Scan the code with your iPhone camera, then tap Add Shortcut.")
     default:
       guard let url = link.url else { return }
       copy(url, key: link.id)
@@ -192,6 +196,16 @@ final class MenuModel {
     }
   }
 
+  /// Build, sign and upload this link's Shortcut, then show its QR code.
+  func prepareShortcut(_ link: AssistantLink) {
+    guard link.assistant == .iphone, shortcutSetups[link.id] != .preparing else { return }
+    shortcutSetups[link.id] = .preparing
+    Task {
+      let result = await linksClient.installShortcut(link.id)
+      shortcutSetups[link.id] = ShortcutSetup.from(result)
+    }
+  }
+
   func openGuide(_ assistant: Assistant) {
     NSWorkspace.shared.open(assistant.guideURL)
   }
@@ -218,8 +232,10 @@ final class MenuModel {
       switch await linksClient.rotate(link.id) {
       case .success(let new):
         if isKey {
-          if let token = new.token { copy(token, key: "\(new.id).key") }
-          note("New key copied. Paste it into your Shortcut's Authorization header.")
+          // The old Shortcut has the old key baked in: offer a fresh one.
+          shortcutSetups[new.id] = nil
+          prepareShortcut(new)
+          note("New key made. Scan the new code on your iPhone to replace the Shortcut.")
         } else {
           if let url = new.url { copy(url, key: new.id) }
           note("New URL copied. Paste it into \(link.displayName).")
@@ -249,6 +265,7 @@ final class MenuModel {
       switch await linksClient.delete(link.id) {
       case .success:
         links.removeAll { $0.id == link.id }
+        shortcutSetups[link.id] = nil
         await refreshLinks(force: true)
       case .failure(let f):
         actionError = "Couldn't disconnect: \(f.message)"

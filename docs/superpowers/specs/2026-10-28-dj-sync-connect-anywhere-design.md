@@ -137,8 +137,50 @@ move_tracks {
   `destructiveHint` is false: the tracks stay in the library, and backups
   allow undo.
 - **Copying** stays `add_tracks_to_playlist`; the tool descriptions say so.
-- **Telegram** gets moving later. It needs a guided flow, since the bot has no
-  natural-language model.
+- **Telegram** moves tracks through the assistant (§1c), which asks before
+  moving a whole playlist.
+
+## 1c. The Telegram assistant (Workers AI)
+
+The owner tried the bot on 2026-10-28: "the telegram bot is not agentic, it
+does not understand". "list the playlists in DJ sync folder" got the help
+text, with its first line twice. They chose Cloudflare Workers AI, which is on
+the same account and has a free daily allowance. Shipped in Worker 1.4.0.
+
+- **What goes to the model.** Free text that isn't a command, and a link
+  whose extra words aren't a clean playlist name (three or more words that
+  don't name one playlist, e.g. "download this into a new playlist called
+  Lagos Nights <link>"). A link alone, or with a name that resolves (or a
+  short unclear one), keeps the buttons of §1.
+- **Model.** `@cf/zai-org/glm-4.7-flash` with thinking off: the best
+  function-calling quality per neuron among the generally available models
+  with function calling (comparison in the dj-sync-cloud README). About 34
+  neurons for a two-round message; the `AI_MODEL` var overrides it.
+- **Tools.** The 11 MCP tools, run through the MCP dispatcher (same
+  validation, resolution, suggestions and dedupe). At most 5 model rounds;
+  tool output cut at 6,000 characters before it goes back.
+- **System prompt.** What DJ Sync is; list, search or get before acting; use
+  "Folder/Name" or `playlist_id` when a name is ambiguous; ask one short
+  question when unclear; never invent track ids; plain text; today's date.
+- **Replies.** Plain text, tidied (no Markdown, "•" lists), at most 4,096
+  characters. "typing…" shows while it works. Jobs it queues get the usual
+  finish message.
+- **Memory.** The last 10 turns per chat for 24 hours (the DJ's words and the
+  replies, plus the track and playlist ids the tools showed, not the tool
+  output), so "now move the first two into Gqom" works. Forgotten on unpair.
+- **Confirm first.** The model never runs `delete_playlist` or `move_tracks`
+  with `all: true`. The bot stores the call (1 hour, single use) and asks
+  "Delete the playlist “Folder/Name” (n tracks)? [Delete] [Cancel]"; only the
+  tap runs it. A playlist that doesn't resolve isn't asked about: the tool's
+  own "which one?" goes back to the model, and nothing is queued.
+- **Limits.** 60 questions per chat per UTC day ("That's today's limit …";
+  commands and links still work), on top of §1's 60 messages an hour.
+- **Failures.** Any Workers AI error (3036 when the account's 10,000 free
+  neurons a day are used up, 3040 when busy) or unusable output answers "I
+  can't think right now — commands and links still work: /playlists, …".
+  Errors are logged, never shown. Failed turns aren't remembered.
+- **Without the binding** the bot stays rule-based, and plain words get the
+  help text once.
 
 ## 2. iPhone Shortcut (REST)
 
@@ -158,6 +200,69 @@ move_tracks {
   3. Choose from the list of playlist names.
   4. POST `…/api/downloads` with `{urls, playlist_id}`.
   5. Show a notification.
+
+## 2b. One-scan iPhone install
+
+The owner asked for this on 2026-10-28: "the iPhone process is too long; we
+need a one-click solution". **The DJ scans a QR code and taps Add Shortcut.**
+
+**The Mac builds and signs a personal Shortcut.** This is done by the
+dj-sync service (Rust), via `POST /local/links/{id}/install` on a `shortcut`
+link:
+1. **Build** an unsigned Shortcut plist (the `plist` crate) with the API base
+   URL and the `Bearer <tenant_id>.<secret>` key baked in.
+2. **Sign** it with `/usr/bin/shortcuts sign --mode anyone`. This needs the
+   DJ's Mac signed into iCloud and takes about 4 s. The file is signed by the
+   DJ's own Apple ID, not DJ Sync's.
+3. **Upload** it to the cloud and return `{install_url, expires_at}`.
+
+If signing fails (no iCloud, say), the reply is 409
+`{error:"shortcut_signing_failed", message}`, and the app falls back to
+showing the URL and key with the manual guide.
+
+**The Shortcut "DJ Sync":**
+- **Input:** Share sheet, URLs and text (`WFWorkflowTypes:["ActionExtension"]`).
+- **Steps:**
+  1. Get Contents of URL: GET `<base>/api/playlists` with the Authorization header.
+  2. Get Dictionary Value `names`.
+  3. Choose from List: "Add to which playlist?"
+  4. Get Contents of URL: POST `<base>/api/downloads`, JSON
+     `{text: <Shortcut Input>, playlist_name: <Chosen Item>}`.
+  5. Get Dictionary Value `message`.
+  6. Show Notification (title "DJ Sync", body = the message).
+
+**Cloud (dj-sync-cloud):**
+- **`PUT /v2/agent/links/{id}/install`** (agent auth; body = the signed
+  `.shortcut` bytes, at most 256 KB; shortcut links only) returns
+  `{install_url: "https://djsync.jeffrey.build/i/<tenant_id>/<code>", expires_at}`.
+  - The code is 16 random bytes, base64url.
+  - It expires after 10 minutes and allows at most 5 downloads.
+  - A new upload replaces the old one.
+- **`GET /i/<tenant>/<code>`** is a small iPhone-friendly page: "Add DJ Sync
+  to your iPhone", one big "Add Shortcut" button, and a line on what happens
+  next. It sets `noindex` and `no-store`. An expired or used-up code shows a
+  friendly "This link expired — make a new QR in DJ Sync on your Mac".
+- **`GET /i/<tenant>/<code>/DJ%20Sync.shortcut`** serves the bytes
+  (`application/octet-stream`, `attachment; filename="DJ Sync.shortcut"`,
+  `no-store`) and counts the download.
+- **dj-sync-site** forwards `/i/*`.
+- **`GET /api/playlists`** also returns `names`: the default playlist's name
+  first, then every playlist's `path` (the DJ Sync folder first, then A–Z).
+- **`POST /api/downloads`** also accepts `text`. The links are pulled out of
+  free text, so what the Share sheet sends works as is. Every reply carries a
+  human `message` ("Sent 1 link to “Gqom” — it'll be in Rekordbox in a few
+  minutes." or the error in plain words).
+
+**Mac app.** Connect iPhone shows a QR code of `install_url`, with an expiry
+hint and **New QR**. "Show key and URL" stays under a disclosure for the manual
+path.
+
+**Website.** `/connect/iphone/` becomes:
+1. Scan the QR in DJ Sync → Assistants → Connect iPhone.
+2. Tap Add Shortcut.
+3. In Spotify or YouTube, Share → DJ Sync.
+
+The manual build moves under "Advanced".
 
 ## 3. Claude
 

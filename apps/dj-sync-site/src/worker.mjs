@@ -3,19 +3,33 @@
 //   - /download/<file> from the R2 bucket (DMG, update zip, signed feed and
 //     tools manifest; uploaded by apps/dj-sync/release.sh under djsync/),
 //   - the cloud endpoints (MCP connector URLs, the Mac's agent socket and
-//     REST, the Shortcut API, the Telegram bot's webhook), passed to the
-//     dj-sync-cloud Worker over a service binding.
+//     REST, the Shortcut API, the Telegram bot's webhook, the one-scan iPhone
+//     install pages under /i/), passed to the dj-sync-cloud Worker over a
+//     service binding.
 // Any other hostname routed here (djsync.triplejmusic.art) gets a 301 to the
-// same path on the canonical host.
+// same path on the canonical host. Someone opening the Shortcut API in a
+// browser (/api/downloads, /api/playlists) gets the iPhone setup guide instead
+// of a JSON 401.
 
 export const CANONICAL_HOST = "djsync.jeffrey.build";
 
 const CLOUD_EXACT = new Set(["/health", "/api/downloads", "/api/playlists"]);
-const CLOUD_PREFIXES = ["/v2/", "/api/downloads/", "/agent/", "/telegram/"];
+const CLOUD_PREFIXES = ["/v2/", "/api/downloads/", "/agent/", "/telegram/", "/i/"];
 const DOWNLOAD = /^\/download\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
+const SHORTCUT_API = new Set(["/api/downloads", "/api/playlists"]);
+export const IPHONE_GUIDE = "/connect/iphone/";
 
 export function isCloudPath(path) {
   return CLOUD_EXACT.has(path) || CLOUD_PREFIXES.some((p) => path.startsWith(p)) || path.endsWith("/mcp");
+}
+
+/** A person's browser, not the Shortcut or another API client. */
+export function isBrowserVisit(request) {
+  return (
+    (request.method === "GET" || request.method === "HEAD") &&
+    !request.headers.has("authorization") &&
+    (request.headers.get("accept") ?? "").includes("text/html")
+  );
 }
 
 export default {
@@ -26,6 +40,9 @@ export default {
       url.hostname = CANONICAL_HOST;
       url.port = "";
       return Response.redirect(url.toString(), 301);
+    }
+    if (SHORTCUT_API.has(url.pathname) && isBrowserVisit(request)) {
+      return new Response(null, { status: 302, headers: { location: IPHONE_GUIDE, "cache-control": "no-store" } });
     }
     if (isCloudPath(url.pathname)) return env.CLOUD.fetch(request);
     const file = DOWNLOAD.exec(url.pathname);

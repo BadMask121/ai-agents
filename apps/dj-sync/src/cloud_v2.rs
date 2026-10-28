@@ -126,6 +126,14 @@ pub struct Link {
     pub expires_at: Option<String>,
 }
 
+/// Where an iPhone installs its Shortcut from (one-scan setup).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutInstall {
+    pub install_url: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
 /// This Mac's identity with the shared Worker, shared by the lane and the
 /// menu app's `/local/links` routes.
 pub struct CloudSession {
@@ -350,6 +358,36 @@ impl CloudSession {
         write_private_json(&self.links_path(), &known)?;
         info!(link = %id, "disconnected assistant link");
         Ok(())
+    }
+
+    /// A link as this Mac saved it (with its URL, key, …), if it knows it.
+    pub async fn saved_link(&self, id: &str) -> Option<Link> {
+        let _files = self.files.lock().await;
+        self.local_links().into_iter().find(|l| l.id == id)
+    }
+
+    /// Upload a signed iPhone Shortcut for a shortcut link; the cloud hands
+    /// back a short-lived install page for the QR code.
+    pub async fn upload_shortcut(
+        &self,
+        id: &str,
+        signed: Vec<u8>,
+    ) -> Result<ShortcutInstall, CloudError> {
+        let res = self
+            .agent_request(Method::PUT, &format!("/v2/agent/links/{id}/install"))
+            .await?
+            .header("content-type", "application/octet-stream")
+            .timeout(Duration::from_secs(60))
+            .body(signed)
+            .send()
+            .await?;
+        let install: ShortcutInstall = check(res)
+            .await?
+            .json()
+            .await
+            .context("parsing the install link")?;
+        info!(link = %id, "uploaded the iPhone Shortcut");
+        Ok(install)
     }
 
     fn links_path(&self) -> PathBuf {
