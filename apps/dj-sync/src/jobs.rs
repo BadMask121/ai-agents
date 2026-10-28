@@ -95,7 +95,12 @@ struct Entry {
 
 #[derive(Clone)]
 enum Work {
-    Download(Vec<MediaRef>),
+    /// `playlist_id`: the existing Rekordbox playlist the cloud resolved the
+    /// name to (pins the exact one when names repeat).
+    Download {
+        media: Vec<MediaRef>,
+        playlist_id: Option<String>,
+    },
     Library(LibraryWork),
 }
 
@@ -180,6 +185,16 @@ impl JobQueue {
         media: Vec<MediaRef>,
         playlist: Option<&str>,
     ) -> anyhow::Result<Submitted> {
+        self.submit_to(media, playlist, None)
+    }
+
+    /// `submit` into a specific existing Rekordbox playlist (by its id).
+    pub fn submit_to(
+        &self,
+        media: Vec<MediaRef>,
+        playlist: Option<&str>,
+        playlist_id: Option<String>,
+    ) -> anyhow::Result<Submitted> {
         anyhow::ensure!(!media.is_empty(), "no links to download");
         let playlist = normalize_playlist_name(playlist, &self.default_playlist)?;
         let urls: Vec<String> = media.iter().map(|m| m.url().to_string()).collect();
@@ -203,7 +218,7 @@ impl JobQueue {
             JobKind::Download,
             playlist,
             urls,
-            Work::Download(media),
+            Work::Download { media, playlist_id },
         )
     }
 
@@ -367,8 +382,8 @@ async fn worker<F: Fetcher>(
         }) else {
             continue;
         };
-        let media = match work {
-            Work::Download(media) => media,
+        let (media, playlist_id) = match work {
+            Work::Download { media, playlist_id } => (media, playlist_id),
             Work::Library(work) => {
                 run_library_job(&store, &job_id, &cfg, work, library.clone()).await;
                 continue;
@@ -397,6 +412,7 @@ async fn worker<F: Fetcher>(
                     &job_id,
                     &media,
                     &playlist,
+                    playlist_id.clone(),
                     library.clone(),
                 )
                 .await
@@ -509,6 +525,7 @@ async fn run_job<F: Fetcher>(
     job_id: &str,
     media: &[MediaRef],
     playlist: &str,
+    playlist_id: Option<String>,
     library: Option<Arc<RekordboxLibrary>>,
 ) -> anyhow::Result<JobOutcome> {
     // Staging lives inside the download dir so the final move is a same-disk rename.
@@ -544,7 +561,13 @@ async fn run_job<F: Fetcher>(
     let playlist = playlist.to_string();
     let staging_root = staging.clone();
     let finalized = tokio::task::spawn_blocking(move || {
-        let result = finalize(&cfg, &staged, &playlist, library.as_deref());
+        let result = finalize(
+            &cfg,
+            &staged,
+            &playlist,
+            playlist_id.as_deref(),
+            library.as_deref(),
+        );
         if let Err(e) = std::fs::remove_dir_all(&staging_root) {
             warn!(dir = %staging_root.display(), error = %e, "could not remove staging dir");
         }
@@ -571,6 +594,7 @@ fn finalize(
     cfg: &DownloadCfg,
     staged: &[Staged],
     playlist: &str,
+    playlist_id: Option<&str>,
     library: Option<&RekordboxLibrary>,
 ) -> anyhow::Result<Finalized> {
     let mut placed = Vec::new();
@@ -649,7 +673,7 @@ fn finalize(
         }
         None => base,
     };
-    let library = library.map(|lib| queue_for_library(lib, &placed, playlist));
+    let library = library.map(|lib| queue_for_library(lib, &placed, playlist, playlist_id));
     Ok(Finalized {
         tracks,
         errors,
@@ -665,7 +689,33 @@ fn queue_for_library(
     lib: &RekordboxLibrary,
     placed: &[(String, crate::TrackMeta, bool)],
     playlist: &str,
+    playlist_id: Option<&str>,
 ) -> LibraryNote {
+    let ops = library_ops(placed, playlist, playlist_id);
+    let summary = format!("Add {} track(s) to “{playlist}”", placed.len());
+    match lib.enqueue(summary, ops) {
+        Ok(_) if lib.rekordbox_running() => LibraryNote::WhenRekordboxQuits,
+        Ok(_) => LibraryNote::Soon,
+        Err(e) => {
+            warn!(error = %format!("{e:#}"), "couldn't queue rekordbox library update");
+            LibraryNote::Failed
+        }
+    }
+}
+
+/// rbdb.py ops for downloaded tracks: add each to the Collection, then to the
+/// playlist (pinned by id when the cloud resolved one).
+fn library_ops(
+    placed: &[(String, crate::TrackMeta, bool)],
+    playlist: &str,
+    playlist_id: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let pin = |mut op: serde_json::Value| {
+        if let Some(id) = playlist_id {
+            op["playlist_id"] = serde_json::json!(id);
+        }
+        op
+    };
     let mut ops: Vec<serde_json::Value> = placed
         .iter()
         .map(|(url, meta, _)| {
@@ -684,19 +734,13 @@ fn queue_for_library(
             })
         })
         .collect();
-    ops.push(serde_json::json!({"op": "ensure_playlist", "name": playlist}));
+    ops.push(pin(
+        serde_json::json!({"op": "ensure_playlist", "name": playlist}),
+    ));
     ops.extend(placed.iter().map(|(_, meta, _)| {
-        serde_json::json!({"op": "add_to_playlist", "playlist": playlist, "path": meta.path})
+        pin(serde_json::json!({"op": "add_to_playlist", "playlist": playlist, "path": meta.path}))
     }));
-    let summary = format!("Add {} track(s) to “{playlist}”", placed.len());
-    match lib.enqueue(summary, ops) {
-        Ok(_) if lib.rekordbox_running() => LibraryNote::WhenRekordboxQuits,
-        Ok(_) => LibraryNote::Soon,
-        Err(e) => {
-            warn!(error = %format!("{e:#}"), "couldn't queue rekordbox library update");
-            LibraryNote::Failed
-        }
-    }
+    ops
 }
 
 /// Audio files directly in `dir`, sorted by name (spotdl downloads in
@@ -1290,6 +1334,20 @@ mod tests {
             .unwrap()
             .lookup("Sat")
             .is_some());
+    }
+
+    #[test]
+    fn download_ops_pin_the_resolved_playlist() {
+        let meta = crate::library::read_meta(&fixture()).unwrap();
+        let placed = vec![("https://youtu.be/x".to_string(), meta, false)];
+        let ops = library_ops(&placed, "Gqom", Some("123"));
+        let kinds: Vec<&str> = ops.iter().map(|o| o["op"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["add_track", "ensure_playlist", "add_to_playlist"]);
+        assert_eq!(ops[1]["playlist_id"], "123");
+        assert_eq!(ops[2]["playlist_id"], "123");
+        assert!(ops[0].get("playlist_id").is_none());
+        let loose = library_ops(&placed, "New One", None);
+        assert!(loose.iter().all(|o| o.get("playlist_id").is_none()));
     }
 
     #[test]

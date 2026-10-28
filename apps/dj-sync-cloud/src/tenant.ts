@@ -92,6 +92,7 @@ export class Tenant extends DurableObject<TenantEnv> {
   /** `null` until /__/init — an unknown tenant never gets storage. */
   private get store(): SqlStore | null {
     if (!this.storeCache && SqlStore.initialized(this.db)) {
+      SqlStore.migrate(this.db);
       this.storeCache = new SqlStore(this.db, () => this.agentSocket() !== null, () => this.clock());
     }
     return this.storeCache;

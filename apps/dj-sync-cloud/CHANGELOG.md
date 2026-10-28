@@ -13,6 +13,30 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.1.0] — 2026-10-28
+
+### Added
+- **Playlists are matched the way people say them.** The tiers are: exact
+  name, then ignoring case, then ignoring punctuation, emoji and accents,
+  then ignoring spaces too ("warm up" → "Warmup"). "Folder/Name" also
+  works, and `playlist_id` breaks exact ties.
+- **When the name is unclear, nothing happens and the closest playlists come
+  back instead**, as `error: playlist_not_found | playlist_ambiguous` with
+  `suggestions[{playlist_id, name, folder, path, tracks}]`, so ChatGPT asks
+  the user. Every playlist tool, and downloads, work this way.
+- **`download_to_rekordbox` puts tracks in the playlist the user meant.** It
+  resolves `playlist_name` (or `playlist_id`) against the library. A new
+  playlist is made only with `create_playlist: true`.
+- **Every library op, and download jobs, carry the resolved `playlist_id`**,
+  so the Mac acts on exactly that playlist. Tenants get a `jobs.playlist_id`
+  column through a lazy migration.
+- **`get_playlist` pages:** `offset` and `limit` (500 per page by default,
+  up to 1000), `next_offset`, and `playlist_id`.
+
+### Fixed
+- **ChatGPT couldn't see every song.** `get_playlist` stopped at 200 tracks,
+  and `list_playlists` text stopped at 100 playlists.
+
 ## [1.0.0] — 2026-10-28 · agent protocol 2.0.0 (1.1.0 kept until retirement)
 
 The public, multi-DJ cloud from the distribution spec

@@ -11,6 +11,18 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.0.0] — 2026-10-28 · first public release
+
+### Added
+- **Downloads and playlist changes land in exactly the playlist ChatGPT
+  resolved,** even when two playlists share a name.
+  - Cloud jobs and library ops carry Rekordbox's `playlist_id`.
+  - `rbdb.py` finds playlists by id first, falling back to the name if
+    that id is gone.
+  - `JobQueue::submit_to` takes the id.
+- **Everything from 1.0.0-rc.1:** the public app, the bundled service, the
+  toolbox, cloud v2, onboarding and the updater.
+
 ## [1.0.0-rc.1] — 2026-10-28 · one product version with the app
 
 From this release the menu app and the service it carries share one version.

@@ -38,6 +38,9 @@ pub struct ClaimedJob {
     pub ops: Vec<Value>,
     #[serde(default)]
     pub summary: Option<String>,
+    /// Download jobs: the existing Rekordbox playlist the name resolved to.
+    #[serde(default)]
+    pub playlist_id: Option<String>,
 }
 
 /// A job's result as the Worker receives it.
@@ -157,7 +160,7 @@ impl AgentCore {
             )));
         }
         self.jobs
-            .submit(media, Some(&job.playlist))
+            .submit_to(media, Some(&job.playlist), job.playlist_id.clone())
             .map(|sub| sub.job.job_id)
             .map_err(|e| {
                 Box::new(Completion::failed(

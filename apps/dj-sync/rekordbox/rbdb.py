@@ -11,6 +11,8 @@ dj-sync (Rust) runs this with JSON in and JSON out:
 `apply` runs every op in ONE transaction and commits once at the end; any
 failure rolls everything back, so the library never ends up half-changed.
 Ops are idempotent (re-applying them never duplicates tracks or entries).
+Playlist ops may carry `playlist_id` (Rekordbox's id, from the snapshot) to
+pin the exact playlist when names repeat; without it they match by name.
 Writing is refused while Rekordbox is running — dj-sync queues changes and
 applies them after Rekordbox quits, and snapshots master.db first.
 
@@ -62,7 +64,18 @@ def playlists_named(db: MasterDatabase, name: str) -> list:
     return [p for p in db.get_playlist(Name=name).all() if p.Attribute == PLAYLIST]
 
 
-def find_playlist(db: MasterDatabase, name: str):
+def playlist_by_id(db: MasterDatabase, playlist_id):
+    """The playlist the cloud pinned (None if it's gone or isn't a playlist)."""
+    if not playlist_id:
+        return None
+    p = first(db.get_playlist(ID=str(playlist_id)))
+    return p if p is not None and p.Attribute == PLAYLIST else None
+
+
+def find_playlist(db: MasterDatabase, name: str, playlist_id=None):
+    pinned = playlist_by_id(db, playlist_id)
+    if pinned is not None:
+        return pinned
     found = playlists_named(db, name)
     if not found:
         raise ValueError(f"no playlist named {name!r}")
@@ -121,6 +134,9 @@ def op_add_track(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
 
 def op_ensure_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
     name = op["name"]
+    pinned = playlist_by_id(db, op.get("playlist_id"))
+    if pinned is not None:
+        return {"playlist_id": str(pinned.ID), "created": False}
     found = playlists_named(db, name)
     if found:
         return {"playlist_id": str(find_playlist(db, name).ID), "created": False}
@@ -130,7 +146,7 @@ def op_ensure_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]
 
 
 def op_add_to_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
-    playlist = find_playlist(db, op["playlist"])
+    playlist = find_playlist(db, op["playlist"], op.get("playlist_id"))
     content = find_content(db, op)
     if content is None:
         raise ValueError(f"track not in library: {op.get('path') or op.get('content_id')}")
@@ -142,7 +158,7 @@ def op_add_to_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]
 
 
 def op_remove_from_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
-    playlist = find_playlist(db, op["playlist"])
+    playlist = find_playlist(db, op["playlist"], op.get("playlist_id"))
     content = find_content(db, op)
     if content is None:
         return {"removed": False}
@@ -154,7 +170,7 @@ def op_remove_from_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str,
 
 
 def op_rename_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
-    playlist = find_playlist(db, op["name"])
+    playlist = find_playlist(db, op["name"], op.get("playlist_id"))
     if playlist.Name == op["new_name"]:
         return {"renamed": False}
     db.rename_playlist(playlist, op["new_name"])
@@ -162,10 +178,10 @@ def op_rename_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]
 
 
 def op_delete_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
-    found = playlists_named(db, op["name"])
-    if not found:
+    pinned = playlist_by_id(db, op.get("playlist_id"))
+    if pinned is None and not playlists_named(db, op["name"]):
         return {"deleted": False}
-    db.delete_playlist(find_playlist(db, op["name"]))
+    db.delete_playlist(pinned if pinned is not None else find_playlist(db, op["name"]))
     return {"deleted": True}
 
 

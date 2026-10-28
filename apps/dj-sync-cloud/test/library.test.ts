@@ -1,3 +1,4 @@
+import { claimedJobView } from "../src/agent";
 import { describe, expect, it } from "vitest";
 import { AGENT_PROTOCOL, MAX_BODY_BYTES, MAX_LIBRARY_BYTES, WORKER_VERSION } from "../src/constants";
 import { dispatch } from "../src/mcp";
@@ -327,23 +328,96 @@ describe("read tools", () => {
     expect(r.structuredContent.tracks.map((t: Any) => t.track_id)).toEqual(["t2", "t1"]);
     expect(text(r)).toContain("[track_id t2]");
 
-    const miss = await call(deps, "get_playlist", { name: "Amapiano" });
+    // A phrase inside exactly one name resolves to it.
+    expect((await call(deps, "get_playlist", { name: "Amapiano" })).structuredContent.name).toBe("Amapiano Bangers");
+    const miss = await call(deps, "get_playlist", { name: "Amapino Bangerz" });
     expect(miss.isError).toBe(true);
-    expect(miss.structuredContent.suggestions).toEqual(["Amapiano Bangers"]);
-    expect(text(miss)).toContain('Did you mean "Amapiano Bangers"');
+    expect(miss.structuredContent.suggestions.map((x: Any) => x.name)).toEqual(["Amapiano Bangers"]);
+    expect(miss.structuredContent.error).toBe("playlist_not_found");
+    expect(text(miss)).toContain('closest playlists are "Amapiano Bangers" (3 tracks, playlist_id p1)');
+    expect(text(miss)).toContain("Ask the user which one");
   });
 
-  it("get_playlist shows at most 200 tracks but reports the total", async () => {
+  it("get_playlist pages through every track of a long playlist", async () => {
     const { deps } = makeDeps();
-    const ids = Array.from({ length: 250 }, (_, i) => `k${i}`);
+    const ids = Array.from({ length: 1250 }, (_, i) => `k${i}`);
     await upload(deps, {
       ...SNAPSHOT,
       playlists: [{ id: "big", name: "Big", folder: "", track_ids: ids }],
       tracks: ids.map((id) => track(id, id, "A", null, null, null)),
     });
     const r = await call(deps, "get_playlist", { name: "Big" });
-    expect(r.structuredContent.total).toBe(250);
-    expect(r.structuredContent.tracks).toHaveLength(200);
+    expect(r.structuredContent).toMatchObject({ total: 1250, offset: 0, next_offset: 500, playlist_id: "big" });
+    expect(r.structuredContent.tracks).toHaveLength(500);
+    expect(text(r)).toContain("showing 1–500; call get_playlist again with offset 500 for the rest");
+    const seen = [...r.structuredContent.tracks];
+    let next = r.structuredContent.next_offset;
+    while (next !== null) {
+      const page = await call(deps, "get_playlist", { name: "Big", offset: next });
+      seen.push(...page.structuredContent.tracks);
+      next = page.structuredContent.next_offset;
+    }
+    expect(seen.map((t: Any) => t.track_id)).toEqual(ids);
+    const last = await call(deps, "get_playlist", { name: "Big", offset: 1200, limit: 1000 });
+    expect(text(last)).toContain("1201. ");
+    expect(last.structuredContent.next_offset).toBeNull();
+    expect((await call(deps, "get_playlist", { name: "Big", limit: 1001 })).isError).toBe(true);
+    expect((await call(deps, "get_playlist", { name: "Big", offset: -1 })).isError).toBe(true);
+  });
+
+  it("list_playlists lists every playlist in its text, not just the first 100", async () => {
+    const { deps } = makeDeps();
+    const playlists = Array.from({ length: 233 }, (_, i) => ({ id: `p${i}`, name: `Set ${i}`, folder: "", track_ids: [] }));
+    await upload(deps, { ...SNAPSHOT, playlists });
+    const r = await call(deps, "list_playlists", {});
+    expect(text(r)).toContain("Set 232");
+    expect(text(r)).not.toContain("more; narrow it down");
+  });
+
+  it("matches loose names: case, emoji, punctuation, accents, Folder/Name", async () => {
+    const { deps } = makeDeps();
+    await upload(deps, {
+      ...SNAPSHOT,
+      playlists: [
+        { id: "e", name: "AFROBEATS PARTY MIX 2022_2023🔥", folder: "", track_ids: ["t1"] },
+        { id: "s1", name: "Afro House - Español", folder: "Afro", track_ids: [] },
+        { id: "s2", name: "Afro House - Español ", folder: "Afro", track_ids: ["t1", "t2"] },
+        { id: "m1", name: "mukstar", folder: "Old", track_ids: [] },
+        { id: "m2", name: "mukstar", folder: "New", track_ids: ["t3"] },
+        { id: "g", name: "Gqom", folder: "GQOM", track_ids: ["t2"] },
+      ],
+    });
+    const named = async (name: string) => (await call(deps, "get_playlist", { name })).structuredContent;
+    expect((await named("afrobeats party mix 2022 2023")).playlist_id).toBe("e");
+    expect((await named("GQOM")).playlist_id).toBe("g");
+    expect((await named("GQOM/gqom")).playlist_id).toBe("g");
+    // Exactly the same name in two folders: ask, listing both with their folders.
+    const dup = await call(deps, "get_playlist", { name: "mukstar" });
+    expect(dup.isError).toBe(true);
+    expect(dup.structuredContent.error).toBe("playlist_ambiguous");
+    expect(dup.structuredContent.suggestions.map((x: Any) => x.path)).toEqual(["Old/mukstar", "New/mukstar"]);
+    expect((await named("New/mukstar")).playlist_id).toBe("m2");
+    expect(text(dup)).toContain("playlist_id m1");
+    const byId = await call(deps, "get_playlist", { name: "mukstar", playlist_id: "m2" });
+    expect(byId.structuredContent).toMatchObject({ playlist_id: "m2", folder: "New" });
+    expect((await call(deps, "get_playlist", { name: "mukstar", playlist_id: "zzz" })).isError).toBe(true);
+    const add = await call(deps, "add_tracks_to_playlist", { playlist: "mukstar", playlist_id: "m1", track_ids: ["t1"] });
+    expect((await deps.store.getJob(add.structuredContent.job_id))!.ops).toEqual([
+      { op: "add_to_playlist", playlist: "mukstar", content_id: "t1", playlist_id: "m1" },
+    ]);
+    // The exact spelling wins over a trailing-space twin.
+    expect((await named("Afro House - Español")).playlist_id).toBe("s1");
+    expect((await call(deps, "get_playlist", { name: "afro house espanol" })).structuredContent.error).toBe(
+      "playlist_ambiguous",
+    );
+    // A phrase inside exactly one name is that playlist…
+    expect((await named("afrobeats party mix")).playlist_id).toBe("e");
+    // …inside several, or a typo, gets suggestions, best first.
+    const typo = await call(deps, "get_playlist", { name: "afrobeat party" });
+    expect(typo.structuredContent.suggestions[0].name).toBe("AFROBEATS PARTY MIX 2022_2023🔥");
+    const afro = await call(deps, "get_playlist", { name: "afro" });
+    expect(afro.structuredContent.error).toBe("playlist_not_found");
+    expect(afro.structuredContent.suggestions.length).toBeGreaterThan(1);
   });
 });
 
@@ -379,8 +453,8 @@ describe("write tools", () => {
     expect(r.isError).toBe(false);
     expect(text(r)).toContain('Playlist "Warmup" already exists; adding to it.');
     expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
-      { op: "ensure_playlist", name: "Warmup" },
-      { op: "add_to_playlist", playlist: "Warmup", content_id: "t3" },
+      { op: "ensure_playlist", name: "Warmup", playlist_id: "p3" },
+      { op: "add_to_playlist", playlist: "Warmup", content_id: "t3", playlist_id: "p3" },
     ]);
   });
 
@@ -402,13 +476,13 @@ describe("write tools", () => {
     const { deps } = await withLibrary();
     const add = await call(deps, "add_tracks_to_playlist", { playlist: "Closing", track_ids: ["t1", "t2"] });
     expect(await jobOps(deps, add.structuredContent.job_id)).toEqual([
-      { op: "add_to_playlist", playlist: "Closing", content_id: "t1" },
-      { op: "add_to_playlist", playlist: "Closing", content_id: "t2" },
+      { op: "add_to_playlist", playlist: "Closing", content_id: "t1", playlist_id: "p4" },
+      { op: "add_to_playlist", playlist: "Closing", content_id: "t2", playlist_id: "p4" },
     ]);
     const rm = await call(deps, "remove_tracks_from_playlist", { playlist: "Amapiano Bangers", track_ids: ["t3"] });
     expect(rm.structuredContent.summary).toBe('Remove 1 track from "Amapiano Bangers"');
     expect(await jobOps(deps, rm.structuredContent.job_id)).toEqual([
-      { op: "remove_from_playlist", playlist: "Amapiano Bangers", content_id: "t3" },
+      { op: "remove_from_playlist", playlist: "Amapiano Bangers", content_id: "t3", playlist_id: "p1" },
     ]);
 
     const noList = await call(deps, "add_tracks_to_playlist", { playlist: "Brand New", track_ids: ["t1"] });
@@ -439,17 +513,21 @@ describe("write tools", () => {
     const { deps } = await withLibrary();
     const rn = await call(deps, "rename_playlist", { name: "afro HOUSE", new_name: "Afro\u0000House" });
     expect(await jobOps(deps, rn.structuredContent.job_id)).toEqual([
-      { op: "rename_playlist", name: "afro house", new_name: "Afro House" },
+      { op: "rename_playlist", name: "afro house", new_name: "Afro House", playlist_id: "p2" },
     ]);
     expect((await call(deps, "rename_playlist", { name: "Warmup", new_name: "Warmup" })).isError).toBe(true);
     expect((await call(deps, "rename_playlist", { name: "Nope", new_name: "X" })).isError).toBe(true);
 
     const del = await call(deps, "delete_playlist", { name: "Closing" });
     expect(del.isError).toBe(false);
-    expect(await jobOps(deps, del.structuredContent.job_id)).toEqual([{ op: "delete_playlist", name: "Closing" }]);
+    expect(await jobOps(deps, del.structuredContent.job_id)).toEqual([
+      { op: "delete_playlist", name: "Closing", playlist_id: "p4" },
+    ]);
     expect(text(del)).toContain("restored from DJ Sync on the Mac");
     expect(text(del)).toContain(APPLY);
-    expect((await call(deps, "delete_playlist", { name: "Closin" })).structuredContent.suggestions).toEqual(["Closing"]);
+    const miss = await call(deps, "delete_playlist", { name: "Closin" });
+    expect(miss.structuredContent.suggestions.map((x: Any) => x.path)).toEqual(["Gigs/Friday/Closing"]);
+    expect(text(miss)).toContain("Nothing was changed");
   });
 
   it("says when the Mac is offline", async () => {
@@ -460,7 +538,7 @@ describe("write tools", () => {
     expect(text(r)).toContain("it will update Rekordbox when it's back online");
   });
 
-  it("prefers the DJ Sync folder's playlist when names repeat, like rbdb.py", async () => {
+  it("asks which one when names repeat, and pins the choice by id", async () => {
     const { deps } = makeDeps();
     await upload(deps, {
       ...SNAPSHOT,
@@ -469,7 +547,40 @@ describe("write tools", () => {
         { id: "b", name: "Dupes", folder: "DJ Sync", track_ids: ["t1"] },
       ],
     });
-    const r = await call(deps, "get_playlist", { name: "Dupes" });
-    expect(r.structuredContent).toMatchObject({ folder: "DJ Sync", total: 1 });
+    const ask = await call(deps, "delete_playlist", { name: "Dupes" });
+    expect(ask.structuredContent.error).toBe("playlist_ambiguous");
+    expect(await deps.store.recentJobs(10)).toHaveLength(0);
+    const del = await call(deps, "delete_playlist", { name: "DJ Sync/Dupes" });
+    expect(await jobOps(deps, del.structuredContent.job_id)).toEqual([
+      { op: "delete_playlist", name: "Dupes", playlist_id: "b" },
+    ]);
+  });
+
+  it("downloads go into the playlist the user meant, or ask", async () => {
+    const { deps } = await withLibrary();
+    const url = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
+    const into = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "warm up" });
+    expect(into.isError).toBe(false);
+    expect(into.structuredContent).toMatchObject({ playlist: "Warmup", playlist_id: "p3" });
+    const job = (await deps.store.getJob(into.structuredContent.job_id))!;
+    expect(claimedJobView(job)).toMatchObject({ kind: "download", playlist: "Warmup", playlist_id: "p3" });
+
+    const unclear = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "amapino bangerz" });
+    expect(unclear.isError).toBe(true);
+    expect(unclear.structuredContent.suggestions[0].name).toBe("Amapiano Bangers");
+    expect(text(unclear)).toContain("create_playlist: true");
+
+    const fresh = await call(deps, "download_to_rekordbox", {
+      urls: [url],
+      playlist_name: "Sunday Brunch",
+      create_playlist: true,
+    });
+    expect(fresh.structuredContent).toMatchObject({ playlist: "Sunday Brunch", playlist_id: null });
+    expect(claimedJobView((await deps.store.getJob(fresh.structuredContent.job_id))!)).not.toHaveProperty("playlist_id");
+
+    const nowhere = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "Sunday Brunch" });
+    expect(nowhere.isError).toBe(true);
+    // Only the two good requests were queued.
+    expect(await deps.store.recentJobs(10)).toHaveLength(2);
   });
 });

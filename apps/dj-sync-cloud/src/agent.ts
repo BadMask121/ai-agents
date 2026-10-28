@@ -120,6 +120,7 @@ export function claimedJobView(claimed: JobRow) {
         playlist: claimed.playlist,
         urls: claimed.urls,
         attempt: claimed.attempts,
+        ...(claimed.playlist_id ? { playlist_id: claimed.playlist_id } : {}),
       };
 }
 

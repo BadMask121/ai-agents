@@ -56,6 +56,8 @@ export async function submit(
   media: MediaRef[],
   playlistName: string | null | undefined,
   source: JobSource,
+  /** The existing Rekordbox playlist `playlistName` was resolved to. */
+  playlistId: string | null = null,
 ): Promise<Result<Submitted>> {
   if (media.length === 0) return { ok: false, error: "no links to download" };
   const playlist = normalizePlaylistName(playlistName, deps.config.defaultPlaylist);
@@ -72,7 +74,9 @@ export async function submit(
 
   const refused = await deps.admit?.();
   if (refused) return { ok: false, error: refused };
-  return { ok: true, value: await insert(deps, newJob(deps, "download", playlist.value, urls, dedupeKey, source)) };
+  const job = newJob(deps, "download", playlist.value, urls, dedupeKey, source);
+  job.playlist_id = playlistId;
+  return { ok: true, value: await insert(deps, job) };
 }
 
 /**

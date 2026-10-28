@@ -1,5 +1,5 @@
 /** Semver of this Worker. Keep in sync with package.json (a test checks it). */
-export const WORKER_VERSION = "1.0.0";
+export const WORKER_VERSION = "1.1.0";
 
 /**
  * Semver of the agent API the Mac polls. A Mac is compatible when it has the
@@ -26,7 +26,11 @@ export const MAX_LIBRARY_BYTES = 16 * 1024 * 1024;
 /** Most track ids one playlist tool call may name. */
 export const MAX_TRACK_IDS = 500;
 /** Tracks `get_playlist` returns in full. */
-export const PLAYLIST_TRACKS_SHOWN = 200;
+/** get_playlist: tracks per page by default, and the most one call may ask for. */
+export const PLAYLIST_TRACKS_SHOWN = 500;
+export const PLAYLIST_PAGE_MAX = 1000;
+/** list_playlists lists this many in its text (all of them, in practice). */
+export const PLAYLISTS_LISTED = 1000;
 export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_MAX_LIMIT = 50;
 export const MAX_PLAYLIST_NAME = 100;

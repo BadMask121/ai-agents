@@ -8,12 +8,17 @@ export type JobSource = "mcp" | "shortcut";
 export type JobKind = "download" | "library";
 
 /** One playlist operation, exactly as the Mac's rbdb.py consumes it. */
+/**
+ * rbdb.py ops. `playlist_id` (Rekordbox's id, from the snapshot) pins the
+ * exact playlist when names are ambiguous; older Macs ignore it and match by
+ * name.
+ */
 export type LibraryOp =
-  | { op: "ensure_playlist"; name: string }
-  | { op: "add_to_playlist"; playlist: string; content_id: string }
-  | { op: "remove_from_playlist"; playlist: string; content_id: string }
-  | { op: "rename_playlist"; name: string; new_name: string }
-  | { op: "delete_playlist"; name: string };
+  | { op: "ensure_playlist"; name: string; playlist_id?: string }
+  | { op: "add_to_playlist"; playlist: string; content_id: string; playlist_id?: string }
+  | { op: "remove_from_playlist"; playlist: string; content_id: string; playlist_id?: string }
+  | { op: "rename_playlist"; name: string; new_name: string; playlist_id?: string }
+  | { op: "delete_playlist"; name: string; playlist_id?: string };
 
 /** A track in the Mac's Rekordbox library snapshot. */
 export interface LibTrack {
@@ -80,6 +85,8 @@ export interface JobRow {
   ops: LibraryOp[] | null;
   /** Library jobs only: "Add 3 tracks to “Friday”". */
   summary: string | null;
+  /** Download jobs into an existing Rekordbox playlist: its id. */
+  playlist_id?: string | null;
 }
 
 /** What every agent call records. */

@@ -5,6 +5,8 @@
 import {
   MAX_PLAYLIST_NAME,
   MAX_TRACK_IDS,
+  PLAYLISTS_LISTED,
+  PLAYLIST_PAGE_MAX,
   PLAYLIST_TRACKS_SHOWN,
   RECENT_JOBS,
   SEARCH_DEFAULT_LIMIT,
@@ -26,12 +28,12 @@ import {
 import {
   NO_LIBRARY,
   cleanName,
-  findPlaylist,
   parseTrackIds,
+  playlistPath,
   plural,
+  resolvePlaylist,
   searchTracks,
   sortPlaylists,
-  suggestPlaylists,
   trackView,
   unknownTrackIds,
 } from "./library";
@@ -114,9 +116,21 @@ function initialize(params: Obj): Json {
       "library the Mac last shared), then create_playlist, add_tracks_to_playlist, " +
       "remove_tracks_from_playlist, rename_playlist or delete_playlist with track_ids from those " +
       "results; changes are queued for the Mac like downloads. Use get_download_status with a " +
-      "job_id when the user asks how something went.",
+      "job_id when the user asks how something went. Playlist names can be loose (\"gqom\", no emoji, " +
+      "\"Folder/Name\"): the tools match them to the DJ's playlists, and when they can't tell which " +
+      "one is meant they return the closest playlists instead of acting — then ask the user to pick " +
+      "and call again with that exact name. To put downloads in a brand-new playlist, set " +
+      "create_playlist: true. get_playlist pages through long playlists with offset.",
   };
 }
+
+const PLAYLIST_ID_SCHEMA = {
+  type: "string",
+  maxLength: 32,
+  description:
+    "Only when a previous answer listed several playlists with the same name: the playlist_id of the one " +
+    "the user picked.",
+};
 
 export function toolDefinitions(maxUrls: number): Json {
   return [
@@ -141,7 +155,18 @@ export function toolDefinitions(maxUrls: number): Json {
           playlist_name: {
             type: "string",
             maxLength: 100,
-            description: "Rekordbox playlist to add the tracks to. Omit to use the default playlist.",
+            description:
+              "Existing Rekordbox playlist to add the tracks to, as the user said it (case, emoji and " +
+              "punctuation don't matter; \"Folder/Name\" picks one of two same-named playlists). If it " +
+              "doesn't clearly match one playlist, nothing is queued and the closest playlists come back " +
+              "to ask the user about. Omit to use the default playlist.",
+          },
+          playlist_id: PLAYLIST_ID_SCHEMA,
+          create_playlist: {
+            type: "boolean",
+            description:
+              "Set true only when the user wants a NEW playlist called playlist_name (it's created in " +
+              "the DJ Sync folder).",
           },
         },
         required: ["urls"],
@@ -247,10 +272,22 @@ function libraryToolDefinitions(): Json[] {
     {
       name: GET_PLAYLIST,
       title: "Show a Rekordbox playlist",
-      description: `The tracks in one Rekordbox playlist (the first ${PLAYLIST_TRACKS_SHOWN}), with their track_ids.`,
+      description:
+        `Every track in one Rekordbox playlist, ${PLAYLIST_TRACKS_SHOWN} per page (use offset for the ` +
+        "next page), with their track_ids. The name can be loose; unclear names return suggestions.",
       inputSchema: {
         type: "object",
-        properties: { name: nameSchema("Playlist name, e.g. from list_playlists.") },
+        properties: {
+          name: nameSchema("Playlist name, e.g. from list_playlists (or \"Folder/Name\")."),
+          playlist_id: PLAYLIST_ID_SCHEMA,
+          offset: { type: "integer", minimum: 0, description: "Skip this many tracks (for the next page)." },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: PLAYLIST_PAGE_MAX,
+            description: `Tracks per page (default ${PLAYLIST_TRACKS_SHOWN}).`,
+          },
+        },
         required: ["name"],
         additionalProperties: false,
       },
@@ -276,7 +313,7 @@ function libraryToolDefinitions(): Json[] {
       description: "Add tracks (by track_id) to an existing Rekordbox playlist. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
-        properties: { playlist: nameSchema("Existing playlist name."), track_ids: trackIdsSchema(1) },
+        properties: { playlist: nameSchema("Existing playlist name."), track_ids: trackIdsSchema(1), playlist_id: PLAYLIST_ID_SCHEMA },
         required: ["playlist", "track_ids"],
         additionalProperties: false,
       },
@@ -290,7 +327,7 @@ function libraryToolDefinitions(): Json[] {
         "the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
-        properties: { playlist: nameSchema("Playlist name."), track_ids: trackIdsSchema(1) },
+        properties: { playlist: nameSchema("Playlist name."), track_ids: trackIdsSchema(1), playlist_id: PLAYLIST_ID_SCHEMA },
         required: ["playlist", "track_ids"],
         additionalProperties: false,
       },
@@ -302,7 +339,11 @@ function libraryToolDefinitions(): Json[] {
       description: "Rename a Rekordbox playlist. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
-        properties: { name: nameSchema("Current playlist name."), new_name: nameSchema("New playlist name.") },
+        properties: {
+          name: nameSchema("Current playlist name."),
+          new_name: nameSchema("New playlist name."),
+          playlist_id: PLAYLIST_ID_SCHEMA,
+        },
         required: ["name", "new_name"],
         additionalProperties: false,
       },
@@ -316,7 +357,7 @@ function libraryToolDefinitions(): Json[] {
         "up first and can be restored from DJ Sync on the Mac. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
-        properties: { name: nameSchema("Playlist to delete.") },
+        properties: { name: nameSchema("Playlist to delete."), playlist_id: PLAYLIST_ID_SCHEMA },
         required: ["name"],
         additionalProperties: false,
       },
@@ -357,7 +398,35 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
     );
   }
 
-  const sub = await submit(deps, media, rawPlaylist ?? null, "mcp");
+  // Into an existing playlist unless the user asked for a new one; when the
+  // name is unclear, ask (with the closest playlists) instead of guessing.
+  let playlistName: string | null = (rawPlaylist as string | undefined) ?? null;
+  let playlistId: string | null = null;
+  const wantsNew = args?.create_playlist === true;
+  if (playlistName !== null && cleanName(playlistName) !== "") {
+    const playlists = await deps.store.getLibraryPlaylists();
+    const pinned = typeof args?.playlist_id === "string" ? playlists?.find((p) => p.id === args.playlist_id) : undefined;
+    if (pinned) {
+      playlistName = pinned.name;
+      playlistId = pinned.id;
+    } else if (playlists) {
+      const m = resolvePlaylist(playlists, playlistName);
+      if (m.kind === "one") {
+        playlistName = m.playlist.name;
+        playlistId = m.playlist.id;
+      } else if (m.kind === "many") {
+        return ambiguousPlaylist(m.options, playlistName);
+      } else if (!wantsNew) {
+        return noSuchPlaylist(
+          m.suggestions,
+          playlistName,
+          " Or, if they want a new playlist with this name, call again with create_playlist: true.",
+        );
+      }
+    }
+  }
+
+  const sub = await submit(deps, media, playlistName, "mcp", playlistId);
   if (!sub.ok) return toolError(sub.error);
   const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
@@ -376,6 +445,7 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
       job_id: job.id,
       state: job.state,
       playlist: job.playlist,
+      playlist_id: job.playlist_id ?? null,
       urls: job.urls,
       created_at: job.created_at,
       position,
@@ -471,12 +541,54 @@ function nameArg(v: unknown, field: string): { value: string } | { error: Json }
   return { value: cleaned.value };
 }
 
-function noSuchPlaylist(playlists: LibPlaylist[], name: string, hint = ""): Json {
-  const close = suggestPlaylists(playlists, name);
-  const didYouMean = close.length > 0 ? ` Did you mean ${close.map((n) => `"${n}"`).join(", ")}?` : "";
+/** One playlist, or the question to ask the user (as the tool's answer). */
+function pickPlaylist(
+  playlists: LibPlaylist[],
+  name: string,
+  hint = "",
+  id?: unknown,
+): { playlist: LibPlaylist } | { ask: Json } {
+  if (typeof id === "string" && id !== "") {
+    const pinned = playlists.find((p) => p.id === id);
+    if (pinned) return { playlist: pinned };
+    return { ask: toolError(`No playlist has playlist_id ${id}; use one from list_playlists or a previous answer.`) };
+  }
+  const m = resolvePlaylist(playlists, name);
+  if (m.kind === "one") return { playlist: m.playlist };
+  if (m.kind === "many") return { ask: ambiguousPlaylist(m.options, name) };
+  return { ask: noSuchPlaylist(m.suggestions, name, hint) };
+}
+
+const describe = (p: LibPlaylist) =>
+  `"${playlistPath(p)}" (${plural(p.track_ids.length, "track")}, playlist_id ${p.id})`;
+
+const suggestionView = (p: LibPlaylist) => ({
+  playlist_id: p.id,
+  name: p.name,
+  folder: p.folder,
+  path: playlistPath(p),
+  tracks: p.track_ids.length,
+});
+
+function noSuchPlaylist(suggestions: LibPlaylist[], name: string, hint = ""): Json {
+  const close =
+    suggestions.length > 0
+      ? ` The closest playlists are ${suggestions.map(describe).join(", ")}. Ask the user which one they ` +
+        "mean (or whether they want a new playlist), then call again with that exact name."
+      : " Use list_playlists to see the DJ's playlists.";
   return toolResult(
-    `There's no Rekordbox playlist called "${cleanName(name)}".${didYouMean}${hint}`,
-    { suggestions: close },
+    `Nothing was changed: there's no Rekordbox playlist called "${cleanName(name)}".${close}${hint}`,
+    { error: "playlist_not_found", suggestions: suggestions.map(suggestionView) },
+    true,
+  );
+}
+
+function ambiguousPlaylist(options: LibPlaylist[], name: string): Json {
+  return toolResult(
+    `Nothing was changed: ${options.length} playlists are called "${cleanName(name)}": ` +
+      `${options.map(describe).join(", ")}. Ask the user which one (get_playlist with a playlist_id shows ` +
+      `its tracks), then call again with that playlist_id.`,
+    { error: "playlist_ambiguous", suggestions: options.map(suggestionView) },
     true,
   );
 }
@@ -506,7 +618,7 @@ async function callListPlaylists(args: Obj | undefined, deps: Deps): Promise<Jso
     .map((p) => ({ name: p.name, folder: p.folder, tracks: p.track_ids.length }));
   const f = await freshness(deps);
 
-  const shown = rows.slice(0, 100);
+  const shown = rows.slice(0, PLAYLISTS_LISTED);
   let text =
     rows.length === 0
       ? q === ""
@@ -565,29 +677,62 @@ async function callSearchTracks(args: Obj | undefined, deps: Deps): Promise<Json
 async function callGetPlaylist(args: Obj | undefined, deps: Deps): Promise<Json> {
   const name = nameArg(args?.name, "name");
   if ("error" in name) return name.error;
+  const page = pageArgs(args);
+  if ("error" in page) return page.error;
   const [playlists, tracks] = await Promise.all([deps.store.getLibraryPlaylists(), deps.store.getLibraryTracks()]);
   if (!playlists || !tracks) return toolError(NO_LIBRARY);
-  const playlist = findPlaylist(playlists, name.value);
-  if (!playlist) return noSuchPlaylist(playlists, name.value);
+  const picked = pickPlaylist(playlists, name.value, "", args?.playlist_id);
+  if ("ask" in picked) return picked.ask;
+  const playlist = picked.playlist;
 
   const byId = new Map(tracks.map((t) => [t.id, t]));
-  const rows = playlist.track_ids
-    .slice(0, PLAYLIST_TRACKS_SHOWN)
-    .map((id) => byId.get(id))
-    .filter((t): t is LibTrack => t !== undefined)
-    .map(trackView);
   const total = playlist.track_ids.length;
+  const ids = playlist.track_ids.slice(page.offset, page.offset + page.limit);
+  const rows = ids
+    .map((id, i) => ({ n: page.offset + i + 1, t: byId.get(id) }))
+    .filter((r): r is { n: number; t: LibTrack } => r.t !== undefined);
+  const end = page.offset + ids.length;
+  const next = end < total ? end : null;
   const f = await freshness(deps);
-  let text =
-    `"${playlist.name}"${playlist.folder ? ` (in ${playlist.folder})` : ""} has ${plural(total, "track")}` +
-    (total > PLAYLIST_TRACKS_SHOWN ? ` (showing the first ${PLAYLIST_TRACKS_SHOWN})` : "") +
-    (rows.length > 0 ? `:\n${rows.map((t, i) => `${i + 1}. ${trackLine(t)}`).join("\n")}` : ".");
+  let text = `"${playlist.name}"${playlist.folder ? ` (in ${playlist.folder})` : ""} has ${plural(total, "track")}`;
+  if (total > 0 && (page.offset > 0 || next !== null)) {
+    text += ` (showing ${ids.length === 0 ? "none" : `${page.offset + 1}–${end}`}` +
+      (next !== null ? `; call get_playlist again with offset ${next} for the rest` : "") + ")";
+  }
+  text += rows.length > 0 ? `:\n${rows.map((r) => `${r.n}. ${trackLine(trackView(r.t))}`).join("\n")}` : ".";
   text += f.note;
   return toolResult(
     text,
-    { name: playlist.name, folder: playlist.folder, tracks: rows, total, ...freshnessFields(f) },
+    {
+      name: playlist.name,
+      folder: playlist.folder,
+      playlist_id: playlist.id,
+      tracks: rows.map((r) => trackView(r.t)),
+      total,
+      offset: page.offset,
+      next_offset: next,
+      ...freshnessFields(f),
+    },
     false,
   );
+}
+
+function pageArgs(args: Obj | undefined): { offset: number; limit: number } | { error: Json } {
+  const whole = (v: unknown, field: string, min: number, max: number, dflt: number) => {
+    if (v === undefined || v === null) return dflt;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
+      throw toolError(`\`${field}\` must be a whole number from ${min} to ${max}.`);
+    }
+    return v;
+  };
+  try {
+    return {
+      offset: whole(args?.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0),
+      limit: whole(args?.limit, "limit", 1, PLAYLIST_PAGE_MAX, PLAYLIST_TRACKS_SHOWN),
+    };
+  } catch (e) {
+    return { error: e as Json };
+  }
 }
 
 /** Queue playlist ops for the Mac and say what happens next. */
@@ -637,12 +782,15 @@ async function callCreatePlaylist(args: Obj | undefined, deps: Deps): Promise<Js
   const unknown = unknownTrackIds(ids.value, tracks);
   if (unknown.length > 0) return unknownTracksError(unknown);
 
-  // An existing playlist keeps its exact name, case included.
-  const existing = findPlaylist(playlists, name.value);
+  // An existing playlist (however it was typed) keeps its exact name and id.
+  const m = resolvePlaylist(playlists, name.value);
+  if (m.kind === "many") return ambiguousPlaylist(m.options, name.value);
+  const existing = m.kind === "one" ? m.playlist : undefined;
   const target = existing?.name ?? name.value;
+  const pin = existing ? { playlist_id: existing.id } : {};
   const ops: LibraryOp[] = [
-    { op: "ensure_playlist", name: target },
-    ...ids.value.map((id): LibraryOp => ({ op: "add_to_playlist", playlist: target, content_id: id })),
+    { op: "ensure_playlist", name: target, ...pin },
+    ...ids.value.map((id): LibraryOp => ({ op: "add_to_playlist", playlist: target, content_id: id, ...pin })),
   ];
   const n = ids.value.length;
   const summary = !existing
@@ -662,18 +810,22 @@ async function editTracks(args: Obj | undefined, deps: Deps, mode: "add" | "remo
   if (!ids.ok) return toolError(ids.error);
   const [playlists, tracks] = await Promise.all([deps.store.getLibraryPlaylists(), deps.store.getLibraryTracks()]);
   if (!playlists || !tracks) return toolError(NO_LIBRARY);
-  const playlist = findPlaylist(playlists, name.value);
-  if (!playlist) {
-    return noSuchPlaylist(playlists, name.value, mode === "add" ? " To make a new one, use create_playlist." : "");
-  }
+  const picked = pickPlaylist(
+    playlists,
+    name.value,
+    mode === "add" ? " To make a new one, use create_playlist." : "",
+    args?.playlist_id,
+  );
+  if ("ask" in picked) return picked.ask;
+  const playlist = picked.playlist;
   const unknown = unknownTrackIds(ids.value, tracks);
   if (unknown.length > 0) return unknownTracksError(unknown);
 
   const ops: LibraryOp[] = ids.value.map(
     (id): LibraryOp =>
       mode === "add"
-        ? { op: "add_to_playlist", playlist: playlist.name, content_id: id }
-        : { op: "remove_from_playlist", playlist: playlist.name, content_id: id },
+        ? { op: "add_to_playlist", playlist: playlist.name, content_id: id, playlist_id: playlist.id }
+        : { op: "remove_from_playlist", playlist: playlist.name, content_id: id, playlist_id: playlist.id },
   );
   const n = plural(ids.value.length, "track");
   const summary = mode === "add" ? `Add ${n} to "${playlist.name}"` : `Remove ${n} from "${playlist.name}"`;
@@ -687,13 +839,14 @@ async function callRenamePlaylist(args: Obj | undefined, deps: Deps): Promise<Js
   if ("error" in newName) return newName.error;
   const playlists = await deps.store.getLibraryPlaylists();
   if (!playlists) return toolError(NO_LIBRARY);
-  const playlist = findPlaylist(playlists, name.value);
-  if (!playlist) return noSuchPlaylist(playlists, name.value);
+  const picked = pickPlaylist(playlists, name.value, "", args?.playlist_id);
+  if ("ask" in picked) return picked.ask;
+  const playlist = picked.playlist;
   if (playlist.name === newName.value) return toolError(`The playlist is already called "${newName.value}".`);
   return queueLibrary(
     deps,
     playlist.name,
-    [{ op: "rename_playlist", name: playlist.name, new_name: newName.value }],
+    [{ op: "rename_playlist", name: playlist.name, new_name: newName.value, playlist_id: playlist.id }],
     `Rename "${playlist.name}" to "${newName.value}"`,
   );
 }
@@ -703,12 +856,13 @@ async function callDeletePlaylist(args: Obj | undefined, deps: Deps): Promise<Js
   if ("error" in name) return name.error;
   const playlists = await deps.store.getLibraryPlaylists();
   if (!playlists) return toolError(NO_LIBRARY);
-  const playlist = findPlaylist(playlists, name.value);
-  if (!playlist) return noSuchPlaylist(playlists, name.value);
+  const picked = pickPlaylist(playlists, name.value, "", args?.playlist_id);
+  if ("ask" in picked) return picked.ask;
+  const playlist = picked.playlist;
   return queueLibrary(
     deps,
     playlist.name,
-    [{ op: "delete_playlist", name: playlist.name }],
+    [{ op: "delete_playlist", name: playlist.name, playlist_id: playlist.id }],
     `Delete playlist "${playlist.name}"`,
     {
       after:

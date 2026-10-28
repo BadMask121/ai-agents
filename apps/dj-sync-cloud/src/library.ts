@@ -48,18 +48,107 @@ export function findPlaylist(playlists: LibPlaylist[], name: string): LibPlaylis
 
 /** Up to `n` playlist names that look like what was asked for. */
 export function suggestPlaylists(playlists: LibPlaylist[], name: string, n = 5): string[] {
-  const q = lower(cleanName(name));
+  return [...new Set(closestPlaylists(playlists, name, n).map((p) => p.name))];
+}
+
+/**
+ * Lowercase, accents and emoji dropped, punctuation → spaces, collapsed:
+ * "Afro House - Español " and "afro house espanol" compare equal.
+ */
+export function normalizeName(s: string): string {
+  return s
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+const compact = (s: string) => normalizeName(s).replace(/ /g, "");
+
+export type PlaylistMatch =
+  | { kind: "one"; playlist: LibPlaylist }
+  | { kind: "many"; options: LibPlaylist[] }
+  | { kind: "none"; suggestions: LibPlaylist[] };
+
+/**
+ * What the user most likely means by `input`: the exact name, then ignoring
+ * case, then ignoring punctuation/emoji/accents, then spaces too; "Folder/Name" picks one of
+ * several same-named playlists. Several equally good matches come back as
+ * `many` (ask which), no match as `none` with the closest playlists.
+ */
+export function resolvePlaylist(playlists: LibPlaylist[], input: string): PlaylistMatch {
+  const wanted = cleanName(input);
+  const tiers: ((p: LibPlaylist) => boolean)[] = [
+    (p) => p.name === wanted,
+    (p) => lower(cleanName(p.name)) === lower(wanted),
+    (p) => normalizeName(p.name) !== "" && normalizeName(p.name) === normalizeName(wanted),
+    // "warm up" → "Warmup"
+    (p) => compact(p.name) !== "" && compact(p.name) === compact(wanted),
+  ];
+  const slash = wanted.lastIndexOf("/");
+  if (slash > 0) {
+    const [folder, name] = [wanted.slice(0, slash).trim(), wanted.slice(slash + 1).trim()];
+    const inFolder = (p: LibPlaylist) =>
+      normalizeName(p.folder) === normalizeName(folder) ||
+      normalizeName(p.folder.split("/").pop() ?? "") === normalizeName(folder);
+    tiers.push((p) => inFolder(p) && normalizeName(p.name) === normalizeName(name));
+  }
+  for (const tier of tiers) {
+    const hits = playlists.filter(tier);
+    if (hits.length === 1) return { kind: "one", playlist: hits[0]! };
+    if (hits.length > 1) return { kind: "many", options: hits };
+  }
+  // "afrobeats party mix" → "AFROBEATS PARTY MIX 2022_2023🔥": the words as a
+  // phrase inside exactly one name (several → suggestions, not a guess).
+  const phrase = ` ${normalizeName(wanted)} `;
+  if (phrase.trim().length >= 4) {
+    const inside = playlists.filter((p) => ` ${normalizeName(p.name)} `.includes(phrase));
+    if (inside.length === 1) return { kind: "one", playlist: inside[0]! };
+  }
+  return { kind: "none", suggestions: closestPlaylists(playlists, wanted, 5) };
+}
+
+/** "GQOM/Gqom" — how to name one playlist unambiguously. */
+export function playlistPath(p: LibPlaylist): string {
+  return p.folder ? `${p.folder}/${p.name}` : p.name;
+}
+
+/** Playlists ranked by how much their name (or folder + name) looks like `input`. */
+export function closestPlaylists(playlists: LibPlaylist[], input: string, n: number): LibPlaylist[] {
+  const q = normalizeName(input);
   if (q === "") return [];
-  const words = q.split(" ");
-  const scored = playlists
-    .map((p) => {
-      const pn = lower(p.name);
-      const score = pn.includes(q) || q.includes(pn) ? 2 : words.some((w) => w.length > 2 && pn.includes(w)) ? 1 : 0;
-      return { name: p.name, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-  return [...new Set(scored.map((x) => x.name))].slice(0, n);
+  return playlists
+    .map((p) => ({
+      p,
+      score: Math.max(similarity(q, normalizeName(p.name)), 0.9 * similarity(q, normalizeName(`${p.folder} ${p.name}`))),
+    }))
+    .filter((x) => x.score >= 0.3)
+    .sort((a, b) => b.score - a.score || b.p.track_ids.length - a.p.track_ids.length)
+    .slice(0, n)
+    .map((x) => x.p);
+}
+
+/** 0–1: containment, shared words, and shared letter pairs (for typos). */
+function similarity(a: string, b: string): number {
+  if (a === "" || b === "") return 0;
+  if (a === b) return 1;
+  if (b.includes(a) || a.includes(b)) return 0.85;
+  const wa = new Set(a.split(" ")), wb = new Set(b.split(" "));
+  const sharedWords = [...wa].filter((w) => wb.has(w) || [...wb].some((x) => x.length > 3 && w.length > 3 && (x.startsWith(w) || w.startsWith(x)))).length;
+  const words = sharedWords / Math.max(wa.size, wb.size);
+  const pairs = (s: string) => {
+    const t = s.replace(/ /g, "");
+    const out = new Map<string, number>();
+    for (let i = 0; i < t.length - 1; i++) out.set(t.slice(i, i + 2), (out.get(t.slice(i, i + 2)) ?? 0) + 1);
+    return out;
+  };
+  const pa = pairs(a), pb = pairs(b);
+  let common = 0, total = 0;
+  for (const [k, v] of pa) { common += Math.min(v, pb.get(k) ?? 0); total += v; }
+  for (const v of pb.values()) total += v;
+  const dice = total === 0 ? 0 : (2 * common) / total;
+  return Math.max(words, dice);
 }
 
 export function sortPlaylists(playlists: LibPlaylist[]): LibPlaylist[] {

@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   message     TEXT NOT NULL DEFAULT 'Queued.',
   result      TEXT,
   ops         TEXT,
-  summary     TEXT
+  summary     TEXT,
+  playlist_id TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_state_created ON jobs (state, created_at);
 CREATE INDEX IF NOT EXISTS jobs_dedupe ON jobs (dedupe_key, state);
@@ -76,7 +77,7 @@ export interface LinkRow {
 }
 
 const COLUMNS =
-  "id, kind, state, playlist, urls, dedupe_key, source, created_at, claimed_at, lease_until, attempts, finished_at, message, result, ops, summary";
+  "id, kind, state, playlist, urls, dedupe_key, source, created_at, claimed_at, lease_until, attempts, finished_at, message, result, ops, summary, playlist_id";
 
 function toJob(r: Record<string, SqlValue> | undefined): JobRow | null {
   if (!r) return null;
@@ -97,6 +98,7 @@ function toJob(r: Record<string, SqlValue> | undefined): JobRow | null {
     result: r.result ? (JSON.parse(r.result as string) as JobResult) : null,
     ops: r.ops ? (JSON.parse(r.ops as string) as LibraryOp[]) : null,
     summary: (r.summary as string | null) ?? null,
+    playlist_id: (r.playlist_id as string | null) ?? null,
   };
 }
 
@@ -113,6 +115,12 @@ export class SqlStore implements Store {
     private live: () => boolean = () => false,
     private now: () => Date = () => new Date(),
   ) {}
+
+  /** Bring a tenant created by an older Worker up to the current schema. */
+  static migrate(db: SqlDb): void {
+    const cols = db.exec("PRAGMA table_info(jobs)").toArray().map((r) => r.name as string);
+    if (cols.length > 0 && !cols.includes("playlist_id")) db.exec("ALTER TABLE jobs ADD COLUMN playlist_id TEXT");
+  }
 
   /** Has `init` run? Read-only, so probing an unknown tenant writes nothing. */
   static initialized(db: SqlDb): boolean {
@@ -148,7 +156,7 @@ export class SqlStore implements Store {
 
   async insertJob(j: JobRow) {
     this.db.exec(
-      `INSERT INTO jobs (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO jobs (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       j.id,
       j.kind,
       j.state,
@@ -165,6 +173,7 @@ export class SqlStore implements Store {
       j.result ? JSON.stringify(j.result) : null,
       j.ops ? JSON.stringify(j.ops) : null,
       j.summary,
+      j.playlist_id ?? null,
     );
   }
 
