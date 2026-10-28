@@ -11,7 +11,6 @@ function cfgWithPort(smtpPort: number): Config {
     user: "me@example.com",
     pass: "secret",
     secretPath: "abc123",
-    port: 8080,
     maxBodyBytes: 100_000,
     maxAttachmentBytes: 5_000_000,
   };
