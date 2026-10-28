@@ -33,7 +33,7 @@ if [[ $DRY -eq 0 ]]; then
   git diff --quiet -- . && git diff --cached --quiet -- . || die "apps/dj-sync has uncommitted changes"
   ! git rev-parse -q --verify "refs/tags/djsync-v$VERSION" >/dev/null || die "tag djsync-v$VERSION exists"
 fi
-security find-identity -p codesigning | grep -q '"DJ Sync Release"' || die "no \"DJ Sync Release\" identity (scripts/make-signing-cert.sh)"
+[[ "$(security find-identity -p codesigning)" == *'"DJ Sync Release"'* ]] || die "no \"DJ Sync Release\" identity (scripts/make-signing-cert.sh)"
 [[ -x "$WRANGLER" ]] || die "wrangler not found at $WRANGLER (pnpm install in apps/dj-sync-cloud)"
 
 OUT="$HOME/Library/Caches/dj-sync-release/$VERSION"
@@ -54,7 +54,8 @@ for bin in "$APP/Contents/MacOS/DJSyncMenu" "$APP/Contents/Helpers/dj-sync"; do
   [[ "$info" == *x86_64* && "$info" == *arm64* ]] || die "$bin isn't universal: $info"
 done
 codesign --verify --strict --verbose=1 "$APP" 2>&1 | tail -1
-codesign -dvv "$APP" 2>&1 | grep -q "Authority=DJ Sync Release" || die "app isn't signed by DJ Sync Release"
+SIGNED_BY=$(codesign -dvv "$APP" 2>&1 || true)  # (no grep -q in a pipe: SIGPIPE + pipefail)
+[[ "$SIGNED_BY" == *"Authority=DJ Sync Release"* ]] || die "app isn't signed by DJ Sync Release"
 
 # ---- package ----
 STAGE="$OUT/dmg"; mkdir -p "$STAGE"
