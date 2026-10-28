@@ -19,6 +19,40 @@ pub struct Config {
     pub download: DownloadCfg,
     #[serde(default)]
     pub cloud: CloudCfg,
+    #[serde(default)]
+    pub rekordbox_db: RekordboxDbCfg,
+}
+
+/// Write downloads and playlist edits into Rekordbox's own library
+/// (master.db) as well as the import XML. Applied only while Rekordbox is
+/// closed, with semver backups of master.db before and after each write.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RekordboxDbCfg {
+    pub enabled: bool,
+    pub db_path: PathBuf,
+    /// Python of the managed venv that has pyrekordbox (created on demand).
+    pub python: PathBuf,
+    pub uv_bin: PathBuf,
+    pub pyrekordbox_version: String,
+    pub keep_backups: usize,
+    /// How often to check whether Rekordbox has closed.
+    pub check_secs: u64,
+}
+
+impl Default for RekordboxDbCfg {
+    fn default() -> Self {
+        let home = dirs::home_dir().unwrap_or_default();
+        Self {
+            enabled: false,
+            db_path: home.join("Library/Pioneer/rekordbox/master.db"),
+            python: home.join(".dj-sync/pyenv/bin/python"),
+            uv_bin: PathBuf::from("uv"),
+            pyrekordbox_version: "0.5.0".to_string(),
+            keep_backups: 12,
+            check_secs: 10,
+        }
+    }
 }
 
 /// Cloud lane: poll the Cloudflare Worker queue (apps/dj-sync-cloud) so
@@ -204,6 +238,13 @@ impl Config {
         let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         cfg.download.expand_paths();
+        for p in [
+            &mut cfg.rekordbox_db.db_path,
+            &mut cfg.rekordbox_db.python,
+            &mut cfg.rekordbox_db.uv_bin,
+        ] {
+            *p = expand_tilde(p);
+        }
         cfg.download.settings_file = crate::settings::settings_path().ok();
         cfg.resolve_import_xml(rekordbox_settings_path().as_deref());
         cfg.validate()?;

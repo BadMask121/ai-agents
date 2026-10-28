@@ -11,6 +11,39 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.6.0] — 2026-10-28
+
+### Added
+- **Writes to Rekordbox's own library** (`[rekordbox_db]`, `rekordbox_db.rs` and
+  the bundled `rekordbox/rbdb.py`, pyrekordbox 0.5.0). Downloads now land in
+  the real Collection and in a playlist inside a **DJ Sync** folder, with no
+  manual "Import Playlist". The import XML is still written as well, so it
+  keeps working while Rekordbox is open.
+  - **Only while Rekordbox is closed.** Changes made while it's open are
+    queued in `~/.dj-sync/rekordbox-pending.json` and applied within seconds
+    of it quitting. Queued batches survive restarts and are merged into one
+    transaction (all or nothing). A batch that keeps failing is set aside
+    after 3 tries.
+  - **Semver backups of master.db** in `~/.dj-sync/rekordbox-backups/`, made
+    as APFS clones. A snapshot is taken before each write, as a MAJOR when
+    Rekordbox itself changed the library since dj-sync last wrote. Another is
+    taken after the write, MINOR for a new playlist or PATCH for other
+    changes. `index.json` records when and why. `keep_backups` defaults to 12.
+  - **Restore.** Rekordbox must be closed. The current library is snapshotted
+    first, so the restore can be undone.
+  - **Self-installing helper.** dj-sync installs the helper into `~/.dj-sync`
+    and creates its Python environment with uv the first time it's needed.
+- `/local/status` gains `rekordbox_db` (pending, failed, last applied, current
+  version, backups). New `POST /local/rekordbox/apply` and `POST
+  /local/rekordbox/restore` endpoints are for the menu bar app; they refuse
+  requests relayed by Cloudflare and anything with a browser `Origin`.
+- Job messages say when the tracks reach the Rekordbox library: now, or once
+  Rekordbox quits.
+
+### Changed
+- `xml_versions::Versions` handles any file. Snapshots are APFS-clone copies,
+  compared in chunks, with configurable retention and `restore`.
+
 ## [0.5.0] — 2026-10-28
 
 ### Added

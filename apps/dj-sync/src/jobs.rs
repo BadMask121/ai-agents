@@ -19,6 +19,7 @@ use crate::config::DownloadCfg;
 use crate::downloader::Fetcher;
 use crate::import_xml::ImportDoc;
 use crate::library::{is_audio_file, read_meta};
+use crate::rekordbox_db::RekordboxLibrary;
 use crate::xml_versions::{Bump, Versions};
 use crate::{unique_name, MediaRef};
 
@@ -103,6 +104,16 @@ impl JobQueue {
         cfg: DownloadCfg,
         fetcher: F,
     ) -> anyhow::Result<(Self, JoinHandle<()>)> {
+        Self::start_with(cfg, fetcher, None)
+    }
+
+    /// Like `start`, also queueing each download into Rekordbox's own
+    /// library (master.db) when `library` is given.
+    pub fn start_with<F: Fetcher>(
+        cfg: DownloadCfg,
+        fetcher: F,
+        library: Option<Arc<RekordboxLibrary>>,
+    ) -> anyhow::Result<(Self, JoinHandle<()>)> {
         cfg.prepare()?;
         // Jobs don't survive a restart, so anything still staged is debris.
         let _ = std::fs::remove_dir_all(cfg.current_dir().0.join(".staging"));
@@ -131,7 +142,7 @@ impl JobQueue {
             store: store.clone(),
             default_playlist: cfg.default_playlist.clone(),
         };
-        let worker = tokio::spawn(worker(rx, store, cfg, fetcher));
+        let worker = tokio::spawn(worker(rx, store, cfg, fetcher, library));
         Ok((queue, worker))
     }
 
@@ -271,6 +282,7 @@ async fn worker<F: Fetcher>(
     store: Arc<Mutex<VecDeque<Entry>>>,
     cfg: DownloadCfg,
     fetcher: F,
+    library: Option<Arc<RekordboxLibrary>>,
 ) {
     while let Some(job_id) = rx.recv().await {
         let Some((media, playlist)) = ({
@@ -299,7 +311,15 @@ async fn worker<F: Fetcher>(
         let outcome = match crate::settings::ensure_writable(&dir) {
             Ok(()) => {
                 info!(%job_id, dir = %dir.display(), source = source.as_str(), "download folder");
-                run_job(&job_cfg, &fetcher, &job_id, &media, &playlist).await
+                run_job(
+                    &job_cfg,
+                    &fetcher,
+                    &job_id,
+                    &media,
+                    &playlist,
+                    library.clone(),
+                )
+                .await
             }
             Err(e) => Err(e),
         };
@@ -311,13 +331,20 @@ async fn worker<F: Fetcher>(
                     tracks,
                     errors,
                     xml_version,
+                    library: library_note,
                 }) => {
                     s.state = if tracks.is_empty() {
                         JobState::Failed
                     } else {
                         JobState::Done
                     };
-                    s.message = summary(&tracks, &errors, &playlist, xml_version.as_deref());
+                    s.message = summary(
+                        &tracks,
+                        &errors,
+                        &playlist,
+                        xml_version.as_deref(),
+                        library_note,
+                    );
                     s.tracks = tracks;
                     s.errors = errors;
                     s.xml_version = xml_version;
@@ -332,20 +359,39 @@ async fn worker<F: Fetcher>(
     }
 }
 
+/// When the tracks reach Rekordbox's own library (master.db).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LibraryNote {
+    /// Rekordbox is closed: applied within seconds.
+    Soon,
+    /// Rekordbox is open: applied as soon as it quits.
+    WhenRekordboxQuits,
+    Failed,
+}
+
 fn summary(
     tracks: &[JobTrack],
     errors: &[JobError],
     playlist: &str,
     xml_version: Option<&str>,
+    library: Option<LibraryNote>,
 ) -> String {
-    let mut msg = if tracks.is_empty() {
-        "No tracks were downloaded.".to_string()
-    } else {
-        format!(
-            "Added {} track(s) to the Rekordbox playlist \"{playlist}\". In Rekordbox, reload the \
-             \"rekordbox xml\" tree and drag the playlist into your collection.",
-            tracks.len()
-        )
+    let n = tracks.len();
+    let mut msg = match (n, library) {
+        (0, _) => "No tracks were downloaded.".to_string(),
+        (_, Some(LibraryNote::Soon)) => format!(
+            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\": they're going into \
+             your Rekordbox Collection and Playlists now (Rekordbox is closed)."
+        ),
+        (_, Some(LibraryNote::WhenRekordboxQuits)) => format!(
+            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\". Rekordbox is open, so \
+             they're under \"rekordbox xml\" (refresh it) for now, and go into your Collection \
+             and Playlists as soon as you quit Rekordbox."
+        ),
+        _ => format!(
+            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\". In Rekordbox, refresh \
+             the \"rekordbox xml\" tree and import the playlist into your collection."
+        ),
     };
     if !errors.is_empty() {
         msg.push_str(&format!(" {} link(s) failed — see errors.", errors.len()));
@@ -360,12 +406,14 @@ struct JobOutcome {
     tracks: Vec<JobTrack>,
     errors: Vec<JobError>,
     xml_version: Option<String>,
+    library: Option<LibraryNote>,
 }
 
 struct Finalized {
     tracks: Vec<JobTrack>,
     errors: Vec<JobError>,
     xml_version: Option<String>,
+    library: Option<LibraryNote>,
 }
 
 /// One link's staging dir, and whether its downloader exited cleanly.
@@ -381,6 +429,7 @@ async fn run_job<F: Fetcher>(
     job_id: &str,
     media: &[MediaRef],
     playlist: &str,
+    library: Option<Arc<RekordboxLibrary>>,
 ) -> anyhow::Result<JobOutcome> {
     // Staging lives inside the download dir so the final move is a same-disk rename.
     let staging = cfg.dir.join(".staging").join(job_id);
@@ -415,7 +464,7 @@ async fn run_job<F: Fetcher>(
     let playlist = playlist.to_string();
     let staging_root = staging.clone();
     let finalized = tokio::task::spawn_blocking(move || {
-        let result = finalize(&cfg, &staged, &playlist);
+        let result = finalize(&cfg, &staged, &playlist, library.as_deref());
         if let Err(e) = std::fs::remove_dir_all(&staging_root) {
             warn!(dir = %staging_root.display(), error = %e, "could not remove staging dir");
         }
@@ -433,11 +482,17 @@ async fn run_job<F: Fetcher>(
         tracks: finalized.tracks,
         errors,
         xml_version: finalized.xml_version,
+        library: finalized.library,
     })
 }
 
 /// Move staged audio into the download dir, read tags, and upsert the XML.
-fn finalize(cfg: &DownloadCfg, staged: &[Staged], playlist: &str) -> anyhow::Result<Finalized> {
+fn finalize(
+    cfg: &DownloadCfg,
+    staged: &[Staged],
+    playlist: &str,
+    library: Option<&RekordboxLibrary>,
+) -> anyhow::Result<Finalized> {
     let mut placed = Vec::new();
     let mut errors = Vec::new();
 
@@ -472,6 +527,7 @@ fn finalize(cfg: &DownloadCfg, staged: &[Staged], playlist: &str) -> anyhow::Res
             tracks: Vec::new(),
             errors,
             xml_version: None,
+            library: None,
         });
     }
 
@@ -513,11 +569,54 @@ fn finalize(cfg: &DownloadCfg, staged: &[Staged], playlist: &str) -> anyhow::Res
         }
         None => base,
     };
+    let library = library.map(|lib| queue_for_library(lib, &placed, playlist));
     Ok(Finalized {
         tracks,
         errors,
         xml_version: xml_version.map(|v| v.to_string()),
+        library,
     })
+}
+
+/// Queue the same tracks + playlist for Rekordbox's own library. The XML
+/// already has them (usable while Rekordbox is open); this makes them land
+/// in the real Collection and Playlists.
+fn queue_for_library(
+    lib: &RekordboxLibrary,
+    placed: &[(String, crate::TrackMeta, bool)],
+    playlist: &str,
+) -> LibraryNote {
+    let mut ops: Vec<serde_json::Value> = placed
+        .iter()
+        .map(|(url, meta, _)| {
+            serde_json::json!({
+                "op": "add_track",
+                "path": meta.path,
+                "title": meta.title,
+                "artist": meta.artist,
+                "album": meta.album,
+                "genre": meta.genre,
+                "year": meta.year,
+                "duration_secs": (meta.duration_ms + 500) / 1000,
+                "bitrate_kbps": meta.bitrate_kbps,
+                "sample_rate": meta.sample_rate,
+                "comment": url,
+            })
+        })
+        .collect();
+    ops.push(serde_json::json!({"op": "ensure_playlist", "name": playlist}));
+    ops.extend(placed.iter().map(|(_, meta, _)| {
+        serde_json::json!({"op": "add_to_playlist", "playlist": playlist, "path": meta.path})
+    }));
+    let summary = format!("Add {} track(s) to “{playlist}”", placed.len());
+    match lib.enqueue(summary, ops) {
+        Ok(()) if lib.rekordbox_running() => LibraryNote::WhenRekordboxQuits,
+        Ok(()) => LibraryNote::Soon,
+        Err(e) => {
+            warn!(error = %format!("{e:#}"), "couldn't queue rekordbox library update");
+            LibraryNote::Failed
+        }
+    }
 }
 
 /// Audio files directly in `dir`, sorted by name (spotdl downloads in

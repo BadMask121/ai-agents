@@ -6,6 +6,7 @@
 //! - `POST /api/downloads`       — iOS Shortcut fallback (Bearer `SHORTCUT_API_KEY`)
 //! - `GET  /api/downloads/{id}`  — job status for the Shortcut
 //! - `GET  /local/status`        — for the menu bar app on this Mac only
+//! - `POST /local/rekordbox/{apply,restore}` — library actions from the app
 //! - anything else               — 404 (including `/api/*` when no key is set)
 //!
 //! The secret path is the credential (ChatGPT connects with "No
@@ -33,6 +34,7 @@ use crate::config::{CloudCfg, Config, DownloadCfg};
 use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
 use crate::parser::extract_media_ref;
+use crate::rekordbox_db::RekordboxLibrary;
 use crate::xml_versions::Versions;
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -52,6 +54,7 @@ pub struct AppState {
     public_base_url: Option<String>,
     /// Set by `router`; only reported to the menu bar app on this Mac.
     mcp_secret: Arc<str>,
+    library: Option<Arc<RekordboxLibrary>>,
 }
 
 impl AppState {
@@ -72,7 +75,13 @@ impl AppState {
             mcp_bind: cfg.mcp.bind,
             public_base_url: cfg.mcp.public_base_url.clone(),
             mcp_secret: Arc::from(""),
+            library: None,
         }
+    }
+
+    pub fn with_library(mut self, library: Option<Arc<RekordboxLibrary>>) -> Self {
+        self.library = library;
+        self
     }
 
     pub fn with_api_key(mut self, key: Option<String>) -> Self {
@@ -86,6 +95,8 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
     let mut app = Router::new()
         .route("/health", get(health))
         .route("/local/status", get(local_status))
+        .route("/local/rekordbox/apply", post(local_apply))
+        .route("/local/rekordbox/restore", post(local_restore))
         .route(
             &format!("/{secret}/mcp"),
             post(mcp_post)
@@ -113,6 +124,7 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
 pub async fn serve(
     cfg: Config,
     jobs: JobQueue,
+    library: Option<Arc<RekordboxLibrary>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let secret = Config::mcp_secret_path()?;
@@ -132,7 +144,9 @@ pub async fn serve(
     if api_key.is_some() {
         info!("SHORTCUT_API_KEY set; /api/downloads enabled");
     }
-    let state = AppState::new(jobs, &cfg).with_api_key(api_key);
+    let state = AppState::new(jobs, &cfg)
+        .with_api_key(api_key)
+        .with_library(library);
     axum::serve(listener, router(state, &secret))
         .with_graceful_shutdown(async move {
             let _ = shutdown.wait_for(|stop| *stop).await;
@@ -147,8 +161,17 @@ async fn health() -> Json<Value> {
 
 /// What the DJ Sync menu bar app shows. Only for this Mac: anything that
 /// came through Cloudflare (the tunnel, if it's ever routed again) is refused.
+/// `/local/*` is for the menu bar app on this Mac: refuse anything relayed
+/// by Cloudflare, and (for actions) anything a web page could send — browsers
+/// always attach `Origin`, the app never does.
+fn local_only(headers: &HeaderMap, action: bool) -> bool {
+    let proxied = headers.contains_key("cf-ray") || headers.contains_key("cf-connecting-ip");
+    let from_browser = action && headers.contains_key(header::ORIGIN);
+    !(proxied || from_browser)
+}
+
 async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if headers.contains_key("cf-ray") || headers.contains_key("cf-connecting-ip") {
+    if !local_only(&headers, false) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let (dir, source) = state.download.current_dir();
@@ -208,9 +231,57 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         "import_xml": state.download.import_xml,
         "xml_version": xml_version,
         "cloud": { "enabled": state.cloud.enabled, "base_url": state.cloud.base_url },
+        "rekordbox_db": state.library.as_ref().map(|lib| lib.status()),
         "recent_jobs": recent,
     }))
     .into_response()
+}
+
+/// Apply queued library changes now (only does anything if Rekordbox is closed).
+async fn local_apply(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !local_only(&headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(lib) = state.library.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || lib.apply_pending()).await {
+        Ok(Ok(applied)) => Json(json!({ "ok": true, "applied": applied })).into_response(),
+        Ok(Err(e)) => conflict(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct RestoreRequest {
+    version: String,
+}
+
+/// Put a backup of Rekordbox's library back (Rekordbox must be closed).
+async fn local_restore(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RestoreRequest>,
+) -> Response {
+    if !local_only(&headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(lib) = state.library.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || lib.restore(&req.version)).await {
+        Ok(Ok(message)) => Json(json!({ "ok": true, "message": message })).into_response(),
+        Ok(Err(e)) => conflict(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+fn conflict(e: anyhow::Error) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({ "ok": false, "error": format!("{e:#}") })),
+    )
+        .into_response()
 }
 
 async fn not_found() -> StatusCode {

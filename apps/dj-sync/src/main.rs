@@ -7,7 +7,8 @@ use tracing_subscriber::EnvFilter;
 
 use dj_sync::{
     bot, cloud, config, config::Config, downloader::ProcessFetcher, http, jobs::JobQueue,
-    library::LibraryIndex, rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
+    library::LibraryIndex, rekordbox_db, rekordbox_db::RekordboxLibrary,
+    rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
 };
 
 #[tokio::main]
@@ -47,10 +48,20 @@ async fn main() -> anyhow::Result<()> {
 
     // One download queue shared by the HTTP and cloud lanes. It is the only
     // writer of the import XML, so only one dj-sync may run it at a time.
-    let (jobs, _instance_lock) = if http_enabled || cloud_enabled {
+    let downloads = http_enabled || cloud_enabled;
+    // Rekordbox's own library (master.db), written alongside the import XML.
+    let library = if downloads && cfg.rekordbox_db.enabled {
+        Some(Arc::new(RekordboxLibrary::new(
+            cfg.rekordbox_db.clone(),
+            config::state_dir()?,
+        )))
+    } else {
+        None
+    };
+    let (jobs, _instance_lock) = if downloads {
         let lock = acquire_instance_lock()?;
         let fetcher = ProcessFetcher::from_config(&cfg.download)?;
-        let (jobs, _worker) = JobQueue::start(cfg.download.clone(), fetcher)?;
+        let (jobs, _worker) = JobQueue::start_with(cfg.download.clone(), fetcher, library.clone())?;
         (Some(jobs), Some(lock))
     } else {
         (None, None)
@@ -65,6 +76,10 @@ async fn main() -> anyhow::Result<()> {
             info!("shutting down");
             let _ = tx.send(true);
         });
+    }
+
+    if let Some(lib) = library.clone() {
+        tokio::spawn(rekordbox_db::run(lib, shutdown_rx.clone()));
     }
 
     // Lanes are independent: a bot failure must not take the others down.
@@ -89,11 +104,12 @@ async fn main() -> anyhow::Result<()> {
             shutdown_rx.clone(),
             shutdown_tx.clone(),
         );
+        let library = library.clone();
         async move {
             let (true, Some(jobs)) = (http_enabled, jobs) else {
                 return Ok(());
             };
-            let r = http::serve(cfg, jobs, shutdown).await;
+            let r = http::serve(cfg, jobs, library, shutdown).await;
             if r.is_err() {
                 let _ = tx.send(true);
             }

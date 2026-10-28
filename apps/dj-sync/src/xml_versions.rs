@@ -79,7 +79,11 @@ pub enum Bump {
 pub struct Versions {
     dir: PathBuf,
     stem: String,
+    ext: String,
     keep: usize,
+    /// Keep every `X.0.0` regardless of `keep` (the XML: each is an adopted
+    /// original). Off for Rekordbox's database, which changes every session.
+    keep_majors: bool,
 }
 
 impl Versions {
@@ -97,7 +101,21 @@ impl Versions {
         Self {
             dir: xml.with_file_name(format!("{name}.versions")),
             stem,
+            ext: "xml".into(),
             keep: keep.max(1),
+            keep_majors: true,
+        }
+    }
+
+    /// Snapshots named `<stem>.vX.Y.Z.<ext>` in `dir`; only the newest
+    /// `keep` survive pruning.
+    pub fn in_dir(dir: &Path, stem: &str, ext: &str, keep: usize) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            stem: stem.into(),
+            ext: ext.into(),
+            keep: keep.max(1),
+            keep_majors: false,
         }
     }
 
@@ -105,19 +123,20 @@ impl Versions {
         &self.dir
     }
 
-    fn path_for(&self, v: Version) -> PathBuf {
-        self.dir.join(format!("{}.v{v}.xml", self.stem))
+    pub fn path_for(&self, v: Version) -> PathBuf {
+        self.dir.join(format!("{}.v{v}.{}", self.stem, self.ext))
     }
 
     /// All snapshots, oldest first.
     pub fn list(&self) -> Vec<(Version, PathBuf)> {
         let prefix = format!("{}.v", self.stem);
+        let suffix = format!(".{}", self.ext);
         let mut out: Vec<(Version, PathBuf)> = match std::fs::read_dir(&self.dir) {
             Ok(rd) => rd
                 .filter_map(Result::ok)
                 .filter_map(|e| {
                     let name = e.file_name().to_string_lossy().into_owned();
-                    let v = name.strip_prefix(&prefix)?.strip_suffix(".xml")?;
+                    let v = name.strip_prefix(&prefix)?.strip_suffix(&suffix)?;
                     Some((Version::parse(v)?, e.path()))
                 })
                 .collect(),
@@ -134,71 +153,105 @@ impl Versions {
     /// Make sure the file's current contents are covered by a snapshot,
     /// before anything writes to it. Returns the version the file is at now
     /// (`None` only if the file doesn't exist and never had a snapshot).
-    pub fn reconcile(&self, xml: &Path) -> anyhow::Result<Option<Version>> {
-        let current = match std::fs::read(xml) {
-            Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(self.latest().map(|(v, _)| v));
-            }
-            Err(e) => return Err(e).with_context(|| format!("reading {}", xml.display())),
-        };
+    pub fn reconcile(&self, file: &Path) -> anyhow::Result<Option<Version>> {
+        if !file.exists() {
+            return Ok(self.latest().map(|(v, _)| v));
+        }
         let next = match self.latest() {
             None => Version::BASELINE,
             Some((v, path)) => {
-                if std::fs::read(&path).ok().as_deref() == Some(current.as_slice()) {
+                if same_contents(file, &path)? {
                     return Ok(Some(v));
                 }
                 warn!(
-                    file = %xml.display(),
+                    file = %file.display(),
                     last = %v,
-                    "import xml changed outside dj-sync; keeping that version before writing"
+                    "file changed outside dj-sync; keeping that version before writing"
                 );
                 v.bump(Bump::Major)
             }
         };
-        self.snapshot(next, &current)?;
-        info!(version = %next, dir = %self.dir.display(), "snapshotted import xml");
+        self.snapshot(next, file)?;
+        info!(version = %next, dir = %self.dir.display(), "snapshotted");
         Ok(Some(next))
     }
 
     /// Snapshot the file as just written, one `bump` above `previous`.
     pub fn record(
         &self,
-        xml: &Path,
+        file: &Path,
         previous: Option<Version>,
         bump: Bump,
     ) -> anyhow::Result<Version> {
         let next = previous.map_or(Version::BASELINE, |p| p.bump(bump));
-        let bytes = std::fs::read(xml).with_context(|| format!("reading {}", xml.display()))?;
-        self.snapshot(next, &bytes)?;
+        self.snapshot(next, file)?;
         self.prune();
         Ok(next)
     }
 
-    fn snapshot(&self, v: Version, bytes: &[u8]) -> anyhow::Result<PathBuf> {
+    /// Put snapshot `v` back in place of `target` (atomically: copy beside
+    /// it, then rename over it).
+    pub fn restore(&self, v: Version, target: &Path) -> anyhow::Result<()> {
+        let src = self.path_for(v);
+        anyhow::ensure!(src.exists(), "no snapshot v{v}");
+        let tmp = target.with_extension("dj-sync-restore.tmp");
+        std::fs::copy(&src, &tmp)
+            .with_context(|| format!("copying {} -> {}", src.display(), tmp.display()))?;
+        std::fs::rename(&tmp, target)
+            .with_context(|| format!("renaming {} -> {}", tmp.display(), target.display()))?;
+        Ok(())
+    }
+
+    fn snapshot(&self, v: Version, source: &Path) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.dir)
             .with_context(|| format!("creating {}", self.dir.display()))?;
         let path = self.path_for(v);
         // Versions are immutable: never replace an existing snapshot.
         anyhow::ensure!(!path.exists(), "snapshot {} already exists", path.display());
-        let tmp = path.with_extension("xml.tmp");
-        std::fs::write(&tmp, bytes).with_context(|| format!("writing {}", tmp.display()))?;
+        let tmp = path.with_extension(format!("{}.tmp", self.ext));
+        // On APFS, fs::copy is a copy-on-write clone: instant, and it only
+        // uses disk for blocks that later change.
+        std::fs::copy(source, &tmp)
+            .with_context(|| format!("copying {} -> {}", source.display(), tmp.display()))?;
         std::fs::rename(&tmp, &path)
             .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
         Ok(path)
     }
 
-    /// Drop the oldest snapshots beyond `keep`, never an `X.0.0`.
+    /// Drop the oldest snapshots beyond `keep` (never an `X.0.0` when
+    /// `keep_majors` is on).
     fn prune(&self) {
         let all = self.list();
         let excess = all.len().saturating_sub(self.keep);
         for (v, path) in all.into_iter().take(excess) {
-            if v.minor == 0 && v.patch == 0 {
+            if self.keep_majors && v.minor == 0 && v.patch == 0 {
                 continue;
             }
             if let Err(e) = std::fs::remove_file(&path) {
                 warn!(file = %path.display(), error = %e, "could not prune old snapshot");
             }
+        }
+    }
+}
+
+/// Byte-for-byte comparison without loading either file whole.
+fn same_contents(a: &Path, b: &Path) -> anyhow::Result<bool> {
+    use std::io::Read;
+    let (ma, mb) = (std::fs::metadata(a)?, std::fs::metadata(b)?);
+    if ma.len() != mb.len() {
+        return Ok(false);
+    }
+    let mut fa = std::io::BufReader::new(std::fs::File::open(a)?);
+    let mut fb = std::io::BufReader::new(std::fs::File::open(b)?);
+    let (mut ba, mut bb) = (vec![0u8; 1 << 20], vec![0u8; 1 << 20]);
+    loop {
+        let n = fa.read(&mut ba)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        fb.read_exact(&mut bb[..n])?;
+        if ba[..n] != bb[..n] {
+            return Ok(false);
         }
     }
 }
@@ -276,6 +329,51 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["1.0.0", "1.1.0", "1.1.1", "2.0.0"]
         );
+    }
+
+    #[test]
+    fn database_snapshots_prune_majors_and_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("master.db");
+        let s = Versions::in_dir(&dir.path().join("backups"), "master", "db", 2);
+        std::fs::write(&db, "one").unwrap();
+        assert_eq!(s.reconcile(&db).unwrap(), Some(v("1.0.0")));
+        std::fs::write(&db, "two").unwrap();
+        assert_eq!(
+            s.reconcile(&db).unwrap(),
+            Some(v("2.0.0")),
+            "outside change"
+        );
+        std::fs::write(&db, "three").unwrap();
+        assert_eq!(
+            s.record(&db, Some(v("2.0.0")), Bump::Minor).unwrap(),
+            v("2.1.0")
+        );
+        // keep = 2 and majors aren't special here.
+        let kept: Vec<String> = s.list().iter().map(|(v, _)| v.to_string()).collect();
+        assert_eq!(kept, ["2.0.0", "2.1.0"]);
+        assert_eq!(
+            s.path_for(v("2.1.0")).file_name().unwrap(),
+            "master.v2.1.0.db"
+        );
+
+        s.restore(v("2.0.0"), &db).unwrap();
+        assert_eq!(std::fs::read_to_string(&db).unwrap(), "two");
+        assert!(s.restore(v("9.9.9"), &db).is_err());
+    }
+
+    #[test]
+    fn chunked_compare_handles_large_and_unequal_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        let big = vec![7u8; (1 << 20) * 3 + 123];
+        std::fs::write(&a, &big).unwrap();
+        std::fs::write(&b, &big).unwrap();
+        assert!(same_contents(&a, &b).unwrap());
+        let mut changed = big.clone();
+        *changed.last_mut().unwrap() = 8;
+        std::fs::write(&b, &changed).unwrap();
+        assert!(!same_contents(&a, &b).unwrap());
     }
 
     #[test]

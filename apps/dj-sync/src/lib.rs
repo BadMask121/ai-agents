@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod nlu;
 pub mod parser;
 pub mod rekordbox;
+pub mod rekordbox_db;
 pub mod rekordbox_xml;
 pub mod settings;
 pub mod spotify;

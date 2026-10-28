@@ -111,6 +111,31 @@ async fn local_status_reports_folder_and_refuses_proxied_requests() {
 }
 
 #[tokio::test]
+async fn library_actions_refuse_browsers_and_need_the_feature() {
+    let tmp = tempfile::tempdir().unwrap();
+    // A web page could POST here; browsers always send Origin, the app never does.
+    let mut req = post("/local/rekordbox/restore", json!({"version": "1.0.0"}));
+    req.headers_mut()
+        .insert("origin", "https://evil.example".parse().unwrap());
+    assert_eq!(send(app(tmp.path()), req).await.0, StatusCode::FORBIDDEN);
+    let mut req = post("/local/rekordbox/apply", json!({}));
+    req.headers_mut().insert("cf-ray", "abc".parse().unwrap());
+    assert_eq!(send(app(tmp.path()), req).await.0, StatusCode::FORBIDDEN);
+    // Without [rekordbox_db] enabled there's nothing to act on.
+    let (s, _) = send(app(tmp.path()), post("/local/rekordbox/apply", json!({}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (_, b) = send(
+        app(tmp.path()),
+        Request::get("/local/status").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&b).unwrap()["rekordbox_db"],
+        Value::Null
+    );
+}
+
+#[tokio::test]
 async fn health_is_public() {
     let tmp = tempfile::tempdir().unwrap();
     let (s, b) = send(
