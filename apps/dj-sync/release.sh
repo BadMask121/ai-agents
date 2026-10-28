@@ -58,8 +58,13 @@ echo "== DJ Sync $VERSION → $OUT"
 cargo build --release --features release-tools --bin dj-sync-sign -q
 SIGNER="$HERE/target/release/dj-sync-sign"
 DJSYNC_SIGN_IDENTITY="DJ Sync Release" ./macos/build-app.sh
-APP="$HERE/macos/build/DJ Sync.app"
-[[ -d "$APP" ]] || die "build-app.sh didn't produce $APP"
+BUILT="$HERE/macos/build/DJ Sync.app"
+[[ -d "$BUILT" ]] || die "build-app.sh didn't produce $BUILT"
+# The repo sits in a File Provider folder (~/Desktop), which can re-tag the
+# built bundle with Finder xattrs that codesign rejects. Verify and package a
+# copy outside it, without them (the signature lives in the bundle's files).
+APP="$OUT/DJ Sync.app"
+ditto --norsrc --noextattr --noacl "$BUILT" "$APP"
 
 # ---- verify the bundle ----
 [[ $(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString) == "$VERSION" ]] || die "app version isn't $VERSION"

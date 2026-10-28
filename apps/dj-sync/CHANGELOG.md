@@ -36,6 +36,11 @@ Three things are versioned independently:
 
 
 ### Release tooling
+- **`release.sh` verifies and packages a copy of the app outside the repo.**
+  The repo's File Provider folder (~/Desktop) can re-tag the built bundle with
+  Finder xattrs that make `codesign --verify --strict` fail. The copy goes to
+  `~/Library/Caches/dj-sync-release/<version>/` without xattrs. The 1.3.0
+  release first failed here, before uploading anything.
 - **`release.sh` ships the website too.**
   - **Before the build:** it stamps `apps/dj-sync-site`'s pages with the new
     version and commits them, so the tag has them. It now also requires a
