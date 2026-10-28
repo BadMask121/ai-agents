@@ -12,7 +12,6 @@ ai-agents/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
 │   ├── dj-sync/         # Rust bot — Spotify → Rekordbox prep via Telegram
-│   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
 │   ├── prole-promo/     # Remotion promo video for Prole
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
 │   └── sample-agent/    # TS example — minimal agent using @ai-agents/shared
@@ -133,10 +132,10 @@ can sync to USB.
 
 The Prole macOS app now lives in its own open-source repo:
 **[github.com/BadMask121/prole](https://github.com/BadMask121/prole)** (MIT). This
-monorepo keeps the two Prole-related pieces that ship from here:
+monorepo keeps the Prole promo video; the landing page
+([prole.jeffrey.build](https://prole.jeffrey.build)) moved into that repo's `site/`
+(a Cloudflare Worker).
 
-- [`apps/prole-site/`](apps/prole-site/) — the landing page at
-  [prole.jeffrey.build](https://prole.jeffrey.build), deployed via Coolify.
 - [`apps/prole-promo/`](apps/prole-promo/) — the Remotion promo video.
 
 ### `apps/shared` — shared agent types (`@ai-agents/shared`)
