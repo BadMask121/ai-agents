@@ -99,6 +99,64 @@ describe("stats and the inactivity sweep (spec §3.7)", () => {
   });
 });
 
+describe("uninstall: DELETE /v2/agent forgets the DJ (uninstaller spec §2)", () => {
+  it("purges the DJ and drops it from the Registry, Telegram pairing included", async () => {
+    const c = makeCloud();
+    const gone = await c.registered("198.51.100.1");
+    const kept = await c.registered("198.51.100.2");
+    const { url } = await c.link(gone);
+    const ws = await c.connect(gone);
+    await c.hello(gone, ws);
+    const sql = c.REGISTRY.ctxs.get("registry")!.storage.sql;
+    sql.exec("INSERT INTO telegram_chats (chat_id, tenant_id, link_id) VALUES ('42', ?, 'l1')", gone.tenant_id);
+    sql.exec("INSERT INTO pairing_codes (code, tenant_id, link_id, expires_at) VALUES ('c1', ?, 'l1', '2099-01-01')", gone.tenant_id);
+
+    const res = await c.call(req("DELETE", "/v2/agent", undefined, agentHeaders(gone)));
+    expect(res.status).toBe(204);
+    expect(ws.closed?.code).toBe(CLOSE_UNAUTHORIZED);
+    expect((await c.mcp(url, { jsonrpc: "2.0", id: 1, method: "ping" }))[0]).toBe(404);
+    expect(c.TENANT.ctxs.get(gone.tenant_id)!.storage.sql.exec("SELECT name FROM sqlite_master").toArray()).toEqual([]);
+    const left = (table: string) => sql.exec(`SELECT COUNT(*) AS n FROM ${table} WHERE ${table === "tenants" ? "id" : "tenant_id"} = ?`, gone.tenant_id).toArray()[0]!.n;
+    expect([left("tenants"), left("telegram_chats"), left("pairing_codes")]).toEqual([0, 0, 0]);
+    expect(await (await stats(c)).json()).toMatchObject({ tenants: 1 });
+
+    // Already forgotten: 404, which the Mac treats as done. Other DJs are untouched.
+    expect((await c.call(req("DELETE", "/v2/agent", undefined, agentHeaders(gone)))).status).toBe(404);
+    expect((await c.call(req("GET", "/v2/agent/links", undefined, agentHeaders(kept)))).status).toBe(200);
+  });
+
+  it("needs the DJ's own agent token, but no protocol header", async () => {
+    const c = makeCloud();
+    const a = await c.registered("198.51.100.1");
+    const b = await c.registered("198.51.100.2");
+    const as = (t: Any, token: string) => ({ authorization: `Bearer ${token}`, "x-dj-sync-tenant": t.tenant_id });
+    expect((await c.call(req("DELETE", "/v2/agent", undefined, as(a, b.agent_token)))).status).toBe(401);
+    expect((await c.call(req("DELETE", "/v2/agent", undefined, as(a, "nope")))).status).toBe(401);
+    expect((await c.call(req("GET", "/v2/agent/links", undefined, agentHeaders(a)))).status).toBe(200);
+    expect((await c.call(req("DELETE", "/v2/agent", undefined, as(a, a.agent_token)))).status).toBe(204);
+    expect((await c.call(req("POST", "/v2/agent", undefined, agentHeaders(b)))).status).toBe(405);
+  });
+
+  it("answers a non-upgrade request without credentials with a JSON 401, even where sockets exist", async () => {
+    const c = makeCloud();
+    const g = globalThis as Any;
+    const had = g.WebSocketPair;
+    g.WebSocketPair = class {
+      0 = {};
+      1 = { accept() {}, send() {}, close() {} };
+    };
+    try {
+      for (const method of ["DELETE", "GET"]) {
+        const res = await c.call(req(method, "/v2/agent"));
+        expect(res.status, method).toBe(401);
+        expect(await res.json()).toMatchObject({ error: "unauthorized" });
+      }
+    } finally {
+      g.WebSocketPair = had;
+    }
+  });
+});
+
 describe("protocol 1 → 2 transition (spec §3.9)", () => {
   const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
 

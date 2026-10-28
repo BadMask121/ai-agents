@@ -1,5 +1,5 @@
 /** Semver of this Worker. Keep in sync with package.json (a test checks it). */
-export const WORKER_VERSION = "1.4.0";
+export const WORKER_VERSION = "1.5.0";
 
 /**
  * Semver of the agent API the Mac polls. A Mac is compatible when it has the

@@ -8,6 +8,7 @@
 //   POST /__/touch    {tenant_id, day}
 //   GET  /__/stats
 //   POST /__/sweep
+//   POST /__/forget   {tenant_id} → 204 (the DJ uninstalled; its Tenant DO already purged itself)
 //   Telegram (connect-anywhere spec §1): one-time pairing codes and which DJ
 //   each chat belongs to —
 //   POST /__/telegram/code        {code, tenant_id, link_id, expires_at}
@@ -68,6 +69,12 @@ export class Registry extends DurableObject<RegistryEnv> {
     if (path === "/__/touch" && req.method === "POST") return this.touch((await req.json()) as Record<string, unknown>);
     if (path === "/__/stats" && req.method === "GET") return json(this.stats());
     if (path === "/__/sweep" && req.method === "POST") return json(await this.sweep());
+    if (path === "/__/forget" && req.method === "POST") {
+      const id = ((await req.json()) as Record<string, unknown>).tenant_id;
+      if (typeof id !== "string" || !TENANT_ID.test(id)) return json({ error: "invalid_body" }, 400);
+      this.forget(id);
+      return new Response(null, { status: 204 });
+    }
     if (path.startsWith("/__/telegram/")) return this.telegram(req, path);
     return new Response(null, { status: 404 });
   }
@@ -241,6 +248,14 @@ export class Registry extends DurableObject<RegistryEnv> {
    * Purge DJs whose Mac hasn't connected for 90 days (never-connected ones
    * count from registration), a batch at a time; an alarm continues the rest.
    */
+  /** Drop a DJ: its row, pairing codes and Telegram chats. Its Tenant DO is
+   *  purged first, by the sweep below or by the DJ uninstalling (DELETE /v2/agent). */
+  forget(id: string): void {
+    this.ctx.storage.sql.exec("DELETE FROM tenants WHERE id = ?", id);
+    this.ctx.storage.sql.exec("DELETE FROM pairing_codes WHERE tenant_id = ?", id);
+    this.ctx.storage.sql.exec("DELETE FROM telegram_chats WHERE tenant_id = ?", id);
+  }
+
   async sweep(): Promise<{ purged: number; more: boolean }> {
     const now = this.clock();
     const cutoff = utcDay(addSeconds(now, -INACTIVE_TENANT_DAYS * 86_400));
@@ -255,9 +270,7 @@ export class Registry extends DurableObject<RegistryEnv> {
     for (const id of stale) {
       try {
         if (ns) await ns.get(ns.idFromName(id)).fetch("https://tenant/__/purge", { method: "POST" });
-        this.ctx.storage.sql.exec("DELETE FROM tenants WHERE id = ?", id);
-        this.ctx.storage.sql.exec("DELETE FROM pairing_codes WHERE tenant_id = ?", id);
-        this.ctx.storage.sql.exec("DELETE FROM telegram_chats WHERE tenant_id = ?", id);
+        this.forget(id);
         purged++;
       } catch (e) {
         console.error(`purge failed for a tenant: ${e instanceof Error ? e.message : String(e)}`);

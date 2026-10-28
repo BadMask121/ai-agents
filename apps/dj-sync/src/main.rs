@@ -13,6 +13,12 @@ use dj_sync::{
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // `dj-sync uninstall`: before anything that would create ~/.dj-sync.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("uninstall") {
+        return dj_sync::uninstall::cli(&args[1..]).await;
+    }
+
     // ~/.dj-sync/.env first: under launchd the working directory isn't the repo.
     // dotenvy never overrides a variable that's already set, so the first file wins.
     if let Ok(dir) = config::state_dir() {
@@ -113,6 +119,14 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(lib) = library.clone() {
         tokio::spawn(rekordbox_db::run(lib, shutdown_rx.clone()));
+    }
+    // The app dragged to the Bin: stop (keeping data) instead of running on.
+    if let (Ok(settings), Some(home)) = (dj_sync::settings::settings_path(), dirs::home_dir()) {
+        tokio::spawn(dj_sync::uninstall::watch_app(
+            settings,
+            home,
+            shutdown_rx.clone(),
+        ));
     }
 
     // Lanes are independent: a bot failure must not take the others down.

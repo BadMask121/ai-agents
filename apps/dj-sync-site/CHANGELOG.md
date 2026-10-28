@@ -4,6 +4,15 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] — 2026-10-28
+### Pages
+- **FAQ "How do I remove DJ Sync?"** now points to About → Uninstall DJ
+  Sync…, says what stays (music, the Rekordbox library, backups in Music › DJ
+  Sync Backups), and gives `~/.dj-sync/bin/dj-sync uninstall` for anyone who
+  already dragged the app to the Bin.
+- **Privacy:** uninstalling deletes the Mac's cloud data straight away, as
+  well as after 90 days without use.
+
 ## [1.2.2] — 2026-10-28
 ### Release
 - **The site follows the app's version.**

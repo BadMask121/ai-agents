@@ -21,6 +21,7 @@ pub mod shortcut;
 pub mod signing;
 pub mod spotify;
 pub mod toolbox;
+pub mod uninstall;
 pub mod usb;
 pub mod xml_versions;
 

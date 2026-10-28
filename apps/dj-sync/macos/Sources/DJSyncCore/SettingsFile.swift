@@ -35,6 +35,22 @@ public struct SettingsFile: Sendable {
     try set("onboarded", done)
   }
 
+  /// Where this app lives, so dj-sync can stop itself once the app is deleted.
+  /// Temporary locations (the installer disk image, or macOS's App
+  /// Translocation for an app opened straight from Downloads) vanish when the
+  /// app quits, so they're not recorded. Returns whether it wrote.
+  @discardableResult
+  public func recordAppPath(_ app: URL) throws -> Bool {
+    let path = app.path(percentEncoded: false)
+    guard !path.hasPrefix("/Volumes/"), !path.contains("/AppTranslocation/") else { return false }
+    try set("app_path", path)
+    return true
+  }
+
+  public func appPath() -> String? {
+    readObject()["app_path"] as? String
+  }
+
   private func set(_ key: String, _ value: Any?) throws {
     var object = readObject()
     object[key] = value
