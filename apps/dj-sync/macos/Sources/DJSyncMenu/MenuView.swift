@@ -5,59 +5,45 @@ import SwiftUI
 /// The panel shown from the menu bar icon, and in a window when the app is
 /// opened directly. Motion is limited to state changes; opening the panel is
 /// instant because it happens many times a day.
-/// Two columns side by side: wide rather than tall, so it fits under the
-/// menu bar without scrolling.
+/// The DJ Sync panel, in two shapes:
+/// - `.compact`: one 340 pt column, for the popover under the menu bar icon;
+/// - `.wide`: two columns, for the window shown when the app is opened.
 struct MenuView: View {
+  enum Layout {
+    case compact
+    case wide
+  }
+
   @Bindable var model: MenuModel
+  var layout: Layout = .compact
   /// Extra top space under a transparent window title bar.
   var topInset: CGFloat = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   static let columnWidth: CGFloat = 320
   static let spacing: CGFloat = 12
+  private static let padding: CGFloat = 16
+
+  private var width: CGFloat {
+    switch layout {
+    case .compact: Self.columnWidth + Self.padding * 2
+    case .wide: Self.columnWidth * 2 + Self.spacing + Self.padding * 2
+    }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Self.spacing) {
-      HStack(alignment: .center) {
-        Header(service: model.service)
-        Spacer(minLength: 16)
-        HeaderActions(model: model)
+      switch layout {
+      case .compact: compactContent
+      case .wide: wideContent
       }
-      .padding(.bottom, 2)
-
-      // Only in the window: from the popover, the icon is obviously visible.
-      if topInset > 0, case .hidden(let reason) = model.menuBarIcon {
-        HiddenIconCard(reason: reason)
-          .transition(.enter(reduceMotion))
-      }
-      if case .notRunning = model.service {
-        NotRunningCard(isStarting: model.isRestarting, start: model.restartService)
-          .transition(.enter(reduceMotion))
-      }
-
-      HStack(alignment: .top, spacing: Self.spacing) {
-        VStack(spacing: Self.spacing) {
-          DownloadsCard(model: model)
-          RekordboxCard(model: model)
-        }
-        .frame(width: Self.columnWidth)
-        VStack(spacing: Self.spacing) {
-          ConnectionsCard(model: model)
-          if let jobs = model.status?.recentJobs, !jobs.isEmpty {
-            RecentCard(jobs: jobs)
-              .transition(.enter(reduceMotion))
-          }
-        }
-        .frame(width: Self.columnWidth)
-      }
-
       if let error = model.actionError {
         Banner(text: error)
       }
     }
-    .padding(16)
+    .padding(Self.padding)
     .padding(.top, topInset)
-    .frame(width: Self.columnWidth * 2 + Self.spacing + 32)
+    .frame(width: width)
     .fixedSize(horizontal: false, vertical: true)
     .animation(.easeOut(duration: 0.2), value: model.service)
     .animation(.easeOut(duration: 0.2), value: model.actionError)
@@ -68,6 +54,64 @@ struct MenuView: View {
         await model.refresh()
         try? await Task.sleep(for: .seconds(3))
       }
+    }
+  }
+
+  /// Popover: one column, actions in a footer row.
+  @ViewBuilder
+  private var compactContent: some View {
+    Header(service: model.service)
+    notices
+    DownloadsCard(model: model)
+    RekordboxCard(model: model)
+    ConnectionsCard(model: model)
+    recent
+    HeaderActions(model: model, spread: true)
+      .padding(.top, 2)
+  }
+
+  /// Window: actions beside the status, two columns of cards.
+  @ViewBuilder
+  private var wideContent: some View {
+    HStack(alignment: .center) {
+      Header(service: model.service)
+      Spacer(minLength: 16)
+      HeaderActions(model: model, spread: false)
+    }
+    .padding(.bottom, 2)
+    notices
+    HStack(alignment: .top, spacing: Self.spacing) {
+      VStack(spacing: Self.spacing) {
+        DownloadsCard(model: model)
+        RekordboxCard(model: model)
+      }
+      .frame(width: Self.columnWidth)
+      VStack(spacing: Self.spacing) {
+        ConnectionsCard(model: model)
+        recent
+      }
+      .frame(width: Self.columnWidth)
+    }
+  }
+
+  @ViewBuilder
+  private var notices: some View {
+    // Only in the window: from the popover, the icon is obviously visible.
+    if topInset > 0, case .hidden(let reason) = model.menuBarIcon {
+      HiddenIconCard(reason: reason)
+        .transition(.enter(reduceMotion))
+    }
+    if case .notRunning = model.service {
+      NotRunningCard(isStarting: model.isRestarting, start: model.restartService)
+        .transition(.enter(reduceMotion))
+    }
+  }
+
+  @ViewBuilder
+  private var recent: some View {
+    if let jobs = model.status?.recentJobs, !jobs.isEmpty {
+      RecentCard(jobs: jobs)
+        .transition(.enter(reduceMotion))
     }
   }
 }
@@ -462,9 +506,12 @@ private struct JobRow: View {
   }
 }
 
-/// Open at Login and the service actions, beside the status in the header.
+/// Open at Login and the service actions: in the window header, or as the
+/// popover footer.
 private struct HeaderActions: View {
   @Bindable var model: MenuModel
+  /// Toggle on the left, buttons on the right (footer) vs. packed (header).
+  let spread: Bool
 
   var body: some View {
     HStack(spacing: 4) {
@@ -474,6 +521,7 @@ private struct HeaderActions: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.trailing, 8)
+      if spread { Spacer(minLength: 0) }
       IconButton(systemImage: "arrow.clockwise", label: "Restart dj-sync", busy: model.isRestarting) {
         model.restartService()
       }

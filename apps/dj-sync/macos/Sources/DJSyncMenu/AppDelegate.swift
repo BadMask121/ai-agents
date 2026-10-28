@@ -53,7 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Opened many times a day: no open/close animation.
     popover.animates = false
     popover.behavior = .transient
-    popover.contentViewController = NSHostingController(rootView: MenuView(model: model))
+    // Half-width single column under the menu bar; it follows its content's size.
+    let hosting = NSHostingController(rootView: MenuView(model: model, layout: .compact))
+    hosting.sizingOptions = [.preferredContentSize]
+    popover.contentViewController = hosting
 
     // Check where the icon landed (again whenever screens change), so a
     // hidden icon can be explained in the window instead of just missing.
@@ -121,8 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func showWindow() {
     checkPlacement()
     if window == nil {
-      // Same panel as the menu bar, edge to edge under a transparent title bar.
-      let hosting = NSHostingController(rootView: MenuView(model: model, topInset: 16))
+      // The wide two-column panel, edge to edge under a transparent title bar.
+      let hosting = NSHostingController(rootView: MenuView(model: model, layout: .wide, topInset: 16))
+      hosting.sizingOptions = [.preferredContentSize]
       let window = NSWindow(contentViewController: hosting)
       window.title = "DJ Sync"
       window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]

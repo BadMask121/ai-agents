@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.4.1] — 2026-10-28
+### Fixed
+- The popover under the menu bar icon is half width again: one 340 pt column,
+  with Open at Login and the service actions in a footer row. It sizes to its
+  content. The two-column 684 pt layout is used only in the window (opening
+  the app from Finder or Spotlight), where there's room for it.
+
 ## [0.4.0] — 2026-10-28
 ### Added
 - A **Connections** card:
