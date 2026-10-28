@@ -92,7 +92,7 @@ def howto_steps(root):
     steps = []
     for li in [k for k in ol.kids if isinstance(k, Node) and k.tag == "li"]:
         h3 = next(li.find_all(lambda n: n.tag == "h3"))
-        body = clean("".join(k if isinstance(k, str) else ("" if k is h3 else k.text()) for k in li.kids))
+        body = clean("".join(k if isinstance(k, str) else ("" if k is h3 or k.tag == "figure" else k.text()) for k in li.kids))
         if len(body) > 480:
             body = body[:480].rsplit(". ", 1)[0] + "."
         steps.append({"@type": "HowToStep", "position": len(steps) + 1, "name": clean(h3.text()), "text": body})

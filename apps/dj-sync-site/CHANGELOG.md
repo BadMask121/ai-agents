@@ -4,6 +4,17 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Pages
+- **Each connect guide has an illustration** (hand-drawn inline SVG, light/dark
+  aware, same style as the install guide): Telegram shows QR pairing and the
+  bot's Start button, Claude the Add custom connector dialog, iPhone the Share
+  sheet and playlist picker, ChatGPT the custom connector form.
+### SEO
+- **HowTo steps no longer absorb illustration text.** `tools/seo.py` skips
+  `figure` subtrees when building step bodies, and the install guide's
+  regenerated JSON-LD is clean.
+
 ## [1.2.1] — 2026-10-28
 ### Pages
 - **`/connect/iphone/` is now three steps.** Scan the QR code in DJ Sync →
