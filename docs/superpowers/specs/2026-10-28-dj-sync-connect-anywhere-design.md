@@ -106,6 +106,40 @@ isn't connected. In DJ Sync on your Mac: Assistants → Connect Telegram."
 chat id, the Telegram username and first name, and pending and job rows. The
 privacy page says so.
 
+## 1b. Moving tracks between playlists (MCP tool `move_tracks`)
+
+The owner asked for this on 2026-10-28.
+
+```
+move_tracks {
+  from_playlist: string, from_playlist_id?: string,
+  to_playlist: string,   to_playlist_id?: string,
+  track_ids?: string[1..500],   // or:
+  all?: boolean,                // every track in from_playlist
+  create_playlist?: boolean     // make to_playlist if it doesn't exist
+}
+```
+
+- **Resolving the playlists.** Both are resolved like every playlist tool:
+  unclear or duplicate names return suggestions or the ambiguity question,
+  and `*_playlist_id` pins a choice. An unknown target is an error unless
+  `create_playlist` is true; then it's created in the DJ Sync folder.
+  Moving a playlist into itself is an error.
+- **Which tracks.** Either `track_ids` or `all` (not both). `track_ids` must
+  all be in the source playlist; any that aren't are listed, and nothing is
+  queued.
+- **The change.** One library job, so one rbdb transaction: everything moves
+  or nothing does, with backups before and after as always. Its ops are an
+  optional `ensure_playlist(to)`, then `add_to_playlist(to, id)` for each
+  track in source order, then `remove_from_playlist(from, id)` for each.
+  Every op carries the resolved `playlist_id`.
+- **What the user sees.** The summary reads "Move N tracks from "A" to "B"".
+  `destructiveHint` is false: the tracks stay in the library, and backups
+  allow undo.
+- **Copying** stays `add_tracks_to_playlist`; the tool descriptions say so.
+- **Telegram** gets moving later. It needs a guided flow, since the bot has no
+  natural-language model.
+
 ## 2. iPhone Shortcut (REST)
 
 - **`POST /v2/agent/links {kind:"shortcut"}`** already returns
