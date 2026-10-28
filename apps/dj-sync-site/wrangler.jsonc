@@ -1,0 +1,14 @@
+{
+  // DJ Sync website: static files only (no Worker script), served by
+  // Cloudflare Workers static assets on djsync.triplejmusic.art.
+  "$schema": "../dj-sync-cloud/node_modules/wrangler/config-schema.json",
+  "name": "dj-sync-site",
+  "compatibility_date": "2026-10-20",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": false,
+  "routes": [{ "pattern": "djsync.triplejmusic.art", "custom_domain": true }]
+}

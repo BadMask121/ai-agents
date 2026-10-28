@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect ChatGPT · DJ Sync</title>
+<meta name="description" content="Add DJ Sync to ChatGPT as a custom MCP server so ChatGPT can download tracks and manage your Rekordbox playlists.">
+<meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="canonical" href="https://djsync.triplejmusic.art/connect/chatgpt/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Connect ChatGPT · DJ Sync">
+<meta property="og:description" content="Add DJ Sync to ChatGPT as a custom MCP server so ChatGPT can download tracks and manage your Rekordbox playlists.">
+<meta property="og:url" content="https://djsync.triplejmusic.art/connect/chatgpt/">
+<script src="/assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/install/">Install</a>
+      <a href="/connect/chatgpt/" class="hide-sm" aria-current="page">ChatGPT</a>
+      <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/faq/">FAQ</a>
+      <a class="btn btn-primary btn-sm" href="https://downloads.triplejmusic.art/djsync/DJ-Sync-latest.dmg">Download</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="page">
+  <article class="prose">
+    <h1>Connect ChatGPT</h1>
+    <p class="lead">Add DJ Sync to ChatGPT once on the web. It then works in the ChatGPT app on your phone as well.</p>
+    <ol class="howto">
+      <li>
+        <h3>Copy your private link from DJ Sync</h3>
+        <p>Click the DJ Sync icon in your menu bar, go to <span class="ui">Assistants</span>, click <span class="ui">Connect ChatGPT</span> and then <span class="ui">Copy</span>. It looks like <code>https://mcp.triplejmusic.art/…/…/mcp</code>.</p>
+        <div class="note warn"><strong>Treat this link like a password.</strong> Anyone with it can send requests to your Mac. If it ever leaks, use <span class="ui">Rotate</span> in the same place: the old link stops working at once.</div>
+      </li>
+      <li>
+        <h3>Add it to ChatGPT</h3>
+        <p>On a computer, open <a href="https://chatgpt.com" rel="noopener">chatgpt.com</a> and go to <span class="ui">Plugins</span>. Click <span class="ui">Add</span>, then <span class="ui">Create custom MCP server</span>, and fill in:</p>
+        <ul>
+          <li><strong>Name:</strong> DJ Sync</li>
+          <li><strong>MCP server URL:</strong> paste your link</li>
+          <li><strong>Authentication:</strong> No authentication (the link itself is the key)</li>
+        </ul>
+        <p>Save it. ChatGPT may warn that the server isn’t verified by OpenAI. That’s expected for independent apps like DJ Sync.</p>
+        <div class="note">ChatGPT’s menus move around. If you can’t find <span class="ui">Plugins</span>, look for adding a connector or a custom MCP server in Settings. If your plan doesn’t offer custom MCP servers, <a href="/connect/claude/">Claude’s free plan</a> allows one custom connector.</div>
+      </li>
+      <li>
+        <h3>Ask</h3>
+        <p>Start a chat and mention DJ Sync (or pick it from the tools menu). ChatGPT asks you to confirm before it changes anything. Try:</p>
+        <ul>
+  <li>“Download https://open.spotify.com/track/… and add it to a playlist called Friday Warm-up.”</li>
+  <li>“Search my library for amapiano between 110 and 115 BPM and make a playlist of the results.”</li>
+  <li>“Rename Friday Warm-up to Friday Opening.”</li>
+  <li>“What happened to my last download?”</li>
+</ul>
+        <p>The DJ Sync menu shows <span class="ui">Connected</span> once ChatGPT has used your link.</p>
+      </li>
+    </ol>
+  </article>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>DJ Sync — free for DJs. No account.</div>
+      <nav aria-label="Footer">
+        <a href="/install/">Install</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/claude/">Connect Claude</a>
+        <a href="/faq/">FAQ</a>
+        <a href="/privacy/">Privacy</a>
+        <a href="/terms/">Terms</a>
+      </nav>
+    </div>
+    <p class="support" id="support">Need help? In DJ Sync, open <span class="ui">About → Copy diagnostics</span>. It copies versions and recent errors, never your links or passwords. <span data-support-contact hidden></span></p>
+    <p class="disclaimer">DJ Sync is an independent project. It isn’t affiliated with or endorsed by AlphaTheta / Pioneer DJ (Rekordbox), OpenAI (ChatGPT), Anthropic (Claude), Spotify or YouTube. Their names and marks belong to their owners.</p>
+  </div>
+</footer>
+</body>
+</html>

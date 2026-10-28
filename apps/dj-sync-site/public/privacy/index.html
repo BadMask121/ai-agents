@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy · DJ Sync</title>
+<meta name="description" content="What the DJ Sync cloud stores, what it never stores, and how long it keeps it.">
+<meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="canonical" href="https://djsync.triplejmusic.art/privacy/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Privacy · DJ Sync">
+<meta property="og:description" content="What the DJ Sync cloud stores, what it never stores, and how long it keeps it.">
+<meta property="og:url" content="https://djsync.triplejmusic.art/privacy/">
+<script src="/assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/install/">Install</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/faq/">FAQ</a>
+      <a class="btn btn-primary btn-sm" href="https://downloads.triplejmusic.art/djsync/DJ-Sync-latest.dmg">Download</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="page">
+  <article class="prose">
+    <h1>Privacy</h1>
+    <p class="updated">Effective 28 October 2026</p>
+    <p class="lead">DJ Sync has no accounts, no analytics and no tracking. The cloud keeps the minimum it needs to pass requests from your assistant to your Mac.</p>
+
+    <h2>What the DJ Sync cloud stores for your Mac</h2>
+    <ul>
+      <li><strong>Requests and results:</strong> the links you ask DJ Sync to download, playlist names, and each job’s result (track titles, errors, version numbers).</li>
+      <li><strong>A copy of your library’s catalogue:</strong> track titles, artists, albums, genres, BPM, keys and lengths, plus your playlists and which tracks are in them, so ChatGPT or Claude can browse and search while your Mac is offline.</li>
+      <li><strong>Security values:</strong> one-way hashes of your Mac’s token and of your assistant links. The links themselves are kept only on your Mac.</li>
+    </ul>
+
+    <h2>What it never stores</h2>
+    <ul>
+      <li>Your name, email or any account details. There is no account.</li>
+      <li>File paths on your Mac, or any audio. Downloads go straight from their source to your Mac.</li>
+      <li>IP addresses. To stop abuse, sign-ups are limited per network using a salted hash of the IP address that changes every day.</li>
+    </ul>
+
+    <h2>How long it’s kept</h2>
+    <ul>
+      <li>Finished jobs are deleted after 30 days.</li>
+      <li>If your Mac doesn’t connect for 90 days, everything the cloud holds for it is deleted.</li>
+    </ul>
+
+    <h2>Where it runs</h2>
+    <p>The DJ Sync cloud runs on Cloudflare’s Workers platform. DJ Sync doesn’t sell or share your data, and uses it only to run the service.</p>
+
+    <h2>Your assistant</h2>
+    <p>What you type into ChatGPT or Claude, and what DJ Sync returns to them (such as track titles from your library), is handled by OpenAI or Anthropic under their own privacy policies.</p>
+
+    <h2>On your Mac</h2>
+    <p>Everything else stays on your Mac in a hidden <code>.dj-sync</code> folder: settings, your assistant links, the tools DJ Sync installs, and backups of your Rekordbox library. DJ Sync sends no usage statistics. “Copy diagnostics” only copies to your clipboard; nothing is sent unless you choose to share it.</p>
+
+    <h2>This website</h2>
+    <p>No cookies, no analytics, no third-party scripts or fonts.</p>
+
+    <h2>Questions</h2>
+    <p>See <a href="#support">Need help?</a> at the bottom of this page.</p>
+  </article>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>DJ Sync — free for DJs. No account.</div>
+      <nav aria-label="Footer">
+        <a href="/install/">Install</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/claude/">Connect Claude</a>
+        <a href="/faq/">FAQ</a>
+        <a href="/privacy/">Privacy</a>
+        <a href="/terms/">Terms</a>
+      </nav>
+    </div>
+    <p class="support" id="support">Need help? In DJ Sync, open <span class="ui">About → Copy diagnostics</span>. It copies versions and recent errors, never your links or passwords. <span data-support-contact hidden></span></p>
+    <p class="disclaimer">DJ Sync is an independent project. It isn’t affiliated with or endorsed by AlphaTheta / Pioneer DJ (Rekordbox), OpenAI (ChatGPT), Anthropic (Claude), Spotify or YouTube. Their names and marks belong to their owners.</p>
+  </div>
+</footer>
+</body>
+</html>
