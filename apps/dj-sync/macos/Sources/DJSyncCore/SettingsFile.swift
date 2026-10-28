@@ -23,8 +23,21 @@ public struct SettingsFile: Sendable {
 
   /// Set the download folder, or pass `nil` to go back to dj-sync's default.
   public func setDownloadDir(_ path: String?) throws {
+    try set("download_dir", path)
+  }
+
+  /// Onboarding finished (or skipped) on this Mac.
+  public func onboarded() -> Bool {
+    readObject()["onboarded"] as? Bool ?? false
+  }
+
+  public func setOnboarded(_ done: Bool) throws {
+    try set("onboarded", done)
+  }
+
+  private func set(_ key: String, _ value: Any?) throws {
     var object = readObject()
-    object["download_dir"] = path
+    object[key] = value
     try FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let data = try JSONSerialization.data(

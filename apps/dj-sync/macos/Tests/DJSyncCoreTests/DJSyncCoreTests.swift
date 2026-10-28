@@ -174,9 +174,12 @@ struct ConnectionsTests {
   @Test func `decodes worker health`() throws {
     let json = #"{"status":"ok","version":"0.1.0","protocol":"1.0.0","agent":{"online":true,"last_seen":"2026-10-28T02:34:40.599Z","version":"0.2.0"},"queued":2}"#
     let h = try CloudHealth.decode(Data(json.utf8))
-    #expect(h.agent.online)
+    #expect(h.agent?.online == true)
     #expect(h.queued == 2)
     #expect(h.protocol == "1.0.0")
+    // Worker 1.0 (multi-DJ) reports no single agent.
+    let v2 = try CloudHealth.decode(Data(#"{"status":"ok","version":"1.0.0","protocol":"2.0.0"}"#.utf8))
+    #expect(v2.agent == nil && v2.queued == nil)
   }
 }
 

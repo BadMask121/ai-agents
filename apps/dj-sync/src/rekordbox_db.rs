@@ -355,6 +355,29 @@ impl RekordboxLibrary {
         Ok(n)
     }
 
+    /// Back up the library as it is now (v1.0.0 on a fresh install), before
+    /// DJ Sync ever changes it. Needs Rekordbox closed, like every write.
+    pub fn ensure_baseline(&self) -> anyhow::Result<String> {
+        let _memory = self.lock.lock().expect("library lock");
+        if self.rekordbox_running() {
+            bail!(
+                "Rekordbox is open: your library will be backed up before DJ Sync's first change."
+            );
+        }
+        anyhow::ensure!(
+            self.cfg.db_path.is_file(),
+            "no Rekordbox library at {}",
+            self.cfg.db_path.display()
+        );
+        let version = self
+            .versions()
+            .reconcile(&self.cfg.db_path)
+            .context("backing up master.db")?
+            .ok_or_else(|| anyhow!("couldn't back up master.db"))?;
+        self.note_backup(Some(version), "Your library as it was before DJ Sync");
+        Ok(version.to_string())
+    }
+
     // ---------- restore ----------
 
     pub fn restore(&self, version: &str) -> anyhow::Result<String> {
@@ -801,6 +824,23 @@ mod tests {
         assert_eq!(r.lib.dismiss_failed().unwrap(), 1);
         let s = r.lib.status();
         assert_eq!((s.pending.len(), s.failed.len()), (0, 0));
+    }
+
+    #[test]
+    fn the_baseline_backup_is_taken_once_and_needs_rekordbox_closed() {
+        let r = rig("", false);
+        r.running.store(true, Ordering::SeqCst);
+        assert!(r.lib.ensure_baseline().is_err());
+        r.running.store(false, Ordering::SeqCst);
+        assert_eq!(r.lib.ensure_baseline().unwrap(), "1.0.0");
+        assert_eq!(
+            r.lib.ensure_baseline().unwrap(),
+            "1.0.0",
+            "unchanged library: same backup"
+        );
+        let s = r.lib.status();
+        assert_eq!(s.backups.len(), 1);
+        assert_eq!(s.backups[0].reason, "Your library as it was before DJ Sync");
     }
 
     #[test]

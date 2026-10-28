@@ -11,6 +11,30 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.0.0-rc.1] — 2026-10-28 · one product version with the app
+
+From this release the menu app and the service it carries share one version.
+
+### Added
+- **Runs with no setup.** A brand-new install needs no `config.toml` and no
+  `.env`:
+  - every section has a default, and `[library]`/`[rekordbox]` are checked
+    only when the Telegram bot lane runs;
+  - the cloud lane is on by default;
+  - `rekordbox_db` is on whenever Rekordbox has a library on this Mac;
+  - new installs save to `~/Music/DJ Sync`, while Macs that already have
+    `~/Music/DJ_Downloads` keep it.
+- **`POST /local/rekordbox/baseline`** backs up Rekordbox's library right away
+  ("your library as it was before DJ Sync", v1.0.0 on a fresh Mac). It needs
+  Rekordbox closed; otherwise the backup is taken before the first change, as
+  before.
+
+### Changed
+- **The local HTTP server always runs** for the menu app (`/local/*`). The
+  secret-path MCP route exists only with `[mcp] enabled = true` and
+  `MCP_SECRET_PATH`; the Shortcut REST only with `SHORTCUT_API_KEY`.
+  `/local/status` reports `mcp: null` without that route.
+
 ## [0.9.0] — 2026-10-28 · agent protocol 2.0.0 (cloud v2)
 
 ### Added

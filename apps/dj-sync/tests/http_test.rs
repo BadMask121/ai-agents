@@ -39,6 +39,9 @@ autoimport_dir = "/tmp"
 [mcp]
 enabled = true
 public_base_url = "https://mcp.example.test"
+# The tunnel setup: no cloud lane (it's on by default now).
+[cloud]
+enabled = false
 [download]
 dir = "{d}/dl"
 import_xml = "{d}/import.xml"
@@ -193,6 +196,40 @@ import_xml = "{d}/import.xml"
     assert_eq!(cloud["protocol"], 2);
     assert_eq!(cloud["registered"], false);
     assert_eq!(cloud["connected"], false);
+}
+
+#[tokio::test]
+async fn a_fresh_install_has_no_local_mcp_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = Config::load_from(&tmp.path().join("missing.toml")).unwrap();
+    let cfg = Config {
+        download: DownloadCfg {
+            dir: tmp.path().join("dl"),
+            import_xml: tmp.path().join("import.xml"),
+            ..cfg.download.clone()
+        },
+        ..cfg
+    };
+    let (jobs, _) = JobQueue::start(cfg.download.clone(), Idle).unwrap();
+    let app = || router(AppState::new(jobs.clone(), &cfg), "");
+    let (s, _) = send(
+        app(),
+        post(
+            &mcp_path(),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}),
+        ),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, b) = send(
+        app(),
+        Request::get("/local/status").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let v: Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["mcp"], Value::Null, "no secret-path URLs to show");
+    assert_eq!(v["cloud"]["enabled"], true);
 }
 
 #[tokio::test]

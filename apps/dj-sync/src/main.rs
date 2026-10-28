@@ -31,9 +31,16 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cfg = Config::load().context("loading config")?;
-    info!(roots = ?cfg.library.roots, "loaded config");
+    info!(
+        cloud = cfg.cloud.enabled,
+        local_mcp = cfg.mcp.enabled,
+        rekordbox_db = cfg.rekordbox_db.enabled,
+        "loaded config"
+    );
 
     let bot_enabled = Config::telegram_bot_token().is_ok();
+    // `[mcp] enabled` is the local secret-path MCP lane (Cloudflare Tunnel);
+    // the local HTTP server itself always runs for the menu app.
     let http_enabled = cfg.mcp.enabled;
     let cloud_enabled = cfg.cloud.enabled;
     if !bot_enabled && !http_enabled && !cloud_enabled {
@@ -126,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
         let session = cloud_session.clone();
         let toolbox = toolbox.clone();
         async move {
-            let (true, Some(jobs)) = (http_enabled, jobs) else {
+            let Some(jobs) = jobs else {
                 return Ok(());
             };
             let r = http::serve(cfg, jobs, library, session, toolbox, shutdown).await;
@@ -207,6 +214,7 @@ fn acquire_instance_lock() -> anyhow::Result<std::fs::File> {
 }
 
 async fn run_bot_lane(cfg: Config, shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
+    cfg.validate_bot()?;
     let spotify = SpotifyClient::from_env().context("spotify client")?;
 
     // Build the library index up front (off the async threads — it walks the

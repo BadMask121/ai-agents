@@ -2,11 +2,10 @@ import AppKit
 import DJSyncCore
 import SwiftUI
 
-/// The panel shown from the menu bar icon, and in a window when the app is
-/// opened directly. Motion is limited to state changes; opening the panel is
-/// instant because it happens many times a day.
-/// The DJ Sync panel: one compact 340 pt column, used both in the popover
+/// The DJ Sync panel: one compact 372 pt column, used both in the popover
 /// under the menu bar icon and in the window shown when the app is opened.
+/// Motion is limited to state changes; opening the panel is instant because
+/// it happens many times a day.
 struct MenuView: View {
   @Bindable var model: MenuModel
   /// Extra top space under a transparent window title bar.
@@ -25,18 +24,23 @@ struct MenuView: View {
         NotRunningCard(isStarting: model.isRestarting, start: model.restartService)
           .transition(.enter(reduceMotion))
       }
+      AssistantsCard(model: model)
       DownloadsCard(model: model)
       RekordboxCard(model: model)
-      ConnectionsCard(model: model)
       if let jobs = model.status?.recentJobs, !jobs.isEmpty {
         RecentCard(jobs: Array(jobs.prefix(3)))
           .transition(.enter(reduceMotion))
       }
-      FooterActions(model: model)
-        .padding(.top, 2)
+      ToolsCard(model: model)
+      AboutCard(model: model)
+      if let note = model.actionNote {
+        Banner(text: note, tone: .success)
+      }
       if let error = model.actionError {
         Banner(text: error)
       }
+      FooterActions(model: model)
+        .padding(.top, 2)
     }
     .padding(16)
     .padding(.top, topInset)
@@ -44,6 +48,7 @@ struct MenuView: View {
     .fixedSize(horizontal: false, vertical: true)
     .animation(.easeOut(duration: 0.2), value: model.service)
     .animation(.easeOut(duration: 0.2), value: model.actionError)
+    .animation(.easeOut(duration: 0.2), value: model.actionNote)
     .animation(.easeOut(duration: 0.2), value: model.menuBarIcon)
     // Poll while visible; SwiftUI cancels this when the panel closes.
     .task {
@@ -92,31 +97,14 @@ private struct Header: View {
     switch service {
     case .checking: "Checking…"
     case .notRunning: "Not running"
-    case .running(let s): "Running · v\(s.version)" + (s.cloud.enabled ? " · Cloud queue on" : "")
+    case .running(let s):
+      switch (s.cloud.enabled, s.cloud.connected) {
+      case (false, _): "Running · cloud off"
+      case (true, true?): "Running · connected to the cloud"
+      case (true, false?): "Running · cloud not reachable yet"
+      case (true, nil): "Running · v\(s.version)"
+      }
     }
-  }
-}
-
-private struct AppGlyph: View {
-  var body: some View {
-    RoundedRectangle(cornerRadius: 8, style: .continuous)
-      .fill(
-        LinearGradient(
-          colors: [Color(red: 0.55, green: 0.36, blue: 0.97), Color(red: 0.94, green: 0.30, blue: 0.60)],
-          startPoint: .topLeading, endPoint: .bottomTrailing)
-      )
-      .frame(width: 34, height: 34)
-      .overlay {
-        Image(systemName: "music.note.list")
-          .font(.system(size: 15, weight: .semibold))
-          .foregroundStyle(.white)
-      }
-      .overlay {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-      }
-      .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-      .accessibilityHidden(true)
   }
 }
 
@@ -393,134 +381,6 @@ private struct BackupRow: View {
   }
 }
 
-private struct ConnectionsCard: View {
-  @Bindable var model: MenuModel
-
-  var body: some View {
-    Card(title: "Connections", systemImage: "network") {
-      IconButton(
-        systemImage: model.revealSecrets ? "eye.slash" : "eye",
-        label: model.revealSecrets ? "Hide secret URLs" : "Show secret URLs"
-      ) {
-        model.revealSecrets.toggle()
-      }
-      .padding(.vertical, -6)
-    } content: {
-      if let mcp = model.status?.mcp {
-        if let url = mcp.publicUrl {
-          URLRow(
-            title: "ChatGPT plugin (MCP)", url: url, reveal: model.revealSecrets,
-            copied: model.copied == "public"
-          ) { model.copy(url, key: "public") }
-        }
-        URLRow(
-          title: "On this Mac (testing)", url: mcp.localUrl, reveal: model.revealSecrets,
-          copied: model.copied == "local"
-        ) { model.copy(mcp.localUrl, key: "local") }
-      } else if model.status != nil {
-        Text("Update dj-sync to 0.3 or later to see its URLs.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
-      if let status = model.status, status.cloud.enabled {
-        StatusRow(title: "Cloud queue", detail: hostOnly(status.cloud.baseUrl), state: cloudState)
-      }
-      StatusRow(title: "Tunnel", detail: tunnelDetail, state: tunnelState)
-    }
-  }
-
-  private var cloudState: (Color, String) {
-    guard let health = model.cloud else { return (.red, "Unreachable") }
-    let queued = health.queued == 0 ? "Queue empty" : "\(health.queued) waiting"
-    return health.agent.online
-      ? (.green, "Mac online · \(queued) · Worker v\(health.version)")
-      : (.orange, "Mac offline · \(queued)")
-  }
-
-  private var tunnelDetail: String {
-    guard let t = model.tunnel else { return "Not configured" }
-    let route = [t.hostname.map { "https://\($0)" }, t.service].compactMap { $0 }.joined(separator: " → ")
-    return route.isEmpty ? String(t.tunnelId.prefix(8)) + "…" : route
-  }
-
-  private var tunnelState: (Color, String) {
-    switch (model.tunnel, model.tunnelRunning) {
-    case (nil, _): (.secondary, "Not set up")
-    case (_, true?):
-      model.status?.cloud.enabled == true
-        ? (.green, "Running · standby (the cloud queue answers this hostname)")
-        : (.green, "Running")
-    case (_, false?), (_, nil): (.secondary, "Stopped")
-    }
-  }
-
-  private func hostOnly(_ url: String) -> String {
-    URL(string: url)?.host() ?? url
-  }
-}
-
-/// A labelled URL, masked by default, with a Copy button that confirms.
-private struct URLRow: View {
-  let title: String
-  let url: String
-  let reveal: Bool
-  let copied: Bool
-  let copy: () -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack {
-        Text(title).font(.caption).foregroundStyle(.secondary)
-        Spacer(minLength: 8)
-        Button(action: copy) {
-          Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-            .font(.caption)
-            .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(copied ? Color.green : Color.accentColor)
-        .help("Copy the full URL")
-      }
-      Text(reveal ? url : maskingSecretPath(url))
-        .font(.caption.monospaced())
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .textSelection(.enabled)
-        .contentTransition(.opacity)
-    }
-    .animation(.easeOut(duration: 0.15), value: copied)
-    .animation(.easeOut(duration: 0.15), value: reveal)
-  }
-}
-
-private struct StatusRow: View {
-  let title: String
-  let detail: String
-  let state: (Color, String)
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack(spacing: 5) {
-        Text(title).font(.caption).foregroundStyle(.secondary)
-        Spacer(minLength: 8)
-        Circle().fill(state.0).frame(width: 6, height: 6)
-        Text(state.1)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .contentTransition(.opacity)
-      }
-      Text(detail)
-        .font(.caption.monospaced())
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .textSelection(.enabled)
-    }
-    .help(state.1)
-  }
-}
-
 private struct RecentCard: View {
   let jobs: [ServiceStatus.Job]
 
@@ -611,166 +471,254 @@ private struct FooterActions: View {
   }
 }
 
-// MARK: - Building blocks
+// MARK: - Assistants
 
-private struct Card<Accessory: View, Content: View>: View {
-  let title: String
-  let systemImage: String
-  @ViewBuilder var accessory: Accessory
-  @ViewBuilder var content: Content
+private struct AssistantsCard: View {
+  @Bindable var model: MenuModel
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 6) {
-        Image(systemName: systemImage)
-          .font(.caption.weight(.semibold))
-        Text(title.uppercased())
-          .font(.caption2.weight(.semibold))
-          .tracking(0.6)
-        Spacer(minLength: 8)
-        accessory
+    Card(title: "Assistants", systemImage: "sparkles") {
+      if !model.links.isEmpty || model.status?.mcp?.publicUrl != nil {
+        IconButton(
+          systemImage: model.revealSecrets ? "eye.slash" : "eye",
+          label: model.revealSecrets ? "Hide the private URLs" : "Show the private URLs"
+        ) {
+          model.revealSecrets.toggle()
+        }
+        .padding(.vertical, -6)
       }
-      .foregroundStyle(.secondary)
-      content
+    } content: {
+      if model.links.isEmpty && model.status?.mcp?.publicUrl == nil {
+        Text("Connect ChatGPT or Claude, then ask it to download tracks or change playlists, from your phone too.")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      ForEach(model.links) { link in
+        LinkRow(link: link, model: model)
+      }
+      if let legacy = model.status?.mcp?.publicUrl {
+        URLRow(
+          title: "Original ChatGPT URL", url: legacy, reveal: model.revealSecrets,
+          copied: model.copied == "legacy"
+        ) { model.copy(legacy, key: "legacy") }
+      }
+      let missing = Assistant.allCases.filter { a in !model.links.contains { $0.assistant == a } }
+      if !missing.isEmpty {
+        HStack(spacing: 8) {
+          ForEach(missing) { assistant in
+            Button {
+              Task { await model.connect(assistant) }
+            } label: {
+              Label("Connect \(assistant.name)", systemImage: "plus")
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .controlSize(.small)
+        .disabled(model.linksBusy || model.status?.cloud.registered == false)
+      }
+      if let s = model.status, s.cloud.enabled {
+        CloudLine(connected: s.cloud.connected)
+      }
     }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.fill.quaternary, in: .rect(cornerRadius: 10, style: .continuous))
   }
 }
 
-/// A file or folder: real Finder icon, name, parent path. Click to reveal.
-private struct PathRow: View {
-  let icon: NSImage
-  let title: String
-  let subtitle: String
-  let help: String
-  let action: () -> Void
-  @State private var hovering = false
+private struct LinkRow: View {
+  let link: AssistantLink
+  @Bindable var model: MenuModel
 
   var body: some View {
-    Button(action: action) {
-      HStack(spacing: 10) {
-        Image(nsImage: icon)
-          .resizable()
-          .frame(width: 32, height: 32)
-        VStack(alignment: .leading, spacing: 1) {
-          Text(title)
-            .font(.body.weight(.medium))
-            .lineLimit(1)
-            .truncationMode(.middle)
-          Text(subtitle)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.head)
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(spacing: 6) {
+        Circle()
+          .fill(link.isConnected ? Color.green : Color.orange)
+          .frame(width: 6, height: 6)
+        Text(link.displayName).font(.callout.weight(.medium))
+        Text(usage)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        if let url = link.url {
+          Button {
+            model.copy(url, key: link.id)
+          } label: {
+            Label(model.copied == link.id ? "Copied" : "Copy", systemImage: model.copied == link.id ? "checkmark" : "doc.on.doc")
+              .font(.caption)
+              .contentTransition(.symbolEffect(.replace))
+          }
+          .buttonStyle(.borderless)
+          .foregroundStyle(model.copied == link.id ? Color.green : Color.accentColor)
+          .help("Copy this assistant's private URL")
         }
-        Spacer(minLength: 0)
-        Image(systemName: "arrow.up.forward.app")
+        Menu {
+          Button("New URL…") { model.rotate(link) }
+          Divider()
+          Button("Disconnect…", role: .destructive) { model.disconnect(link) }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
+      }
+      if let url = link.url {
+        Text(model.revealSecrets ? url : maskingSecretPath(url))
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .textSelection(.enabled)
+          .padding(.leading, 12)
+      } else {
+        Text("Made on another Mac or before a reinstall: choose New URL to get one here.")
           .font(.caption)
           .foregroundStyle(.tertiary)
-          .opacity(hovering ? 1 : 0)
+          .padding(.leading, 12)
       }
-      .padding(6)
-      .background(
-        Color.primary.opacity(hovering ? 0.06 : 0),
-        in: .rect(cornerRadius: 8, style: .continuous))
-      .contentShape(.rect)
     }
-    .buttonStyle(PressableStyle())
-    .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.15), value: hovering)
-    .padding(-6)
-    .help(help)
-    .accessibilityLabel("\(title), \(subtitle)")
-    .accessibilityHint(help)
+    .animation(.easeOut(duration: 0.15), value: model.copied)
+  }
+
+  private var usage: String {
+    guard let used = link.lastUsed else { return "· not used yet" }
+    return "· used " + used.formatted(.relative(presentation: .named))
   }
 }
 
-private struct Badge: View {
-  let text: String
-  let tint: Color
-  var monospaced = false
+private struct CloudLine: View {
+  let connected: Bool?
 
   var body: some View {
-    Text(text)
-      .font(monospaced ? .caption2.monospaced().weight(.semibold) : .caption2.weight(.semibold))
-      .foregroundStyle(tint)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 2)
-      .background(tint.opacity(0.14), in: .capsule)
-      .contentTransition(.opacity)
-  }
-}
-
-private struct Banner: View {
-  let text: String
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  var body: some View {
-    Label {
-      Text(text).fixedSize(horizontal: false, vertical: true)
-    } icon: {
-      Image(systemName: "exclamationmark.triangle.fill")
+    HStack(spacing: 6) {
+      Circle().fill(tint).frame(width: 6, height: 6)
+      Text(text)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
-    .font(.caption)
-    .foregroundStyle(.orange)
-    .padding(8)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.orange.opacity(0.12), in: .rect(cornerRadius: 7, style: .continuous))
-    .transition(.enter(reduceMotion))
+  }
+
+  private var tint: Color {
+    switch connected {
+    case true?: .green
+    case false?: .orange
+    case nil: .secondary
+    }
+  }
+
+  private var text: String {
+    switch connected {
+    case true?: "Connected to DJ Sync cloud: requests arrive instantly."
+    case false?: "Not connected right now. Requests wait in the cloud until this Mac is back."
+    case nil: "Cloud queue on."
+    }
   }
 }
 
-private struct IconButton: View {
-  let systemImage: String
-  let label: String
-  var busy = false
-  let action: () -> Void
-  @State private var hovering = false
+// MARK: - Tools
+
+private struct ToolsCard: View {
+  @Bindable var model: MenuModel
+  @State private var showVersions = false
 
   var body: some View {
-    Button(action: action) {
-      ZStack {
-        if busy {
-          ProgressView().controlSize(.mini)
-        } else {
-          Image(systemName: systemImage)
-            .font(.system(size: 12, weight: .medium))
+    if let report = model.toolbox {
+      Card(title: "Tools", systemImage: "wrench.and.screwdriver") {
+        Badge(text: badge(report).0, tint: badge(report).1)
+      } content: {
+        if report.installing {
+          VStack(alignment: .leading, spacing: 4) {
+            ProgressView(value: report.progress ?? 0)
+            Text(report.step ?? "Installing…")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        } else if let error = report.error, !report.allReady {
+          Banner(text: error)
+          Button("Repair", action: model.repairTools)
+            .controlSize(.small)
+        }
+        DisclosureGroup(isExpanded: $showVersions) {
+          VStack(alignment: .leading, spacing: 3) {
+            ForEach(report.all) { tool in
+              HStack {
+                Image(systemName: tool.ready ? "checkmark.circle.fill" : "circle.dashed")
+                  .foregroundStyle(tool.ready ? .green : .secondary)
+                  .font(.caption)
+                Text(tool.name).font(.caption)
+                Spacer(minLength: 8)
+                Text(tool.displayVersion ?? "missing")
+                  .font(.caption.monospaced())
+                  .foregroundStyle(.secondary)
+              }
+            }
+            if !report.installing {
+              Button("Repair Tools", action: model.repairTools)
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .padding(.top, 2)
+            }
+          }
+          .padding(.top, 6)
+        } label: {
+          Text("yt-dlp, spotdl, ffmpeg, deno, uv")
+            .font(.callout)
         }
       }
-      .frame(width: 26, height: 26)
-      .background(
-        Color.primary.opacity(hovering ? 0.08 : 0),
-        in: .rect(cornerRadius: 6, style: .continuous))
-      .contentShape(.rect)
     }
-    .buttonStyle(PressableStyle(pressedScale: 0.92))
-    .foregroundStyle(.secondary)
-    .disabled(busy)
-    .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.15), value: hovering)
-    .help(label)
-    .accessibilityLabel(label)
+  }
+
+  private func badge(_ r: ToolboxReport) -> (String, Color) {
+    if r.installing { return ("Installing", .accentColor) }
+    if r.allReady { return ("Ready", .green) }
+    return ("Needs repair", .orange)
   }
 }
 
-/// Subtle press feedback: the control visibly "hears" the click.
-private struct PressableStyle: ButtonStyle {
-  var pressedScale: CGFloat = 0.97
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+// MARK: - About
 
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1)
-      .opacity(configuration.isPressed ? 0.8 : 1)
-      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+private struct AboutCard: View {
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    Card(title: "About", systemImage: "info.circle") {
+      Badge(text: "v\(model.appVersion)", tint: .secondary, monospaced: true)
+    } content: {
+      HStack(spacing: 8) {
+        Text(updateText)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .contentTransition(.opacity)
+        Spacer(minLength: 8)
+        if case .available(let release) = model.update {
+          Button("Update to \(release.version)") { model.installUpdate(release) }
+            .buttonStyle(.borderedProminent)
+        } else {
+          Button("Check for Updates") { model.checkForUpdates(manual: true) }
+            .disabled(model.update == .checking || model.update == .installing)
+        }
+      }
+      .controlSize(.small)
+      Button("Copy Diagnostics", action: model.copyDiagnostics)
+        .buttonStyle(.borderless)
+        .font(.caption)
+        .help("Versions, tool states and recent errors, with every secret masked, for support")
+    }
   }
-}
 
-extension AnyTransition {
-  /// Fade in with a hint of scale from the top; just a fade with Reduce Motion.
-  static func enter(_ reduceMotion: Bool) -> AnyTransition {
-    reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+  private var updateText: String {
+    switch model.update {
+    case .idle: "DJ Sync checks for updates once a day."
+    case .checking: "Checking for updates…"
+    case .upToDate(let at): "Up to date · checked \(at.formatted(.relative(presentation: .named)))"
+    case .available(let r): "DJ Sync \(r.version) is available."
+    case .installing: "Installing the update… DJ Sync restarts when it's done."
+    case .failed(let why): "Couldn't check for updates: \(why)"
+    }
   }
 }

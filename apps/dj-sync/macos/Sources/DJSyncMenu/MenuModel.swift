@@ -22,14 +22,35 @@ final class MenuModel {
   /// Whether the menu bar icon can actually be seen (set by AppDelegate).
   var menuBarIcon: MenuBarIconVisibility = .unknown
 
-  /// Cloud queue Worker health; `nil` when unreachable or the lane is off.
-  private(set) var cloud: CloudHealth?
-  private(set) var tunnel: TunnelConfig?
-  private(set) var tunnelRunning: Bool?
   /// Which URL was just copied, for a moment of "Copied" feedback.
   private(set) var copied: String?
-  /// MCP URLs contain the secret path; masked unless the user asks.
+  /// Assistant URLs contain a secret; masked unless the user asks.
   var revealSecrets = false
+  /// A short confirmation (e.g. "Copied — paste it in ChatGPT").
+  private(set) var actionNote: String?
+
+  // Assistants (links to this Mac through the cloud)
+  private(set) var links: [AssistantLink] = []
+  private(set) var linksBusy = false
+  @ObservationIgnored private var linksFetchedAt: Date?
+  private let linksClient = LinksClient()
+
+  // Tools installed by dj-sync's toolbox
+  private(set) var toolbox: ToolboxReport?
+  private let toolboxClient = ToolboxClient()
+
+  // Self-update
+  enum UpdateState: Equatable {
+    case idle
+    case checking
+    case upToDate(Date)
+    case available(Appcast.Release)
+    case installing
+    case failed(String)
+  }
+  private(set) var update: UpdateState = .idle
+  @ObservationIgnored private(set) var lastUpdateCheck: Date?
+  let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
   /// A restore or apply is in progress.
   private(set) var libraryBusy = false
   private let library = LibraryClient()
@@ -75,14 +96,185 @@ final class MenuModel {
 
   func refresh() async {
     service = await client.fetch().map(ServiceState.running) ?? .notRunning
-    if let s = status, s.cloud.enabled {
-      cloud = await CloudHealth.fetch(baseURL: s.cloud.baseUrl)
-    } else {
-      cloud = nil
+    toolbox = status == nil ? nil : await toolboxClient.fetch()
+    await refreshLinks()
+  }
+
+  /// `/local/links` asks the cloud, so at most every 15 s unless forced.
+  func refreshLinks(force: Bool = false) async {
+    guard let s = status, s.cloud.enabled, s.cloud.registered != false else { return }
+    if !force, let at = linksFetchedAt, Date().timeIntervalSince(at) < 15 { return }
+    linksFetchedAt = Date()
+    if case .success(let list) = await linksClient.list() {
+      links = list
     }
-    tunnel = TunnelConfig.load()
-    let state = await launchctlOutput(["print", "gui/\(getuid())/com.cloudflare.cloudflared"])
-    tunnelRunning = state.map { $0.contains("state = running") }
+  }
+
+  // MARK: Assistants
+
+  /// A link for `assistant` (reusing an unused one), with its URL copied.
+  @discardableResult
+  func connect(_ assistant: Assistant) async -> AssistantLink? {
+    linksBusy = true
+    defer { linksBusy = false }
+    actionError = nil
+    if let existing = links.first(where: { $0.assistant == assistant && $0.url != nil }) {
+      copyURL(of: existing, for: assistant)
+      return existing
+    }
+    switch await linksClient.create(assistant) {
+    case .success(let link):
+      links.append(link)
+      copyURL(of: link, for: assistant)
+      await refreshLinks(force: true)
+      return link
+    case .failure(let f):
+      actionError = "Couldn't connect \(assistant.name): \(f.message)"
+      return nil
+    }
+  }
+
+  private func copyURL(of link: AssistantLink, for assistant: Assistant) {
+    guard let url = link.url else { return }
+    copy(url, key: link.id)
+    note("Copied \(assistant.name)'s URL. \(assistant.steps.joined(separator: " "))")
+  }
+
+  /// A new URL; the old one stops working at once.
+  func rotate(_ link: AssistantLink) {
+    let alert = NSAlert()
+    alert.messageText = "Make a new URL for \(link.displayName)?"
+    alert.informativeText = "The current URL stops working right away. Paste the new one into \(link.displayName) to keep using DJ Sync there."
+    alert.addButton(withTitle: "New URL")
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate()
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    Task {
+      linksBusy = true
+      defer { linksBusy = false }
+      switch await linksClient.rotate(link.id) {
+      case .success(let new):
+        if let url = new.url { copy(url, key: new.id) }
+        note("New URL copied. Paste it into \(link.displayName).")
+        await refreshLinks(force: true)
+      case .failure(let f):
+        actionError = "Couldn't make a new URL: \(f.message)"
+      }
+    }
+  }
+
+  func disconnect(_ link: AssistantLink) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Disconnect \(link.displayName)?"
+    alert.informativeText = "Its URL stops working right away. You can connect it again later with a new URL."
+    alert.addButton(withTitle: "Disconnect")
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate()
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    Task {
+      linksBusy = true
+      defer { linksBusy = false }
+      switch await linksClient.delete(link.id) {
+      case .success:
+        links.removeAll { $0.id == link.id }
+        await refreshLinks(force: true)
+      case .failure(let f):
+        actionError = "Couldn't disconnect: \(f.message)"
+      }
+    }
+  }
+
+  func show(error: String) {
+    actionError = error
+  }
+
+  private func note(_ text: String) {
+    actionNote = text
+    Task {
+      try? await Task.sleep(for: .seconds(8))
+      if actionNote == text { actionNote = nil }
+    }
+  }
+
+  // MARK: Tools
+
+  func repairTools() {
+    Task {
+      if await toolboxClient.install() {
+        toolbox = await toolboxClient.fetch()
+      } else {
+        actionError = "Couldn't reach dj-sync to repair its tools."
+      }
+    }
+  }
+
+  // MARK: Updates
+
+  func checkForUpdates(manual: Bool) {
+    guard update != .checking, update != .installing else { return }
+    if !manual, let last = lastUpdateCheck, Date().timeIntervalSince(last) < 20 * 3600 { return }
+    update = .checking
+    Task {
+      let result = await UpdateFeed().check(currentVersion: appVersion)
+      lastUpdateCheck = Date()
+      switch result {
+      case .upToDate: update = .upToDate(Date())
+      case .available(let release): update = .available(release)
+      case .failed(let why): update = manual ? .failed(why) : .idle
+      }
+    }
+  }
+
+  func installUpdate(_ release: Appcast.Release) {
+    update = .installing
+    Task {
+      let app = Bundle.main.bundleURL
+      do {
+        _ = try await UpdateInstaller.install(
+          release, over: app, bundleID: Bundle.main.bundleIdentifier ?? "com.triplejmusic.dj-sync.menu")
+        relaunch(app)
+      } catch UpdateError.notWritable {
+        NSWorkspace.shared.open(release.dmgUrl.flatMap(URL.init(string:)) ?? UpdateFeed.latestDMG)
+        update = .available(release)
+      } catch {
+        update = .failed(error.localizedDescription)
+      }
+    }
+  }
+
+  /// Open the (new) app once this process has quit.
+  private func relaunch(_ app: URL) {
+    let process = Process()
+    process.executableURL = URL(filePath: "/bin/sh")
+    process.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", app.path(percentEncoded: false)]
+    try? process.run()
+    NSApp.terminate(nil)
+  }
+
+  // MARK: Diagnostics
+
+  func copyDiagnostics() {
+    Task {
+      let toolbox = await toolboxClient.fetch()
+      let os = ProcessInfo.processInfo.operatingSystemVersion
+      var info = utsname()
+      uname(&info)
+      let machine = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+      let text = Diagnostics.report(
+        .init(
+          appVersion: appVersion,
+          serviceVersion: status?.version,
+          macOS: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)",
+          chip: machine == "arm64" ? "Apple silicon" : "Intel (\(machine))",
+          status: status,
+          toolbox: toolbox,
+          links: links,
+          logLines: Diagnostics.warningLines(fromLog: Self.logURL)))
+      NSPasteboard.general.clearContents()
+      NSPasteboard.general.setString(text, forType: .string)
+      note("Diagnostics copied, with secrets masked. Paste them into your message to support.")
+    }
   }
 
   // MARK: Rekordbox library
@@ -226,28 +418,6 @@ final class MenuModel {
       } catch {
         actionError = "Couldn't change Open at Login: \(error.localizedDescription)"
       }
-    }
-  }
-}
-
-/// `launchctl` output, or `nil` if it failed (e.g. the job isn't loaded).
-nonisolated private func launchctlOutput(_ arguments: [String]) async -> String? {
-  await withCheckedContinuation { continuation in
-    let process = Process()
-    let pipe = Pipe()
-    process.executableURL = URL(filePath: "/bin/launchctl")
-    process.arguments = arguments
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
-    process.terminationHandler = { process in
-      let data = pipe.fileHandleForReading.readDataToEndOfFile()
-      continuation.resume(
-        returning: process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil)
-    }
-    do {
-      try process.run()
-    } catch {
-      continuation.resume(returning: nil)
     }
   }
 }

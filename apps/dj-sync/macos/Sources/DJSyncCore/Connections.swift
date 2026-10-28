@@ -60,8 +60,9 @@ public struct CloudHealth: Decodable, Equatable, Sendable {
   public var status: String
   public var version: String
   public var `protocol`: String
-  public var agent: Agent
-  public var queued: Int
+  /// Only the single-DJ (protocol 1) Worker reports these.
+  public var agent: Agent?
+  public var queued: Int?
 
   public static func decode(_ data: Data) throws -> CloudHealth {
     let decoder = JSONDecoder()

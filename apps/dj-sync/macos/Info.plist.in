@@ -15,13 +15,13 @@
   <key>CFBundleShortVersionString</key>
   <string>__VERSION__</string>
   <key>CFBundleVersion</key>
-  <string>__VERSION__</string>
+  <string>__BUILD__</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <!-- Menu bar only: no Dock icon, no app menu. -->
   <key>LSUIElement</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>Companion to the dj-sync service.</string>
+  <string>DJ Sync: ChatGPT and Claude to Rekordbox.</string>
 </dict>
 </plist>

@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: NSStatusItem?
   private let popover = NSPopover()
   private var window: NSWindow?
+  private var onboardingWindow: NSWindow?
   private let notifier = Notifier()
   private var watcher = JobWatcher()
   private var libraryWatcher = LibraryWatcher()
@@ -24,16 +25,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     installStatusItem()
     startNotifications()
-    // Login-item launches happen right after boot; stay in the menu bar then.
-    if ProcessInfo.processInfo.systemUptime > 300 {
-      showWindow()
-    }
+    Task { await startUp() }
   }
 
   /// Opening the app again while it's running (Finder, Spotlight, `open`).
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-    showWindow()
+    if SettingsFile.standard.onboarded() {
+      showWindow()
+    } else {
+      showOnboarding()
+    }
     return true
+  }
+
+  // MARK: Start-up
+
+  /// Install (or update) the background service this app carries, then
+  /// show onboarding on a fresh Mac, or the panel when opened by hand.
+  private func startUp() async {
+    let outcome = await ServiceInstaller().ensureInstalled()
+    log.notice("service install: \(String(describing: outcome), privacy: .public)")
+    if case .failed(let why) = outcome {
+      model.show(error: "Couldn't start DJ Sync's background service: \(why)")
+    }
+
+    // Give a just-(re)started service a moment before deciding.
+    var status: ServiceStatus?
+    for _ in 0..<20 {
+      status = await StatusClient().fetch()
+      if status != nil { break }
+      try? await Task.sleep(for: .seconds(1))
+    }
+    var links: [AssistantLink] = []
+    if status?.cloud.registered == true, case .success(let list) = await LinksClient().list() {
+      links = list
+    }
+    let settings = SettingsFile.standard
+    if Onboarding.shouldShow(onboarded: settings.onboarded(), status: status, links: links) {
+      showOnboarding()
+    } else {
+      // Set up before onboarding existed: don't ask again.
+      if !settings.onboarded() { try? settings.setOnboarded(true) }
+      // Login-item launches happen right after boot; stay in the menu bar then.
+      if ProcessInfo.processInfo.systemUptime > 300 {
+        showWindow()
+      }
+    }
+    startUpdateChecks()
+  }
+
+  /// Daily, quietly; the About card has the manual check.
+  private func startUpdateChecks() {
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(60))
+      while !Task.isCancelled {
+        self?.model.checkForUpdates(manual: false)
+        try? await Task.sleep(for: .seconds(6 * 3600))
+      }
+    }
+  }
+
+  func showOnboarding() {
+    if onboardingWindow == nil {
+      let onboarding = OnboardingModel(menu: model)
+      onboarding.onFinish = { [weak self] in
+        self?.onboardingWindow?.close()
+        self?.onboardingWindow = nil
+        self?.showWindow()
+      }
+      // Default sizing (not .preferredContentSize): with a full-size content
+      // view that loops on safe-area changes until AppKit throws.
+      let hosting = NSHostingController(rootView: OnboardingView(model: onboarding))
+      let window = NSWindow(contentViewController: hosting)
+      window.title = "Welcome to DJ Sync"
+      window.styleMask = [.titled, .closable, .fullSizeContentView]
+      window.titlebarAppearsTransparent = true
+      window.titleVisibility = .hidden
+      window.isMovableByWindowBackground = true
+      window.isReleasedWhenClosed = false
+      window.center()
+      onboardingWindow = window
+    }
+    NSApp.activate()
+    onboardingWindow?.makeKeyAndOrderFront(nil)
   }
 
   // MARK: Menu bar icon
@@ -152,8 +226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     checkPlacement()
     if window == nil {
       // The same compact panel, edge to edge under a transparent title bar.
+      // Default sizing (not .preferredContentSize): with a full-size content
+      // view that loops on safe-area changes until AppKit throws.
       let hosting = NSHostingController(rootView: MenuView(model: model, topInset: 16))
-      hosting.sizingOptions = [.preferredContentSize]
       let window = NSWindow(contentViewController: hosting)
       window.title = "DJ Sync"
       window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]

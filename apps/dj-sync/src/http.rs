@@ -109,6 +109,8 @@ impl AppState {
     }
 }
 
+/// `secret` is the local MCP route's path segment; empty means no MCP route
+/// (a fresh install: assistants reach this Mac through the cloud instead).
 pub fn router(mut state: AppState, secret: &str) -> Router {
     state.mcp_secret = Arc::from(secret);
     let mut app = Router::new()
@@ -117,18 +119,21 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
         .route("/local/rekordbox/apply", post(local_apply))
         .route("/local/rekordbox/restore", post(local_restore))
         .route("/local/rekordbox/retry", post(local_retry))
+        .route("/local/rekordbox/baseline", post(local_baseline))
         .route("/local/toolbox", get(local_toolbox))
         .route("/local/toolbox/install", post(local_toolbox_install))
         .route("/local/links", get(local_links).post(local_create_link))
         .route("/local/links/{id}/rotate", post(local_rotate_link))
         .route("/local/links/{id}", delete(local_delete_link))
-        .route("/local/rekordbox/dismiss", post(local_dismiss))
-        .route(
+        .route("/local/rekordbox/dismiss", post(local_dismiss));
+    if !secret.is_empty() {
+        app = app.route(
             &format!("/{secret}/mcp"),
             post(mcp_post)
                 .get(method_not_allowed)
                 .delete(method_not_allowed),
         );
+    }
     if state.api_key.is_some() {
         app = app
             .route("/api/downloads", post(api_submit))
@@ -155,7 +160,12 @@ pub async fn serve(
     toolbox: Option<Arc<Toolbox>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let secret = Config::mcp_secret_path()?;
+    // The local MCP lane needs its secret; without the lane there's no route.
+    let secret = if cfg.mcp.enabled {
+        Config::mcp_secret_path()?
+    } else {
+        String::new()
+    };
     let api_key = Config::shortcut_api_key()?;
 
     let listener = bind(cfg.mcp.bind).await?;
@@ -165,7 +175,8 @@ pub async fn serve(
         %addr,
         downloads = %cfg.download.dir.display(),
         xml = %cfg.download.import_xml.display(),
-        "MCP endpoint listening at http://{addr}/<MCP_SECRET_PATH>/mcp"
+        local_mcp = !secret.is_empty(),
+        "dj-sync listening at http://{addr} (local MCP at /<MCP_SECRET_PATH>/mcp when enabled)"
     );
 
     if api_key.is_some() {
@@ -243,12 +254,17 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
     }
     .map(|b| b.trim_end_matches('/').to_string());
     let secret = &*state.mcp_secret;
-    Json(json!({
-        "service": "dj-sync",
-        "mcp": {
+    // The secret-path URL exists only with the local MCP lane (the owner's
+    // original setup); new installs connect assistants through links.
+    let mcp = (!secret.is_empty()).then(|| {
+        json!({
             "public_url": public_base.as_ref().map(|b| format!("{b}/{secret}/mcp")),
             "local_url": format!("http://{}/{secret}/mcp", state.mcp_bind),
-        },
+        })
+    });
+    Json(json!({
+        "service": "dj-sync",
+        "mcp": mcp,
         "shortcut_url": match (&public_base, state.api_key.is_some()) {
             (Some(b), true) => Some(format!("{b}/api/downloads")),
             _ => None,
@@ -338,6 +354,21 @@ async fn local_restore(
     };
     match tokio::task::spawn_blocking(move || lib.restore(&req.version)).await {
         Ok(Ok(message)) => Json(json!({ "ok": true, "message": message })).into_response(),
+        Ok(Err(e)) => conflict(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Take the "before DJ Sync" backup now (onboarding).
+async fn local_baseline(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !local_only(&headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(lib) = state.library.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || lib.ensure_baseline()).await {
+        Ok(Ok(version)) => Json(json!({ "ok": true, "version": version })).into_response(),
         Ok(Err(e)) => conflict(e),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }

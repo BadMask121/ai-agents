@@ -5,6 +5,10 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
   public struct Cloud: Decodable, Equatable, Sendable {
     public var enabled: Bool
     public var baseUrl: String
+    /// dj-sync ≥ 0.9: agent protocol MAJOR, and the cloud v2 identity.
+    public var `protocol`: Int?
+    public var registered: Bool?
+    public var connected: Bool?
   }
 
   public struct Job: Decodable, Equatable, Sendable, Identifiable {
@@ -99,6 +103,9 @@ public func parseTimestamp(_ string: String?) -> Date? {
   guard let string else { return nil }
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime]
+  if let date = formatter.date(from: string) { return date }
+  // The cloud writes milliseconds (`2026-10-28T05:30:49.375Z`).
+  formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   return formatter.date(from: string)
 }
 
@@ -136,6 +143,8 @@ public struct LibraryClient: Sendable {
     public var ok: Bool
     public var message: String?
     public var error: String?
+    /// `takeBaseline`: the backup's version.
+    public var version: String?
   }
 
   /// Restore a backup of Rekordbox's library (Rekordbox must be closed).
@@ -146,6 +155,12 @@ public struct LibraryClient: Sendable {
   /// Apply queued changes now (does nothing while Rekordbox is open).
   public func applyNow() async -> Reply {
     await post("local/rekordbox/apply", body: [:])
+  }
+
+  /// Back up the library now, before DJ Sync ever changes it (onboarding).
+  /// Fails politely while Rekordbox is open.
+  public func takeBaseline() async -> Reply {
+    await post("local/rekordbox/baseline", body: [:])
   }
 
   /// Requeue changes that were set aside after failing.
@@ -165,9 +180,9 @@ public struct LibraryClient: Sendable {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try? JSONSerialization.data(withJSONObject: body)
     guard let (data, _) = try? await URLSession.shared.data(for: request) else {
-      return Reply(ok: false, message: nil, error: "dj-sync isn't running.")
+      return Reply(ok: false, message: nil, error: "dj-sync isn't running.", version: nil)
     }
     return (try? JSONDecoder().decode(Reply.self, from: data))
-      ?? Reply(ok: false, message: nil, error: "Unexpected reply from dj-sync.")
+      ?? Reply(ok: false, message: nil, error: "Unexpected reply from dj-sync.", version: nil)
   }
 }

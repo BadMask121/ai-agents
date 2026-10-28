@@ -4,6 +4,53 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.0.0-rc.1] — 2026-10-28 · the public, one-download app
+
+### Added
+- **The service is inside the app.** `Contents/Helpers/dj-sync` is universal
+  (Apple silicon and Intel), like the app. On launch the app copies the
+  service to `~/.dj-sync/bin/dj-sync`, byte by byte so it carries no
+  quarantine attribute. It also writes the
+  `com.triplejmusic.dj-sync` LaunchAgent and (re)starts it, but only when
+  either has changed. An older agent pointing elsewhere (e.g.
+  `~/.cargo/bin`) is taken over.
+- **Onboarding** (resumable until finished or skipped), one compact column:
+  1. **Tools:** progress from the toolbox, plus Try Again.
+  2. **Rekordbox:** detects the installed Rekordbox, takes the "before
+     DJ Sync" backup, and lets the DJ choose the download folder.
+  3. **Connect your assistant:** ChatGPT or Claude. It makes a private
+     link, copies it, shows where to paste it, and runs a live check until
+     the assistant calls in.
+
+  Macs set up before onboarding existed skip it.
+- **Assistants card,** replacing Connections. Each link shows when it was
+  last used, with Copy, New URL and Disconnect, plus Connect ChatGPT and
+  Connect Claude buttons and the cloud connection state. The original
+  secret-path URL shows only while dj-sync still serves it.
+- **Tools card:** what the toolbox installed and its versions, plus Repair.
+- **About card:** the version, Check for Updates, and **Copy Diagnostics**
+  (versions, macOS, chip, tools, assistants, and the last 50 warnings and
+  errors, with every secret, token and URL secret masked).
+- **Self-update.** Once a day, and on request, the app reads the signed feed
+  `downloads.triplejmusic.art/djsync/appcast.json`.
+  - **Checks:** the feed's Ed25519 signature against the release key
+    (CryptoKit; verified against signatures from `dj-sync-sign`). Only
+    newer versions this macOS can run are offered.
+  - **Install:** download the zip and check its sha256, `ditto` it, check
+    the bundle id and version, swap the app in place, relaunch.
+  - **Fallback:** a read-only Applications folder opens the DMG instead.
+
+### Changed
+- **Signing.** `build-app.sh` builds both binaries universal and signs them
+  inside-out with "DJ Sync Release" when that identity exists, else ad-hoc.
+  CFBundleVersion is the numeric part of the version.
+- **Worker 1.0's `/health`** has no single-agent fields; the app reads the
+  connection from `/local/status` instead.
+- **Timestamps** with milliseconds (from the cloud) parse.
+
+### Removed
+- **The tunnel and secret-URL rows,** which are superseded by assistant links.
+
 ## [0.8.0] — 2026-10-28
 ### Changed
 - **The app finds dj-sync through `~/.dj-sync/runtime.json`** instead of

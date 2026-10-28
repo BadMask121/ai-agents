@@ -7,7 +7,11 @@ use tracing::info;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// Telegram bot lane only (matching against an existing library).
+    #[serde(default)]
     pub library: LibraryCfg,
+    /// Telegram bot lane only (AutoImport folder, collection export).
+    #[serde(default)]
     pub rekordbox: RekordboxCfg,
     #[serde(default)]
     pub matcher: MatcherCfg,
@@ -64,9 +68,11 @@ pub struct RekordboxDbCfg {
 impl Default for RekordboxDbCfg {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
+        let db_path = home.join("Library/Pioneer/rekordbox/master.db");
         Self {
-            enabled: false,
-            db_path: home.join("Library/Pioneer/rekordbox/master.db"),
+            // On whenever Rekordbox has a library on this Mac.
+            enabled: db_path.is_file(),
+            db_path,
             python: home.join(".dj-sync/pyenv/bin/python"),
             uv_bin: tools().bin("uv", "uv"),
             pyrekordbox_version: "0.5.0".to_string(),
@@ -95,7 +101,7 @@ pub struct CloudCfg {
 impl Default for CloudCfg {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             base_url: "https://mcp.triplejmusic.art".to_string(),
             protocol: 2,
             poll_secs: 15,
@@ -104,12 +110,14 @@ impl Default for CloudCfg {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 pub struct LibraryCfg {
     pub roots: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 pub struct RekordboxCfg {
     pub autoimport_dir: PathBuf,
     #[serde(default)]
@@ -194,8 +202,14 @@ pub struct DownloadCfg {
 impl Default for DownloadCfg {
     fn default() -> Self {
         let music = dirs::home_dir().unwrap_or_default().join("Music");
+        // New installs use "DJ Sync"; Macs that already have DJ_Downloads keep it.
+        let legacy = music.join("DJ_Downloads");
         Self {
-            dir: music.join("DJ_Downloads"),
+            dir: if legacy.is_dir() {
+                legacy
+            } else {
+                music.join("DJ Sync")
+            },
             import_xml: PathBuf::new(),
             default_playlist: "ChatGPT Downloads".to_string(),
             spotdl_bin: tools().venv("spotdl").join("bin/spotdl"),
@@ -265,10 +279,18 @@ impl DownloadCfg {
 }
 
 impl Config {
+    /// `~/.dj-sync/config.toml`, or every default when there isn't one (a
+    /// fresh install from the app needs no config file at all).
     pub fn load() -> anyhow::Result<Self> {
-        let path = config_path()?;
-        let raw = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        Self::load_from(&config_path()?)
+    }
+
+    pub fn load_from(path: &Path) -> anyhow::Result<Self> {
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
         let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         cfg.download.expand_paths();
@@ -281,7 +303,6 @@ impl Config {
         }
         cfg.download.settings_file = crate::settings::settings_path().ok();
         cfg.resolve_import_xml(rekordbox_settings_path().as_deref());
-        cfg.validate()?;
         Ok(cfg)
     }
 
@@ -315,7 +336,8 @@ impl Config {
         };
     }
 
-    fn validate(&self) -> anyhow::Result<()> {
+    /// The Telegram bot lane's sections; checked only when that lane runs.
+    pub fn validate_bot(&self) -> anyhow::Result<()> {
         if self.library.roots.is_empty() {
             return Err(anyhow!("config: library.roots must be non-empty"));
         }
@@ -462,7 +484,10 @@ autoimport_dir = "/tmp"
         let cfg: Config = toml::from_str(MINIMAL).unwrap();
         assert!(!cfg.mcp.enabled);
         assert_eq!(cfg.mcp.bind.to_string(), "127.0.0.1:8000");
-        assert!(cfg.download.dir.ends_with("Music/DJ_Downloads"));
+        assert!(
+            cfg.download.dir.ends_with("Music/DJ_Downloads")
+                || cfg.download.dir.ends_with("Music/DJ Sync")
+        );
         assert!(
             cfg.download.import_xml.as_os_str().is_empty(),
             "unset until resolved"
@@ -481,6 +506,51 @@ autoimport_dir = "/tmp"
         assert_eq!(cfg.download.dir, dirs::home_dir().unwrap().join("DJ"));
         assert_eq!(cfg.download.format, "flac");
         assert_eq!(cfg.download.job_timeout_secs, 1800);
+    }
+
+    #[test]
+    fn a_fresh_install_needs_no_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::load_from(&dir.path().join("config.toml")).unwrap();
+        assert!(cfg.cloud.enabled, "cloud lane on");
+        assert_eq!(cfg.cloud.protocol, 2);
+        assert!(!cfg.mcp.enabled, "no local secret-path MCP");
+        assert!(cfg.toolbox.enabled);
+        assert!(cfg.library.roots.is_empty());
+        assert!(
+            cfg.validate_bot().is_err(),
+            "the bot lane still needs its sections"
+        );
+        assert!(
+            cfg.download
+                .ytdlp_bin
+                .ends_with(".dj-sync/tools/yt-dlp/current/yt-dlp"),
+            "tools come from the toolbox"
+        );
+        assert!(
+            !cfg.download.import_xml.as_os_str().is_empty(),
+            "import XML resolved"
+        );
+        assert_eq!(
+            cfg.rekordbox_db.enabled,
+            cfg.rekordbox_db.db_path.is_file(),
+            "library writing follows whether Rekordbox has a library"
+        );
+    }
+
+    #[test]
+    fn an_empty_or_partial_file_is_fine_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[cloud]\nenabled = false\n").unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert!(!cfg.cloud.enabled);
+        assert_eq!(cfg.cloud.ping_secs, 60);
+        std::fs::write(&path, "not toml [").unwrap();
+        assert!(
+            Config::load_from(&path).is_err(),
+            "a broken file is still an error"
+        );
     }
 
     #[test]
