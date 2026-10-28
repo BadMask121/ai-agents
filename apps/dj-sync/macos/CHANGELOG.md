@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.4.2] — 2026-10-28
+### Changed
+- Compact everywhere: the window now uses the same single 340 pt column as
+  the menu bar popover. The two-column wide layout is gone.
+
 ## [0.4.1] — 2026-10-28
 ### Fixed
 - The popover under the menu bar icon is half width again: one 340 pt column,

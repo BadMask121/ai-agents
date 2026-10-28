@@ -23,9 +23,8 @@ The menu has these parts:
   the Cloudflare Tunnel route and state.
 - **Recent jobs**, plus **Restart Service**, **Open Log** and **Open at Login**.
 
-The layout has two columns: it's wide rather than tall, so it fits under the
-menu bar. Opening the app from Finder or Spotlight shows the same panel in a
-window. The menu bar icon is placed next to the clock on first run. On a
+The layout is one compact column. Opening the app from Finder or Spotlight
+shows the same panel in a window. The menu bar icon is placed next to the clock on first run. On a
 crowded notched MacBook, macOS hides the leftmost icons behind the notch. If
 the icon is hidden anyway, the window says so and explains how to fix it, and
 `~/.dj-sync/menu-bar.json` records where the icon landed.

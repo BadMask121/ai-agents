@@ -53,8 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Opened many times a day: no open/close animation.
     popover.animates = false
     popover.behavior = .transient
-    // Half-width single column under the menu bar; it follows its content's size.
-    let hosting = NSHostingController(rootView: MenuView(model: model, layout: .compact))
+    // Compact single column; the popover follows its content's size.
+    let hosting = NSHostingController(rootView: MenuView(model: model))
     hosting.sizingOptions = [.preferredContentSize]
     popover.contentViewController = hosting
 
@@ -124,8 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func showWindow() {
     checkPlacement()
     if window == nil {
-      // The wide two-column panel, edge to edge under a transparent title bar.
-      let hosting = NSHostingController(rootView: MenuView(model: model, layout: .wide, topInset: 16))
+      // The same compact panel, edge to edge under a transparent title bar.
+      let hosting = NSHostingController(rootView: MenuView(model: model, topInset: 16))
       hosting.sizingOptions = [.preferredContentSize]
       let window = NSWindow(contentViewController: hosting)
       window.title = "DJ Sync"
