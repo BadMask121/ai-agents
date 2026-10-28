@@ -12,7 +12,7 @@ export function makeDeps(start = "2026-10-28T12:00:00.000Z") {
   const deps: Deps = {
     store,
     now: () => new Date(now),
-    config: { defaultPlaylist: "ChatGPT Downloads", maxUrls: 3, publicHost: "mcp.example.test" },
+    config: { defaultPlaylist: "DJ Sync Downloads", maxUrls: 3, publicHost: "mcp.example.test" },
   };
   return {
     deps,

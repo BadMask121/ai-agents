@@ -59,7 +59,8 @@
   "triggers": { "crons": ["17 3 * * *", "41 4 * * 1"] },
 
   "vars": {
-    "DEFAULT_PLAYLIST": "ChatGPT Downloads",
+    "DEFAULT_PLAYLIST": "DJ Sync Downloads",
+    "AI_MODEL": "accounts/fireworks/models/deepseek-v4p1-flash-1017",
     "MAX_URLS": "25",
     // Canonical host since 2026-10-28 (served through dj-sync-site's service
     // binding); mcp.triplejmusic.art stays an alias for existing connectors.

@@ -45,12 +45,12 @@ describe("iPhone Shortcut REST", () => {
     expect(body.playlists.map((p: Any) => p.path)).toEqual(["DJ Sync/Friday", "3 STEP/Gqom", "AMAPIANO/Amapiano Chill", "GQOM/Gqom", "Zouk"]);
     expect(body.playlists[3]).toEqual({ playlist_id: "p1", name: "Gqom", folder: "GQOM", path: "GQOM/Gqom", tracks: 2 });
     // `names` (spec §2b): what the signed Shortcut's Choose from List shows, the default first.
-    expect(body.names).toEqual(["ChatGPT Downloads", "DJ Sync/Friday", "3 STEP/Gqom", "AMAPIANO/Amapiano Chill", "GQOM/Gqom", "Zouk"]);
+    expect(body.names).toEqual(["DJ Sync Downloads", "DJ Sync/Friday", "3 STEP/Gqom", "AMAPIANO/Amapiano Chill", "GQOM/Gqom", "Zouk"]);
   });
 
   it("lists nothing (not an error) before the Mac has shared its library", async () => {
     const { c, token } = await setup(false);
-    expect(await (await get(c, "/api/playlists", token)).json()).toEqual({ playlists: [], names: ["ChatGPT Downloads"] });
+    expect(await (await get(c, "/api/playlists", token)).json()).toEqual({ playlists: [], names: ["DJ Sync Downloads"] });
   });
 
   it("downloads into the picked path, pinned by playlist_id", async () => {
@@ -113,8 +113,8 @@ describe("iPhone Shortcut REST", () => {
     // Online, the default playlist: no offline note.
     const ws = await c.connect(t);
     await c.hello(t, ws);
-    const def = (await (await post(c, { text: `${YT(8)}`, playlist_name: "ChatGPT Downloads" }, token)).json()) as Any;
-    expect(def.message).toBe("Sent 1 link to “ChatGPT Downloads” — it'll be in Rekordbox in a few minutes.");
+    const def = (await (await post(c, { text: `${YT(8)}`, playlist_name: "DJ Sync Downloads" }, token)).json()) as Any;
+    expect(def.message).toBe("Sent 1 link to “DJ Sync Downloads” — it'll be in Rekordbox in a few minutes.");
   });
 
   it("says what went wrong in `message`, for the notification", async () => {

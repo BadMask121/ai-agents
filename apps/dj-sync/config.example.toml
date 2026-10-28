@@ -40,7 +40,7 @@ dir = "~/Music/DJ_Downloads"
 # <file>.versions/ (see docs/dj-sync/40-chatgpt-mcp-design.md).
 # If Rekordbox has nothing set, this falls back to ~/Music/rekordbox_import.xml.
 # import_xml = "~/Music/rekordbox_import.xml"
-default_playlist = "ChatGPT Downloads"
+default_playlist = "DJ Sync Downloads"
 # Use absolute paths (`which spotdl yt-dlp ffmpeg`): launchd's PATH is bare.
 spotdl_bin = "spotdl"
 ytdlp_bin = "yt-dlp"

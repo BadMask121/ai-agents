@@ -455,7 +455,7 @@ async fn download_tool_call_over_http_returns_job_id() {
     assert_eq!(v["result"]["isError"], false, "{v}");
     assert_eq!(
         v["result"]["structuredContent"]["playlist"],
-        "ChatGPT Downloads"
+        "DJ Sync Downloads"
     );
     assert_eq!(
         v["result"]["structuredContent"]["job_id"]

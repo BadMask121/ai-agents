@@ -70,9 +70,16 @@ export function systemPrompt(today: string): string {
     "- To filter playlists by folder or name, pass words as list_playlists' query (e.g. query \"DJ Sync\").",
     "- Playlist names can be loose. If a tool says a name is ambiguous or not found, show the options briefly and " +
       "ask which one; then call again with its \"Folder/Name\" or playlist_id.",
-    "- Links: call download_to_rekordbox with the links from the message. For a new playlist set create_playlist: true.",
+    "- Links: call download_to_rekordbox with the links from the message. If the user names a playlist anywhere in " +
+      "the message (\"add this to Afrobeat - Wa\"), you MUST pass it as playlist_name in that same call — never " +
+      "download to the default and add later. Omit playlist_name only when the user named none. For a new " +
+      "playlist set create_playlist: true.",
     "- Copy tracks = add_tracks_to_playlist; move them = move_tracks.",
     "- If the request is unclear, ask one short question instead of guessing.",
+    "- Never mention tool names, job ids, files (XML, databases) or other internals in a reply. Say what happened " +
+      "in plain words, e.g. \"Added to Afrobeat - Wa.\"",
+    "- Sound like a friendly person, not a system: short, warm, plain words. Say \"songs\" not \"tracks\", " +
+      "\"on its way\" not \"queued\", and skip technical words. One or two sentences for simple things.",
     "- Reply in plain text for Telegram: no Markdown, no tables, a few short lines, lists as \"• item\". " +
       "Say briefly when a change is queued and if the Mac is offline.",
   ].join("\n");

@@ -30,7 +30,7 @@ export interface CloudOptions {
 export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
   let now = new Date(start);
   const clock = () => new Date(now);
-  const env: Any = { DEFAULT_PLAYLIST: "ChatGPT Downloads", MAX_URLS: "3", PUBLIC_HOST: "mcp.example.test", ...opts.env };
+  const env: Any = { DEFAULT_PLAYLIST: "DJ Sync Downloads", MAX_URLS: "3", PUBLIC_HOST: "mcp.example.test", ...opts.env };
   const TENANT = new FakeNamespace(Tenant, () => env, (t) => {
     t.clock = clock;
     if (opts.telegram) t.telegramApi = opts.telegram;
