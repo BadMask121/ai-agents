@@ -33,7 +33,10 @@ use crate::signing;
 pub const MANIFEST_URL: &str = "https://djsync.jeffrey.build/download/tools-manifest.json";
 const EMBEDDED_MANIFEST: &str = include_str!("../toolbox/manifest.json");
 const MAX_DOWNLOAD_BYTES: u64 = 400 * 1024 * 1024;
-const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(15 * 60);
+const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(2 * 60);
+/// A stalled or unreachable download is tried this many times (2 s, then 6 s
+/// apart) before the pass reports it.
+const DOWNLOAD_ATTEMPTS: u32 = 3;
 const DAILY: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -388,6 +391,7 @@ impl Toolbox {
             .collect();
         let total = (tool_steps.len() + venv_steps.len()).max(1) as f64;
         let mut failures = Vec::new();
+        let mut unreachable = std::collections::BTreeSet::new();
 
         for (i, (name, spec)) in tool_steps.iter().enumerate() {
             let Some(artifact) = spec.artifact() else {
@@ -408,7 +412,12 @@ impl Toolbox {
                 .await
             {
                 warn!(tool = %name, error = %format!("{e:#}"), "tool install failed");
-                failures.push(format!("{name}: {e:#}"));
+                match network_host(&e) {
+                    Some(host) => {
+                        unreachable.insert(host);
+                    }
+                    None => failures.push(format!("{name}: {e:#}")),
+                }
             }
         }
         for (j, (name, reqs)) in venv_steps.iter().enumerate() {
@@ -418,8 +427,20 @@ impl Toolbox {
             });
             if let Err(e) = self.ensure_venv(name, reqs, &manifest.python.version).await {
                 warn!(venv = %name, error = %format!("{e:#}"), "python environment failed");
-                failures.push(format!("{name}: {e:#}"));
+                // Just a knock-on of uv not having downloaded.
+                if !(!unreachable.is_empty() && format!("{e:#}").contains("uv isn't installed yet")) {
+                    failures.push(format!("{name}: {e:#}"));
+                }
             }
+        }
+        if !unreachable.is_empty() {
+            let hosts = unreachable.into_iter().collect::<Vec<_>>().join(", ");
+            failures.insert(
+                0,
+                format!(
+                    "Couldn't reach {hosts}. Check your internet connection (or a VPN or firewall). DJ Sync will try again by itself."
+                ),
+            );
         }
         if failures.is_empty() {
             Ok(())
@@ -458,7 +479,7 @@ impl Toolbox {
         tokio::fs::create_dir_all(&downloads).await?;
         let file = downloads.join(format!("{name}-{version}.part"));
         info!(tool = name, version, url = %artifact.url, "downloading");
-        self.download(&artifact.url, &file, &artifact.sha256, &progress)
+        self.download_retrying(&artifact.url, &file, &artifact.sha256, &progress)
             .await?;
 
         let staging = self
@@ -499,6 +520,30 @@ impl Toolbox {
         progress(1.0);
         info!(tool = name, version, "tool ready");
         Ok(())
+    }
+
+    /// `download`, tried again after a stall or a failed connection (a bad
+    /// checksum or an HTTP error isn't going to get better).
+    async fn download_retrying(
+        &self,
+        url: &str,
+        dest: &Path,
+        sha256: &str,
+        progress: &impl Fn(f64),
+    ) -> anyhow::Result<()> {
+        let mut attempt = 1;
+        let mut wait = Duration::from_secs(2);
+        loop {
+            match self.download(url, dest, sha256, progress).await {
+                Err(e) if attempt < DOWNLOAD_ATTEMPTS && network_host(&e).is_some() => {
+                    warn!(url, attempt, error = %format!("{e:#}"), "download failed; retrying");
+                    tokio::time::sleep(wait).await;
+                    attempt += 1;
+                    wait *= 3;
+                }
+                result => return result,
+            }
+        }
     }
 
     async fn download(
@@ -750,6 +795,22 @@ fn newer_or_equal(a: &str, b: &str) -> bool {
             .collect()
     };
     nums(a) >= nums(b)
+}
+
+/// The host we couldn't reach, when `e` is a connection failure, a timeout or
+/// a stalled download (as opposed to a bad checksum or an HTTP error).
+fn network_host(e: &anyhow::Error) -> Option<String> {
+    for cause in e.chain() {
+        if let Some(re) = cause.downcast_ref::<reqwest::Error>() {
+            if re.is_connect() || re.is_timeout() {
+                return re.url().and_then(|u| u.host_str()).map(str::to_string);
+            }
+        }
+        if let Some(rest) = cause.to_string().strip_prefix("download stalled: ") {
+            return url::Url::parse(rest).ok()?.host_str().map(str::to_string);
+        }
+    }
+    None
 }
 
 fn safe_component(s: &str) -> bool {
@@ -1033,6 +1094,19 @@ mod tests {
             rig.toolbox.report().status.error.is_some(),
             "shown to the app"
         );
+    }
+
+    #[tokio::test]
+    async fn network_failures_are_told_apart_from_bad_downloads() {
+        // Nothing listens on port 1: a refused connection.
+        let refused = reqwest::get("http://127.0.0.1:1/ffmpeg.zip").await.unwrap_err();
+        let err = anyhow::Error::new(refused).context("downloading http://127.0.0.1:1/ffmpeg.zip");
+        assert_eq!(network_host(&err).as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            network_host(&anyhow!("download stalled: https://github.com/x/y")).as_deref(),
+            Some("github.com")
+        );
+        assert_eq!(network_host(&anyhow!("checksum mismatch for https://github.com/x")), None);
     }
 
     #[tokio::test]
