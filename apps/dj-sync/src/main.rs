@@ -76,10 +76,18 @@ async fn main() -> anyhow::Result<()> {
     let downloads = http_enabled || cloud_enabled;
     // Rekordbox's own library (master.db), written alongside the import XML.
     let library = if downloads && cfg.rekordbox_db.enabled {
-        Some(Arc::new(RekordboxLibrary::new(
-            cfg.rekordbox_db.clone(),
-            config::state_dir()?,
-        )))
+        let download = cfg.download.clone();
+        Some(Arc::new(
+            RekordboxLibrary::new(cfg.rekordbox_db.clone(), config::state_dir()?).with_own_dirs(
+                move || {
+                    // The current folder, plus the configured one songs may
+                    // have landed in before the DJ picked another.
+                    let mut dirs = vec![download.current_dir().0, download.dir.clone()];
+                    dirs.dedup();
+                    dirs
+                },
+            ),
+        ))
     } else {
         None
     };

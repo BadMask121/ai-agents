@@ -11,6 +11,32 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.2.1] — 2026-10-28 · songs load to the deck
+
+### Fixed
+- **Songs dj-sync adds to Rekordbox's library now load to a deck.**
+  - **Bug:** they previewed but did nothing when loaded.
+  - **Cause:** pyrekordbox seeds `ContentLink` with the TRACK menu item's usn
+    (`0x5992C`). Rekordbox kept the stray bits (`0x2D1F0E`, where its own
+    imports have `0x2D060E`).
+  - **Fix:** `rbdb.py` `add_track` now copies the library's most common
+    `ContentLink`, leaving out dj-sync's own folders. An empty library gets
+    `0x2D060E`.
+- **Songs added before 1.2.1 are repaired.**
+  - **What it changes:** the new `repair_tracks` op gives each track in the
+    download folders the library's `ContentLink`, but only where its value is
+    one no other track uses. Tracks Rekordbox imported itself are left alone.
+  - **When it runs:** first in every apply (Rekordbox closed, master.db
+    snapshotted first). It's also queued once at startup when the download
+    folder already has songs ("Repair songs that wouldn't load to a deck").
+  - **What you see:** a repair bumps PATCH. It's logged as a warning, and its
+    backup note says how many songs were fixed.
+
+### Changed
+- **`apply` input** now carries `own_dirs`, dj-sync's download folders:
+  `RekordboxLibrary::with_own_dirs` sets them. Both the current folder and
+  `[download].dir` are included.
+
 ## [1.2.0] — 2026-10-28 · one-scan iPhone setup
 
 ### Added
