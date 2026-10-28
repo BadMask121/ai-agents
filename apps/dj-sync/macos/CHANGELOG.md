@@ -4,6 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.0.2] — 2026-10-28
+
+### Changed
+- **The menu leads with Recent**, then Assistants, Downloads, Rekordbox and
+  About.
+- **The Tools card is gone.** Tools appear only while they're being installed,
+  or when one needs repair (with Repair Tools).
+- **The "Original ChatGPT URL" row is gone.** Assistant links are the one way
+  to connect. The old address still works for anything already using it.
+
 ## [1.0.1] — 2026-10-28
 - **Updates come from djsync.jeffrey.build** (`/download/appcast.json`). The
   DMG fallback link uses the same host. Older apps still find this release
