@@ -100,10 +100,17 @@ final class MenuModel {
     await refreshLinks()
   }
 
-  /// `/local/links` asks the cloud, so at most every 15 s unless forced.
+  /// A Telegram link is waiting for the DJ to tap Start.
+  var pairingTelegram: Bool {
+    links.contains { $0.assistant == .telegram && !$0.isConnected && !$0.pairingExpired() }
+  }
+
+  /// `/local/links` asks the cloud, so at most every 15 s unless forced
+  /// (every 3 s while a Telegram pairing is pending, for a live check).
   func refreshLinks(force: Bool = false) async {
     guard let s = status, s.cloud.enabled, s.cloud.registered != false else { return }
-    if !force, let at = linksFetchedAt, Date().timeIntervalSince(at) < 15 { return }
+    let interval: TimeInterval = pairingTelegram ? 3 : 15
+    if !force, let at = linksFetchedAt, Date().timeIntervalSince(at) < interval { return }
     linksFetchedAt = Date()
     if case .success(let list) = await linksClient.list() {
       links = list
@@ -112,40 +119,96 @@ final class MenuModel {
 
   // MARK: Assistants
 
-  /// A link for `assistant` (reusing an unused one), with its URL copied.
+  /// A link for `assistant`, reusing one this Mac already holds. Connector
+  /// URLs (ChatGPT, Claude) are copied; Telegram shows a QR code to scan; the
+  /// iPhone Shortcut shows its URL and key.
   @discardableResult
   func connect(_ assistant: Assistant) async -> AssistantLink? {
     linksBusy = true
     defer { linksBusy = false }
     actionError = nil
-    if let existing = links.first(where: { $0.assistant == assistant && $0.url != nil }) {
-      copyURL(of: existing, for: assistant)
+    if let existing = links.first(where: { usable($0, for: assistant) }) {
+      announce(existing, for: assistant)
       return existing
     }
     switch await linksClient.create(assistant) {
     case .success(let link):
       links.append(link)
-      copyURL(of: link, for: assistant)
+      announce(link, for: assistant)
       await refreshLinks(force: true)
-      return link
+      return links.first { $0.id == link.id } ?? link
     case .failure(let f):
-      actionError = "Couldn't connect \(assistant.name): \(f.message)"
+      actionError =
+        f.code == "telegram_not_configured"
+        ? "Telegram isn't available yet. Try ChatGPT, Claude or the iPhone Shortcut for now."
+        : "Couldn't connect \(assistant.name): \(f.message)"
       return nil
     }
   }
 
-  private func copyURL(of link: AssistantLink, for assistant: Assistant) {
-    guard let url = link.url else { return }
-    copy(url, key: link.id)
-    note("Copied \(assistant.name)'s URL. \(assistant.steps.joined(separator: " "))")
+  private func usable(_ link: AssistantLink, for assistant: Assistant) -> Bool {
+    guard link.assistant == assistant else { return false }
+    switch assistant {
+    case .telegram: return link.url != nil && !link.pairingExpired()
+    case .iphone: return link.token != nil && link.apiUrl != nil
+    default: return link.url != nil
+    }
   }
 
-  /// A new URL; the old one stops working at once.
+  private func announce(_ link: AssistantLink, for assistant: Assistant) {
+    switch assistant {
+    case .telegram:
+      note("Scan the code with your phone, then tap Start in Telegram.")
+    case .iphone:
+      note("Follow the setup guide on your iPhone, using the URL and key shown here.")
+    default:
+      guard let url = link.url else { return }
+      copy(url, key: link.id)
+      note("Copied \(assistant.name)'s URL. \(assistant.steps.joined(separator: " "))")
+    }
+  }
+
+  /// A fresh Telegram pairing code. Unpairs a paired chat, so that asks first.
+  func newTelegramCode(_ link: AssistantLink) {
+    if link.isConnected {
+      let alert = NSAlert()
+      alert.messageText = "Pair a different Telegram chat?"
+      alert.informativeText = "\(link.displayName) stops working with DJ Sync right away. Scan the new code to pair again."
+      alert.addButton(withTitle: "New Code")
+      alert.addButton(withTitle: "Cancel")
+      NSApp.activate()
+      guard alert.runModal() == .alertFirstButtonReturn else { return }
+    }
+    Task {
+      linksBusy = true
+      defer { linksBusy = false }
+      switch await linksClient.rotate(link.id) {
+      case .success:
+        note("New code ready. Scan it with your phone.")
+        await refreshLinks(force: true)
+      case .failure(let f):
+        actionError = "Couldn't make a new code: \(f.message)"
+      }
+    }
+  }
+
+  func openGuide(_ assistant: Assistant) {
+    NSWorkspace.shared.open(assistant.guideURL)
+  }
+
+  func open(_ url: String) {
+    guard let u = URL(string: url) else { return }
+    NSWorkspace.shared.open(u)
+  }
+
+  /// A new URL (or Shortcut key); the old one stops working at once.
   func rotate(_ link: AssistantLink) {
+    let isKey = link.assistant == .iphone
+    let thing = isKey ? "key" : "URL"
     let alert = NSAlert()
-    alert.messageText = "Make a new URL for \(link.displayName)?"
-    alert.informativeText = "The current URL stops working right away. Paste the new one into \(link.displayName) to keep using DJ Sync there."
-    alert.addButton(withTitle: "New URL")
+    alert.messageText = "Make a new \(thing) for \(link.displayName)?"
+    alert.informativeText = "The current \(thing) stops working right away. Put the new one into \(isKey ? "your Shortcut" : link.displayName) to keep using DJ Sync there."
+    alert.addButton(withTitle: isKey ? "New Key" : "New URL")
     alert.addButton(withTitle: "Cancel")
     NSApp.activate()
     guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -154,8 +217,13 @@ final class MenuModel {
       defer { linksBusy = false }
       switch await linksClient.rotate(link.id) {
       case .success(let new):
-        if let url = new.url { copy(url, key: new.id) }
-        note("New URL copied. Paste it into \(link.displayName).")
+        if isKey {
+          if let token = new.token { copy(token, key: "\(new.id).key") }
+          note("New key copied. Paste it into your Shortcut's Authorization header.")
+        } else {
+          if let url = new.url { copy(url, key: new.id) }
+          note("New URL copied. Paste it into \(link.displayName).")
+        }
         await refreshLinks(force: true)
       case .failure(let f):
         actionError = "Couldn't make a new URL: \(f.message)"
@@ -167,7 +235,10 @@ final class MenuModel {
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = "Disconnect \(link.displayName)?"
-    alert.informativeText = "Its URL stops working right away. You can connect it again later with a new URL."
+    alert.informativeText =
+      link.assistant == .telegram
+      ? "The bot stops answering that chat right away. You can pair again later."
+      : "It stops working with DJ Sync right away. You can connect it again later."
     alert.addButton(withTitle: "Disconnect")
     alert.addButton(withTitle: "Cancel")
     NSApp.activate()

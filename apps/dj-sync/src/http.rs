@@ -621,19 +621,27 @@ async fn local_toolbox_install(State(state): State<AppState>, headers: HeaderMap
 
 // ---------- assistant links (cloud v2) ----------
 
-const LINK_KINDS: [&str; 4] = ["chatgpt", "claude", "shortcut", "other"];
+const LINK_KINDS: [&str; 5] = ["chatgpt", "claude", "telegram", "shortcut", "other"];
 
 fn cloud_error(e: CloudError) -> Response {
+    let code = match &e {
+        CloudError::Rejected(_, _, code) => code.clone(),
+        _ => None,
+    };
     let status = match e {
         CloudError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
         CloudError::Incompatible(_) => StatusCode::CONFLICT,
         CloudError::Unauthorized => StatusCode::SERVICE_UNAVAILABLE,
         CloudError::Replaced | CloudError::Transient(_) => StatusCode::BAD_GATEWAY,
-        CloudError::Rejected(status, _) => {
+        CloudError::Rejected(status, _, _) => {
             StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
         }
     };
-    (status, Json(json!({ "ok": false, "error": e.to_string() }))).into_response()
+    (
+        status,
+        Json(json!({ "ok": false, "error": e.to_string(), "code": code })),
+    )
+        .into_response()
 }
 
 fn session_for(

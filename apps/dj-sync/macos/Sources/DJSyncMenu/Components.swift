@@ -196,3 +196,93 @@ extension AnyTransition {
     reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
   }
 }
+
+// MARK: - Telegram pairing
+
+/// A QR code drawn crisp at any size, dark on white (so it scans in dark
+/// mode too).
+struct QRCodeView: View {
+  let text: String
+  var size: CGFloat = 112
+
+  var body: some View {
+    Group {
+      if let image = QRCode.image(for: text) {
+        Image(decorative: image, scale: 1)
+          .interpolation(.none)
+          .resizable()
+          .aspectRatio(1, contentMode: .fit)
+      } else {
+        Image(systemName: "qrcode").font(.largeTitle).foregroundStyle(.secondary)
+      }
+    }
+    .padding(8)
+    .frame(width: size, height: size)
+    .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .strokeBorder(.black.opacity(0.08), lineWidth: 0.5)
+    }
+    .accessibilityLabel("QR code to pair Telegram")
+  }
+}
+
+/// Scan-to-pair for a Telegram link that isn't paired yet: the QR code of
+/// its `t.me` deep link, Open Telegram, New code, and the code's expiry.
+struct TelegramPairing: View {
+  let link: AssistantLink
+  var busy = false
+  let open: (String) -> Void
+  let newCode: () -> Void
+
+  var body: some View {
+    if let url = link.url {
+      TimelineView(.periodic(from: .now, by: 15)) { context in
+        let expired = link.pairingExpired(now: context.date)
+        HStack(alignment: .top, spacing: 12) {
+          QRCodeView(text: url)
+            .opacity(expired ? 0.25 : 1)
+            .overlay {
+              if expired {
+                Image(systemName: "clock.badge.xmark").font(.title2).foregroundStyle(.secondary)
+              }
+            }
+          VStack(alignment: .leading, spacing: 6) {
+            Text(expired ? "This code has expired." : "Scan with your phone's camera, then tap Start in Telegram.")
+              .font(.caption)
+              .fixedSize(horizontal: false, vertical: true)
+            if !expired {
+              Button("Open Telegram") { open(url) }
+                .controlSize(.small)
+                .help("Opens the DJ Sync bot in Telegram on this Mac")
+            }
+            Button(expired ? "Get a New Code" : "New Code", action: newCode)
+              .controlSize(.small)
+              .disabled(busy)
+            if let note = expiryNote(now: context.date) {
+              Text(note)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.2), value: expired)
+      }
+    } else {
+      HStack(spacing: 8) {
+        Text("Paired from another Mac or before a reinstall.")
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+        Button("New Code", action: newCode).controlSize(.small).disabled(busy)
+      }
+    }
+  }
+
+  private func expiryNote(now: Date) -> String? {
+    guard let expires = link.expires, expires > now else { return nil }
+    let minutes = Int((expires.timeIntervalSince(now) / 60).rounded(.up))
+    return minutes <= 1 ? "Expires in under a minute" : "Expires in \(minutes) min"
+  }
+}
+

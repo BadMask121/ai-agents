@@ -479,10 +479,10 @@ private struct AssistantsCard: View {
 
   var body: some View {
     Card(title: "Assistants", systemImage: "sparkles") {
-      if !model.links.isEmpty {
+      if model.links.contains(where: { $0.url != nil || $0.token != nil }) {
         IconButton(
           systemImage: model.revealSecrets ? "eye.slash" : "eye",
-          label: model.revealSecrets ? "Hide the private URLs" : "Show the private URLs"
+          label: model.revealSecrets ? "Hide the private URLs and keys" : "Show the private URLs and keys"
         ) {
           model.revealSecrets.toggle()
         }
@@ -490,28 +490,21 @@ private struct AssistantsCard: View {
       }
     } content: {
       if model.links.isEmpty {
-        Text("Connect ChatGPT or Claude, then ask it to download tracks or change playlists, from your phone too.")
+        Text("Connect one, then ask for tracks or playlist changes from your phone, even while this Mac sleeps.")
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
       ForEach(model.links) { link in
-        LinkRow(link: link, model: model)
+        switch link.assistant {
+        case .telegram: TelegramRow(link: link, model: model)
+        case .iphone: ShortcutRow(link: link, model: model)
+        default: LinkRow(link: link, model: model)
+        }
       }
       let missing = Assistant.allCases.filter { a in !model.links.contains { $0.assistant == a } }
       if !missing.isEmpty {
-        HStack(spacing: 8) {
-          ForEach(missing) { assistant in
-            Button {
-              Task { await model.connect(assistant) }
-            } label: {
-              Label("Connect \(assistant.name)", systemImage: "plus")
-            }
-          }
-          Spacer(minLength: 0)
-        }
-        .controlSize(.small)
-        .disabled(model.linksBusy || model.status?.cloud.registered == false)
+        ConnectGrid(assistants: missing, model: model)
       }
       if let s = model.status, s.cloud.enabled {
         CloudLine(connected: s.cloud.connected)
@@ -520,67 +513,238 @@ private struct AssistantsCard: View {
   }
 }
 
+/// "Connect …" buttons, two to a row, each with what it costs.
+private struct ConnectGrid: View {
+  let assistants: [Assistant]
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+      ForEach(assistants) { assistant in
+        Button {
+          Task { await model.connect(assistant) }
+        } label: {
+          HStack(spacing: 5) {
+            Image(systemName: "plus").font(.caption.weight(.semibold))
+            Text(assistant.name)
+            Spacer(minLength: 4)
+            Text(assistant.cost)
+              .font(.caption2)
+              .foregroundStyle(assistant.cost == "Free" ? Color.green : Color.secondary)
+          }
+          .frame(maxWidth: .infinity)
+        }
+        .help("Connect \(assistant.name) (\(assistant.cost.lowercased()))")
+      }
+    }
+    .controlSize(.small)
+    .disabled(model.linksBusy || model.status?.cloud.registered == false)
+  }
+}
+
+/// The dot, name, last use and the "…" menu every assistant row shares.
+private struct LinkHeader<Trailing: View>: View {
+  let link: AssistantLink
+  let detail: String
+  @Bindable var model: MenuModel
+  var menu: [(String, () -> Void)] = []
+  @ViewBuilder var trailing: Trailing
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Circle()
+        .fill(link.isConnected ? Color.green : Color.orange)
+        .frame(width: 6, height: 6)
+      Text(link.displayName).font(.callout.weight(.medium)).lineLimit(1)
+      Text(detail)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+      Spacer(minLength: 8)
+      trailing
+      Menu {
+        ForEach(Array(menu.enumerated()), id: \.offset) { _, item in
+          Button(item.0, action: item.1)
+        }
+        if let assistant = link.assistant {
+          Button("Setup Guide") { model.openGuide(assistant) }
+        }
+        Divider()
+        Button("Disconnect…", role: .destructive) { model.disconnect(link) }
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+      .help("More")
+    }
+  }
+}
+
+private func usage(_ link: AssistantLink) -> String {
+  guard let used = link.lastUsed else { return "· not used yet" }
+  return "· used " + used.formatted(.relative(presentation: .named))
+}
+
+/// A Copy button that confirms for a moment.
+private struct CopyButton: View {
+  let value: String
+  let key: String
+  var help = "Copy"
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    Button {
+      model.copy(value, key: key)
+    } label: {
+      Label(model.copied == key ? "Copied" : "Copy", systemImage: model.copied == key ? "checkmark" : "doc.on.doc")
+        .font(.caption)
+        .contentTransition(.symbolEffect(.replace))
+    }
+    .buttonStyle(.borderless)
+    .foregroundStyle(model.copied == key ? Color.green : Color.accentColor)
+    .help(help)
+  }
+}
+
+/// ChatGPT and Claude: a connector (MCP) URL to paste in.
 private struct LinkRow: View {
   let link: AssistantLink
   @Bindable var model: MenuModel
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      HStack(spacing: 6) {
-        Circle()
-          .fill(link.isConnected ? Color.green : Color.orange)
-          .frame(width: 6, height: 6)
-        Text(link.displayName).font(.callout.weight(.medium))
-        Text(usage)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-        Spacer(minLength: 8)
+      LinkHeader(link: link, detail: usage(link), model: model, menu: [("New URL…", { model.rotate(link) })]) {
         if let url = link.url {
-          Button {
-            model.copy(url, key: link.id)
-          } label: {
-            Label(model.copied == link.id ? "Copied" : "Copy", systemImage: model.copied == link.id ? "checkmark" : "doc.on.doc")
-              .font(.caption)
-              .contentTransition(.symbolEffect(.replace))
-          }
-          .buttonStyle(.borderless)
-          .foregroundStyle(model.copied == link.id ? Color.green : Color.accentColor)
-          .help("Copy this assistant's private URL")
+          CopyButton(value: url, key: link.id, help: "Copy this assistant's private URL", model: model)
         }
-        Menu {
-          Button("New URL…") { model.rotate(link) }
-          Divider()
-          Button("Disconnect…", role: .destructive) { model.disconnect(link) }
-        } label: {
-          Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("More")
       }
-      if let url = link.url {
-        Text(model.revealSecrets ? url : maskingSecretPath(url))
-          .font(.caption.monospaced())
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .truncationMode(.middle)
-          .textSelection(.enabled)
-          .padding(.leading, 12)
+      HStack(spacing: 8) {
+        if let url = link.url {
+          Text(model.revealSecrets ? url : maskingSecretPath(url))
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+        } else {
+          Text("Made on another Mac or before a reinstall: choose New URL to get one here.")
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 4)
+        if let assistant = link.assistant {
+          GuideLink(assistant: assistant, model: model)
+        }
+      }
+      .padding(.leading, 12)
+    }
+    .animation(.easeOut(duration: 0.15), value: model.copied)
+  }
+}
+
+private struct GuideLink: View {
+  let assistant: Assistant
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    Button("Setup guide") { model.openGuide(assistant) }
+      .buttonStyle(.link)
+      .font(.caption)
+      .fixedSize()
+      .help("How to set up \(assistant.name), on djsync.jeffrey.build")
+  }
+}
+
+/// Telegram: scan-to-pair until a chat is paired, then just the chat.
+private struct TelegramRow: View {
+  let link: AssistantLink
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      LinkHeader(
+        link: link,
+        detail: link.isConnected ? "· paired" : "· waiting for Start",
+        model: model,
+        menu: [("New Code…", { model.newTelegramCode(link) })]
+      ) {
+        EmptyView()
+      }
+      if link.isConnected {
+        HStack(spacing: 8) {
+          Text("Send the bot Spotify or YouTube links, or /playlists.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 4)
+          GuideLink(assistant: .telegram, model: model)
+        }
+        .padding(.leading, 12)
       } else {
-        Text("Made on another Mac or before a reinstall: choose New URL to get one here.")
+        TelegramPairing(
+          link: link, busy: model.linksBusy,
+          open: { model.open($0) }, newCode: { model.newTelegramCode(link) }
+        )
+        .padding(.leading, 12)
+        .transition(.opacity)
+      }
+    }
+    .animation(.easeOut(duration: 0.2), value: link.isConnected)
+  }
+}
+
+/// The iPhone Share-sheet Shortcut: an API URL and a bearer key.
+private struct ShortcutRow: View {
+  let link: AssistantLink
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      LinkHeader(link: link, detail: usage(link), model: model, menu: [("New Key…", { model.rotate(link) })]) {
+        EmptyView()
+      }
+      if let api = link.apiUrl, let token = link.token {
+        field("URL", shown: api, value: api, key: "\(link.id).url")
+        field(
+          "Key", shown: model.revealSecrets ? token : String(token.prefix(4)) + "…",
+          value: token, key: "\(link.id).key")
+        HStack {
+          Text("Build the Shortcut on your iPhone with these.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer(minLength: 4)
+          GuideLink(assistant: .iphone, model: model)
+        }
+        .padding(.leading, 12)
+      } else {
+        Text("Made on another Mac or before a reinstall: choose New Key to get one here.")
           .font(.caption)
           .foregroundStyle(.tertiary)
+          .fixedSize(horizontal: false, vertical: true)
           .padding(.leading, 12)
       }
     }
     .animation(.easeOut(duration: 0.15), value: model.copied)
   }
 
-  private var usage: String {
-    guard let used = link.lastUsed else { return "· not used yet" }
-    return "· used " + used.formatted(.relative(presentation: .named))
+  private func field(_ title: String, shown: String, value: String, key: String) -> some View {
+    HStack(spacing: 6) {
+      Text(title)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(width: 28, alignment: .leading)
+      Text(shown)
+        .font(.caption.monospaced())
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+      Spacer(minLength: 4)
+      CopyButton(value: value, key: key, help: "Copy the \(title.lowercased()) for the Shortcut", model: model)
+    }
+    .padding(.leading, 12)
   }
 }
 

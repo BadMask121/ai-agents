@@ -4,6 +4,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.1.0] — 2026-10-28 · connect from anywhere
+
+### Added
+- **Telegram in Assistants.** Connect Telegram shows a QR code of the bot's
+  pairing link (CoreImage, kept crisp), with **Open Telegram**, **New Code**
+  and the code's expiry. It checks every 3 s until the chat is paired, then
+  shows **Telegram (@user)**. Onboarding offers Telegram next to ChatGPT and
+  Claude.
+- **iPhone in Assistants.** Connect iPhone shows the Shortcut's API URL and
+  key, each with Copy; the key is masked unless revealed. **New Key** makes a
+  fresh one, and **Setup guide** opens djsync.jeffrey.build/connect/iphone/.
+- **Setup guide link on every assistant** (ChatGPT, Claude, Telegram, iPhone).
+- **The Connect buttons sit in a 2×2 grid** that shows what each costs: Free,
+  or Paid plan for ChatGPT.
+### Changed
+- **If the cloud hasn't set up Telegram yet** (503 `telegram_not_configured`),
+  the app says "Telegram isn't available yet" instead of an error code.
+- **Diagnostics** also masks Telegram pairing codes (`?start=…`).
+
 ## [1.0.2] — 2026-10-28
 
 ### Changed
