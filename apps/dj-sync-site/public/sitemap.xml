@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://djsync.jeffrey.build/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/install/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/connect/telegram/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/connect/claude/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/connect/iphone/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/connect/chatgpt/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/faq/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/privacy/</loc></url>
-  <url><loc>https://djsync.jeffrey.build/terms/</loc></url>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url><loc>https://djsync.jeffrey.build/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/home.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/install/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/install.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/connect/telegram/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/connect-telegram.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/connect/claude/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/connect-claude.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/connect/iphone/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/connect-iphone.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/connect/chatgpt/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/connect-chatgpt.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/faq/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/faq.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/privacy/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/default.png</image:loc></image:image></url>
+  <url><loc>https://djsync.jeffrey.build/terms/</loc><lastmod>2026-10-28</lastmod><image:image><image:loc>https://djsync.jeffrey.build/og/default.png</image:loc></image:image></url>
 </urlset>

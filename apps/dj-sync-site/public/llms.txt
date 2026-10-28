@@ -1,0 +1,26 @@
+# DJ Sync
+
+> DJ Sync is a free Mac menu bar app for DJs who use Rekordbox 6 or 7. You send a Spotify or YouTube link (or a plain request) from Telegram, Claude, ChatGPT or your iPhone, and the track downloads on your Mac straight into your Rekordbox library and the playlist you choose. It can also list, search, create, rename, delete and reorganise Rekordbox playlists, including moving tracks between playlists. Your library is backed up before every change.
+
+- Price: free. No account, email or password.
+- Requirements: a Mac with macOS 14 Sonoma or later (Apple silicon or Intel) and Rekordbox 6 or 7. Windows is planned.
+- Download: https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg
+- Works while the Mac is asleep or offline: requests wait in the DJ Sync cloud until the Mac is back.
+- Privacy: the cloud keeps links, playlist names, job results and a copy of track metadata (title, artist, album, genre, BPM, key, length). Never file paths, audio, names or emails.
+
+## Ways to connect
+
+- [Telegram](https://djsync.jeffrey.build/connect/telegram/): free on any phone. Pair the DJ Sync bot by QR code, then share a link and pick a playlist.
+- [Claude](https://djsync.jeffrey.build/connect/claude/): free plans include one custom connector (MCP). Ask Claude to download tracks or manage playlists.
+- [iPhone Shortcut](https://djsync.jeffrey.build/connect/iphone/): free. Scan a QR code, add the Shortcut, then Share → DJ Sync from Spotify or YouTube.
+- [ChatGPT](https://djsync.jeffrey.build/connect/chatgpt/): needs a paid ChatGPT plan (Plus or higher) to add a custom MCP connector. Refresh the connector after DJ Sync updates.
+
+## Pages
+
+- [Home](https://djsync.jeffrey.build/): what DJ Sync does
+- [Install guide](https://djsync.jeffrey.build/install/): download, allow it once with Open Anyway, connect an assistant (about five minutes)
+- [FAQ](https://djsync.jeffrey.build/faq/): Rekordbox open or closed, backups and restore, offline Macs, pricing, removal
+- [Privacy](https://djsync.jeffrey.build/privacy/): exactly what the cloud stores and for how long
+- [Terms](https://djsync.jeffrey.build/terms/)
+
+Support: jeff.emakpor@gmail.com

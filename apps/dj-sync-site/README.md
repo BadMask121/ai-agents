@@ -17,9 +17,12 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
   - **Downloads:** `/download/<file>` comes from the R2 bucket
     `dj-sync-downloads` (key `djsync/<file>`, uploaded by
     `apps/dj-sync/release.sh`), with HEAD and byte ranges.
-  - **Cloud endpoints:** `/health`, `/v2/*`, `/api/downloads*`, `/agent/*`,
-    and any path ending in `/mcp` go to the `dj-sync-cloud` Worker over a
-    service binding.
+  - **Cloud endpoints:** `/health`, `/v2/*`, `/api/downloads*`,
+    `/api/playlists`, `/agent/*`, `/telegram/*`, `/i/*` (the one-scan iPhone
+    install) and any path ending in `/mcp` go to the `dj-sync-cloud` Worker
+    over a service binding. A browser opening `/api/downloads` or
+    `/api/playlists` (HTML, no `Authorization`) is sent to
+    `/connect/iphone/` instead.
   - **Old host:** `djsync.triplejmusic.art` (the launch host) is routed here
     and answers with a 301 to the same path.
   - **Old downloads domain:** `downloads.triplejmusic.art` (the bucket's
@@ -45,6 +48,39 @@ public/
 
 Each page carries its own copy of the header and footer. If you change the
 nav or footer, change it in every page.
+
+## SEO and sharing
+
+- **Generated head.** Each page's `<head>` holds a block written by a script.
+  That block covers the title, description, robots, canonical, icons and
+  manifest, Open Graph and Twitter tags, and JSON-LD. The JSON-LD includes
+  `FAQPage` and `HowTo`, built from the page's own text, so it always matches
+  what's shown.
+  - **When you change a page's title, description, FAQ or steps,** run the
+    generator again so the structured data stays true.
+  - **The generator isn't in the repo.** It lived in the release scratch
+    space; its rules are in this section.
+- **Share cards** live in `public/og/<page>.png` (1200×630, under 250 KB
+  each), rendered from HTML with headless Chrome.
+  - **Cards:** home, install, faq, connect-chatgpt, connect-claude,
+    connect-telegram, connect-iphone, and `default` for privacy, terms and
+    404.
+  - **After changing a card, bump the file name or wait a week:** cards are
+    cached for a week (`_headers`).
+- **Icons:** `favicon.svg`, `favicon-32.png`, `apple-touch-icon.png`
+  (full-bleed, since iOS rounds it), `icon-192.png`, `icon-512.png` and
+  `site.webmanifest`.
+- **Crawling:**
+  - `robots.txt` allows everyone, including AI crawlers. It disallows
+    `/api/`, `/v2/`, `/i/`, `/telegram/` and `/download/`, which aren't
+    pages.
+  - `sitemap.xml` lists every indexable page, with `<lastmod>` and the card
+    image.
+  - `llms.txt` is a plain summary for AI assistants.
+- **Not done here:** verifying the site in Google Search Console or Bing
+  Webmaster Tools and submitting the sitemap. That needs the owner's Google
+  or Microsoft account. The DNS TXT method is easiest, since the zone is on
+  Cloudflare.
 
 ## Support contact
 
