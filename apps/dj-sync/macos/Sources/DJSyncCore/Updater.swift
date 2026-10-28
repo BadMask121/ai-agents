@@ -134,6 +134,22 @@ public enum UpdateInstaller {
     return hasher.finalize().map { String(format: "%02x", $0) }.joined()
   }
 
+  /// Where the app really lives. Gatekeeper runs a quarantined app from a
+  /// read-only, randomised "AppTranslocation" copy, which can't be updated in
+  /// place; the real one is in Applications.
+  public static func installedLocation(
+    of running: URL,
+    candidates: [URL] = [
+      URL(filePath: "/Applications"),
+      FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications"),
+    ],
+    exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
+  ) -> URL {
+    guard running.path(percentEncoded: false).contains("/AppTranslocation/") else { return running }
+    let name = running.lastPathComponent
+    return candidates.map { $0.appending(path: name) }.first(where: exists) ?? running
+  }
+
   /// Install `release` over the app at `installed`. Returns the new app's URL
   /// (the same path) once it's in place.
   public static func install(

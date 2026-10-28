@@ -11,6 +11,11 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.3.4] — 2026-10-28 · update in place
+
+### Fixed
+- **Update to x.y.z updates the app instead of opening a download.** If macOS ran DJ Sync from a read-only "AppTranslocation" copy (an app that still carries the download quarantine flag), the updater couldn't write there and opened the DMG. It now updates the real copy in Applications.
+
 ## [1.3.3] — 2026-10-28 · friendlier messages
 
 ### Changed

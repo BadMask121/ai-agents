@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.3.4] — 2026-10-28 · update in place
+
+### Fixed
+- Update to x.y.z installs the update in place even when macOS is running DJ Sync from a temporary read-only copy, instead of opening the DMG download.
+
 ## [1.3.3] — 2026-10-28 · friendlier messages
 
 ### Changed

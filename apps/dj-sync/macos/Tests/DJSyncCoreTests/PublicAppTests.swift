@@ -277,3 +277,11 @@ private func tempDir() throws -> URL {
     #expect(file.downloadDir() == "/Users/dj/Music/DJ")
   }
 }
+
+@Test func updateTargetsTheRealAppWhenRunningTranslocated() {
+  let moved = URL(filePath: "/private/var/folders/x/T/AppTranslocation/ABC/d/DJ Sync.app")
+  let real = URL(filePath: "/Applications/DJ Sync.app")
+  #expect(UpdateInstaller.installedLocation(of: moved, candidates: [URL(filePath: "/Applications")], exists: { $0 == real }) == real)
+  #expect(UpdateInstaller.installedLocation(of: real, exists: { _ in false }) == real)
+  #expect(UpdateInstaller.installedLocation(of: moved, exists: { _ in false }) == moved)
+}

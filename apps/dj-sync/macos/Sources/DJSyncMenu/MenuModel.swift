@@ -318,7 +318,7 @@ final class MenuModel {
   func installUpdate(_ release: Appcast.Release) {
     update = .installing
     Task {
-      let app = Bundle.main.bundleURL
+      let app = UpdateInstaller.installedLocation(of: Bundle.main.bundleURL)
       do {
         _ = try await UpdateInstaller.install(
           release, over: app, bundleID: Bundle.main.bundleIdentifier ?? "com.triplejmusic.dj-sync.menu")
