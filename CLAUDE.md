@@ -24,8 +24,7 @@ Before brainstorming, designing, or proposing plans, read the relevant files und
 
 When a brainstorm produces an agreed plan, immediately capture it as bd issues (epic + sub-tasks with `bd-<id>.<n>` hierarchy) before touching code.
 
-## VPS access
+## Hosting
 
-- Host: `ssh root@95.217.185.93` (Hetzner, runs career-ops-ui via Coolify).
-- `career-ops` checkout lives at `/home/career/work/career-ops`, owned by the `career` user — run git/file ops via `sudo -u career ...`, not as root (root triggers git's "dubious ownership" guard).
-- `career-ops` remote `origin` points to our fork `https://github.com/BadMask121/career-ops.git` (HTTPS, public — no auth needed for fetch). The `career` user has no GitHub SSH key, so do not switch to `git@github.com:...` URLs without first installing a deploy key.
+- No VPS. The Hetzner box (Coolify, career-ops-ui) was deleted on 2026-10-28; its data is backed up locally in `~/hetzner-backup-2026-10-28`.
+- Every public host is a Cloudflare Worker on the `jeffrey.build` zone, each with its own Worker (and R2 bucket where needed): `jeffrey.build` + `www` (portfolio repo), `mail-mcp` (`apps/mail-mcp`), `prole` (prole repo `site/`), `voxsplit` (voxsplit repo). Deploy with `wrangler deploy` from each project.
