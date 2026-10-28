@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow?
   private let notifier = Notifier()
   private var watcher = JobWatcher()
+  private var libraryWatcher = LibraryWatcher()
 
   private static let autosaveName = "DJSyncStatusItem"
 
@@ -135,6 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let status = await client.fetch(), let self {
           for event in self.watcher.update(status.recentJobs) {
             self.notifier.post(event)
+          }
+          if let applied = self.libraryWatcher.update(status.rekordboxDb?.lastApplied) {
+            self.notifier.postLibrary(applied)
           }
         }
         try? await Task.sleep(for: .seconds(4))

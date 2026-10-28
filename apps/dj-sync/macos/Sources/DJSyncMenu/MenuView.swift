@@ -224,31 +224,164 @@ private struct DownloadsCard: View {
 
 private struct RekordboxCard: View {
   @Bindable var model: MenuModel
+  @State private var showBackups = false
 
   var body: some View {
     Card(title: "Rekordbox", systemImage: "square.stack.3d.up") {
-      if let version = model.status?.xmlVersion {
-        Badge(text: "v\(version)", tint: .purple, monospaced: true)
-          .help("Snapshot version of the playlist XML")
+      if let version = model.status?.rekordboxDb?.currentVersion {
+        Badge(text: "Library v\(version)", tint: .purple, monospaced: true)
+          .help("Semver of your Rekordbox library's latest backup")
       }
     } content: {
+      if let library = model.status?.rekordboxDb {
+        LibraryState(library: library)
+        ForEach(library.failed) { failed in
+          Banner(text: "Couldn't apply “\(failed.summary)”: \(failed.error)")
+        }
+        if !library.pending.isEmpty, !library.rekordboxRunning {
+          Button(model.libraryBusy ? "Applying…" : "Apply Now", action: model.applyLibraryNow)
+            .controlSize(.small)
+            .disabled(model.libraryBusy)
+        }
+        if !library.backups.isEmpty {
+          DisclosureGroup(isExpanded: $showBackups) {
+            VStack(spacing: 6) {
+              ForEach(library.backups) { backup in
+                BackupRow(
+                  backup: backup,
+                  isLatest: backup.id == library.backups.first?.id,
+                  canRestore: !library.rekordboxRunning && !model.libraryBusy
+                ) { model.restoreBackup(backup) }
+              }
+              if library.rekordboxRunning {
+                Text("Quit Rekordbox to restore a backup.")
+                  .font(.caption2)
+                  .foregroundStyle(.tertiary)
+              }
+            }
+            .padding(.top, 6)
+          } label: {
+            Text("Backups (\(library.backups.count))")
+              .font(.callout)
+          }
+        }
+      }
+
       if let xml = model.status?.importXml {
-        PathRow(
-          icon: model.icon(forPath: xml),
-          title: (xml as NSString).lastPathComponent,
-          subtitle: model.display((xml as NSString).deletingLastPathComponent),
-          help: "Show in Finder",
-          action: model.revealXML)
-        Text("Reload rekordbox xml in Rekordbox to see new playlists.")
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
-          .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 6) {
+          Image(systemName: "doc.text")
+            .foregroundStyle(.secondary)
+          Text("rekordbox xml" + (model.status?.xmlVersion.map { " · v\($0)" } ?? ""))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer(minLength: 0)
+          Button("Show", action: model.revealXML)
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .help(model.display(xml))
+        }
       } else {
         Text("Shown when dj-sync is running.")
           .font(.callout)
           .foregroundStyle(.secondary)
       }
     }
+  }
+}
+
+/// Where Rekordbox's own library stands: up to date, or changes waiting.
+private struct LibraryState: View {
+  let library: ServiceStatus.Library
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(spacing: 6) {
+        Circle().fill(tint).frame(width: 6, height: 6)
+        Text(headline)
+          .font(.callout)
+          .fixedSize(horizontal: false, vertical: true)
+          .contentTransition(.opacity)
+      }
+      if let detail {
+        Text(detail)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .padding(.leading, 12)
+      }
+    }
+    .help(library.dbPath)
+  }
+
+  private var waiting: Int { library.pending.count }
+
+  private var tint: Color {
+    switch (waiting, library.rekordboxRunning) {
+    case (0, _): .green
+    case (_, true): .orange
+    case (_, false): .accentColor
+    }
+  }
+
+  private var headline: String {
+    switch (waiting, library.rekordboxRunning) {
+    case (0, true): "Up to date · Rekordbox is open"
+    case (0, false): "Up to date"
+    case (let n, true): "\(n) change\(n == 1 ? "" : "s") waiting — quit Rekordbox to apply"
+    case (let n, false): "Applying \(n) change\(n == 1 ? "" : "s")…"
+    }
+  }
+
+  private var detail: String? {
+    if waiting > 0, let error = library.lastError {
+      return "Last try failed: \(error)"
+    }
+    if waiting > 0 {
+      return library.pending.map(\.summary).joined(separator: " · ")
+    }
+    if let last = library.lastApplied {
+      let when = parseTimestamp(last.at).map {
+        $0.formatted(.relative(presentation: .named))
+      }
+      return [last.summary, when].compactMap { $0 }.joined(separator: " · ")
+    }
+    return nil
+  }
+}
+
+private struct BackupRow: View {
+  let backup: ServiceStatus.Library.Backup
+  let isLatest: Bool
+  let canRestore: Bool
+  let restore: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 6) {
+          Text("v\(backup.version)")
+            .font(.caption.monospaced().weight(.semibold))
+          if let date = backup.date {
+            Text(date, format: .relative(presentation: .named))
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          if isLatest {
+            Badge(text: "Latest", tint: .secondary)
+          }
+        }
+        Text(backup.reason)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .truncationMode(.tail)
+      }
+      Spacer(minLength: 8)
+      Button("Restore", action: restore)
+        .controlSize(.small)
+        .disabled(!canRestore)
+    }
+    .help(backup.reason)
   }
 }
 

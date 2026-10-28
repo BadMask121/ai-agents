@@ -227,3 +227,43 @@ struct JobWatcherTests {
     #expect(w.update([job("z", "queued")]) == [.requested(job("z", "queued"))])
   }
 }
+
+struct LibraryTests {
+  static let json = #"""
+    {"service":"dj-sync","version":"0.6.0","download_dir":"/m","download_dir_source":"config",
+     "download_dir_writable":true,"download_dir_error":null,"import_xml":"/x.xml","xml_version":"1.3.0",
+     "cloud":{"enabled":true,"base_url":"https://mcp.triplejmusic.art"},"recent_jobs":[],
+     "rekordbox_db":{"db_path":"/Users/me/Library/Pioneer/rekordbox/master.db","rekordbox_running":false,
+       "pending":[{"id":"p1","created_at":"2026-10-28T03:58:00+00:00","summary":"Add 2 track(s) to “Fri”"}],
+       "failed":[],"last_applied":{"at":"2026-10-28T03:58:05+00:00","version":"1.1.0","summary":"Add 1 track(s) to “DJ Sync Test”"},
+       "last_error":null,"current_version":"1.1.0",
+       "backups":[{"version":"1.1.0","created_at":"2026-10-28T03:58:05+00:00","reason":"Add 1 track(s) to “DJ Sync Test”","size_bytes":116219904},
+                  {"version":"1.0.0","created_at":"2026-10-28T03:57:59+00:00","reason":"Library before dj-sync's changes","size_bytes":116215808}]}}
+    """#
+
+  @Test func `decodes the library section`() throws {
+    let s = try ServiceStatus.decode(Data(Self.json.utf8))
+    let lib = try #require(s.rekordboxDb)
+    #expect(lib.currentVersion == "1.1.0")
+    #expect(lib.pending.count == 1)
+    #expect(lib.backups.map(\.version) == ["1.1.0", "1.0.0"])
+    #expect(lib.backups.last?.date != nil)
+  }
+
+  @Test func `library updates are noticed once, not on launch`() {
+    var w = LibraryWatcher()
+    let a = ServiceStatus.Library.Applied(at: "t1", version: "1.1.0", summary: "x")
+    #expect(w.update(a) == nil, "seeded silently")
+    #expect(w.update(a) == nil)
+    let b = ServiceStatus.Library.Applied(at: "t2", version: "1.2.0", summary: "y")
+    #expect(w.update(b) == b)
+    #expect(w.update(b) == nil)
+  }
+
+  @Test func `first ever apply after launch is noticed`() {
+    var w = LibraryWatcher()
+    #expect(w.update(nil) == nil)
+    let a = ServiceStatus.Library.Applied(at: "t1", version: "1.1.0", summary: "x")
+    #expect(w.update(a) == a)
+  }
+}

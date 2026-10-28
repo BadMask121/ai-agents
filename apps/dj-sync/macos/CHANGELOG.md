@@ -4,6 +4,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.6.0] — 2026-10-28
+### Added
+- The **Rekordbox** card shows your **library** (master.db):
+  - its semver version;
+  - whether it's up to date, or how many changes are waiting ("quit
+    Rekordbox to apply");
+  - **Apply Now** when Rekordbox is closed;
+  - changes that failed, with the reason.
+- **Backups**: every master.db snapshot, with version, age and reason, and a
+  **Restore** button behind a native confirmation. Restore is only enabled
+  while Rekordbox is closed, and the current library is backed up first, so a
+  restore is undoable.
+- A **"Rekordbox library updated"** notification when queued changes reach
+  the library.
+
 ## [0.5.0] — 2026-10-28
 ### Added
 - macOS notifications. **New download request** fires as soon as a request

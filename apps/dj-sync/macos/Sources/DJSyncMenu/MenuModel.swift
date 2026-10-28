@@ -30,6 +30,9 @@ final class MenuModel {
   private(set) var copied: String?
   /// MCP URLs contain the secret path; masked unless the user asks.
   var revealSecrets = false
+  /// A restore or apply is in progress.
+  private(set) var libraryBusy = false
+  private let library = LibraryClient()
 
   private let settings = SettingsFile.standard
   private let client = StatusClient()
@@ -80,6 +83,44 @@ final class MenuModel {
     tunnel = TunnelConfig.load()
     let state = await launchctlOutput(["print", "gui/\(getuid())/com.cloudflare.cloudflared"])
     tunnelRunning = state.map { $0.contains("state = running") }
+  }
+
+  // MARK: Rekordbox library
+
+  /// Restore a backup of Rekordbox's library, after an explicit confirmation.
+  func restoreBackup(_ backup: ServiceStatus.Library.Backup) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Restore your Rekordbox library to v\(backup.version)?"
+    let when = backup.date.map { " from \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
+    alert.informativeText = """
+      This puts back the backup\(when): “\(backup.reason)”.
+
+      Your current library is backed up first, so you can undo this from the same list. \
+      Keep Rekordbox closed until it finishes.
+      """
+    alert.addButton(withTitle: "Restore")
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate()
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    runLibraryAction { await $0.restore(version: backup.version) }
+  }
+
+  func applyLibraryNow() {
+    runLibraryAction { await $0.applyNow() }
+  }
+
+  private func runLibraryAction(_ action: @escaping (LibraryClient) async -> LibraryClient.Reply) {
+    libraryBusy = true
+    actionError = nil
+    Task {
+      let reply = await action(library)
+      if !reply.ok {
+        actionError = reply.error ?? "That didn't work."
+      }
+      await refresh()
+      libraryBusy = false
+    }
   }
 
   func copy(_ text: String, key: String) {

@@ -41,7 +41,17 @@ final class Notifier: NSObject {
     content.sound = .default
     content.threadIdentifier = job.jobId  // a job's notifications group together
     center.add(UNNotificationRequest(identifier: "\(job.jobId)-\(kind)", content: content, trigger: nil))
-    audit(kind, job)
+    audit(kind, id: job.jobId, label: job.playlist)
+  }
+
+  /// dj-sync wrote to Rekordbox's own library (after Rekordbox closed).
+  func postLibrary(_ applied: ServiceStatus.Library.Applied) {
+    let content = UNMutableNotificationContent()
+    content.title = "Rekordbox library updated"
+    content.body = applied.summary + (applied.version.map { " · v\($0)" } ?? "")
+    content.sound = .default
+    center.add(UNNotificationRequest(identifier: "library-\(applied.at)", content: content, trigger: nil))
+    audit("library", id: applied.version.map { "v\($0)" } ?? "-", label: applied.summary)
   }
 
   /// "1 link", "3 tracks"; just "Links" when an older dj-sync didn't say.
@@ -51,8 +61,8 @@ final class Notifier: NSObject {
   }
 
   /// One line per notification, for "did it notify me?" troubleshooting.
-  private func audit(_ kind: String, _ job: ServiceStatus.Job) {
-    let line = "\(ISO8601DateFormatter().string(from: Date())) \(kind) \(job.jobId) \(job.playlist)\n"
+  private func audit(_ kind: String, id: String, label: String) {
+    let line = "\(ISO8601DateFormatter().string(from: Date())) \(kind) \(id) \(label)\n"
     guard let data = line.data(using: .utf8) else { return }
     if let handle = try? FileHandle(forWritingTo: Self.auditLog) {
       handle.seekToEndOfFile()

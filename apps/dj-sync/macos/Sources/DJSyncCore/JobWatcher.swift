@@ -40,3 +40,17 @@ public struct JobWatcher: Sendable {
     return events
   }
 }
+
+/// Notices when dj-sync has written to Rekordbox's library (each apply has a
+/// new `at` timestamp). Seeds silently, like `JobWatcher`.
+public struct LibraryWatcher: Sendable {
+  private var lastSeen: String??
+
+  public init() {}
+
+  public mutating func update(_ applied: ServiceStatus.Library.Applied?) -> ServiceStatus.Library.Applied? {
+    defer { lastSeen = .some(applied?.at) }
+    guard let previous = lastSeen, let applied, applied.at != previous else { return nil }
+    return applied
+  }
+}

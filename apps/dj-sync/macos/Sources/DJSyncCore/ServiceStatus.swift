@@ -32,7 +32,46 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     public var localUrl: String
   }
 
+  /// Rekordbox's own library (master.db), when dj-sync writes to it.
+  public struct Library: Decodable, Equatable, Sendable {
+    public struct Pending: Decodable, Equatable, Sendable, Identifiable {
+      public var id: String
+      public var createdAt: String
+      public var summary: String
+    }
+    public struct Failed: Decodable, Equatable, Sendable, Identifiable {
+      public var id: String
+      public var summary: String
+      public var error: String
+    }
+    public struct Applied: Decodable, Equatable, Sendable {
+      public var at: String
+      public var version: String?
+      public var summary: String
+    }
+    public struct Backup: Decodable, Equatable, Sendable, Identifiable {
+      public var version: String
+      public var createdAt: String
+      public var reason: String
+      public var sizeBytes: Int64
+      public var id: String { version }
+      public var date: Date? { parseTimestamp(createdAt) }
+    }
+
+    public var dbPath: String
+    public var rekordboxRunning: Bool
+    public var pending: [Pending]
+    public var failed: [Failed]
+    public var lastApplied: Applied?
+    public var lastError: String?
+    public var currentVersion: String?
+    /// Newest first.
+    public var backups: [Backup]
+  }
+
   public var version: String
+  /// dj-sync ≥ 0.6 with `[rekordbox_db] enabled`.
+  public var rekordboxDb: Library?
   /// Optional so the app still works with dj-sync < 0.3.
   public var mcp: Mcp?
   public var shortcutUrl: String?
@@ -79,5 +118,42 @@ public struct StatusClient: Sendable {
       (response as? HTTPURLResponse)?.statusCode == 200
     else { return nil }
     return try? ServiceStatus.decode(data)
+  }
+}
+
+/// The library actions dj-sync exposes to this app (localhost only).
+public struct LibraryClient: Sendable {
+  public var baseURL: URL
+
+  public init(baseURL: URL = URL(string: "http://127.0.0.1:8000")!) {
+    self.baseURL = baseURL
+  }
+
+  public struct Reply: Decodable, Sendable {
+    public var ok: Bool
+    public var message: String?
+    public var error: String?
+  }
+
+  /// Restore a backup of Rekordbox's library (Rekordbox must be closed).
+  public func restore(version: String) async -> Reply {
+    await post("local/rekordbox/restore", body: ["version": version])
+  }
+
+  /// Apply queued changes now (does nothing while Rekordbox is open).
+  public func applyNow() async -> Reply {
+    await post("local/rekordbox/apply", body: [:])
+  }
+
+  private func post(_ path: String, body: [String: String]) async -> Reply {
+    var request = URLRequest(url: baseURL.appending(path: path), timeoutInterval: 120)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    guard let (data, _) = try? await URLSession.shared.data(for: request) else {
+      return Reply(ok: false, message: nil, error: "dj-sync isn't running.")
+    }
+    return (try? JSONDecoder().decode(Reply.self, from: data))
+      ?? Reply(ok: false, message: nil, error: "Unexpected reply from dj-sync.")
   }
 }
