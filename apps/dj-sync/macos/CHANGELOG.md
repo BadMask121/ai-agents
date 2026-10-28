@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.0.0] — 2026-10-28 · first public release
+- **Released as DJ Sync 1.0.0.** It's one download at
+  djsync.triplejmusic.art, and the app updates itself from now on.
+- **Same app as 1.0.0-rc.1:** onboarding, Assistants, Tools, About, the
+  bundled service and the signed updater.
+
 ## [1.0.0-rc.1] — 2026-10-28 · the public, one-download app
 
 ### Added
