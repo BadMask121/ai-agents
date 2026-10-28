@@ -4,8 +4,8 @@
 
 import { MAX_BODY_BYTES, SUPPORTED_MCP_VERSIONS } from "./constants";
 import { agentStatus, jobView, offlineNote, submit, type Deps } from "./jobs";
-import { cleanName, playlistPath, resolvePlaylist, sortPlaylists } from "./library";
-import { extractMediaRef, linkIn, type MediaRef } from "./links";
+import { cleanName, playlistPath, plural, resolvePlaylist, sortPlaylists } from "./library";
+import { extractMediaRef, linkIn, linksIn, type MediaRef } from "./links";
 import { dispatch, parseError } from "./mcp";
 import { empty, json } from "./util";
 
@@ -75,27 +75,47 @@ export function bearer(req: Request): string {
   return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
 }
 
-export function unauthorized(): Response {
-  return json({ error: "missing or wrong bearer token" }, 401, { "www-authenticate": "Bearer" });
+/** `message` is for people: the iPhone Shortcut shows it as a notification. */
+export function unauthorized(message = "Wrong or missing key."): Response {
+  return json({ error: "missing or wrong bearer token", message }, 401, { "www-authenticate": "Bearer" });
 }
+
+/** The Shortcut's key no longer works (link deleted or rotated, or a typo). */
+export const SHORTCUT_DISCONNECTED =
+  "This Shortcut isn't connected to DJ Sync any more — make a new one in DJ Sync on your Mac (Assistants → Connect iPhone).";
+
+/** A Shortcut API error: `error` for programs, `message` for the notification. */
+function apiError(status: number, error: string, message: string, extra: Record<string, unknown> = {}): Response {
+  return json({ error, message, ...extra }, status);
+}
+
+const NO_LINKS = "No Spotify or YouTube link found — share a song, album or playlist from Spotify, or a video from YouTube.";
 
 export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   const body = await readJson(req);
-  if (body.kind === "too_large") return empty(413);
+  if (body.kind === "too_large") return apiError(413, "too large", "That's too much text to send to DJ Sync.");
   if (body.kind === "invalid" || typeof body.value !== "object" || body.value === null || Array.isArray(body.value)) {
-    return json({ error: 'expected JSON {"url": …}' }, 400);
+    return apiError(400, 'expected JSON {"url": …}', "DJ Sync couldn't read that request — update the Shortcut from DJ Sync on your Mac.");
   }
   const b = body.value as Record<string, unknown>;
-  const inputs: unknown[] = [...(b.url !== undefined && b.url !== null ? [b.url] : []), ...(Array.isArray(b.urls) ? b.urls : [])];
-  if (inputs.length === 0) return json({ error: "send `url` (or `urls`)" }, 400);
+  if (b.text !== undefined && b.text !== null && typeof b.text !== "string") {
+    return apiError(400, "text must be a string", NO_LINKS);
+  }
+  // `text`: whatever the Share sheet handed over ("Song by Artist https://…").
+  const inputs: unknown[] = [
+    ...(b.url !== undefined && b.url !== null ? [b.url] : []),
+    ...(Array.isArray(b.urls) ? b.urls : []),
+    ...(typeof b.text === "string" ? linksIn(b.text) : []),
+  ];
+  if (inputs.length === 0) return apiError(400, "send `url`, `urls` or `text` with a link", NO_LINKS);
   if (inputs.length > deps.config.maxUrls) {
-    return json({ error: `at most ${deps.config.maxUrls} links per request` }, 400);
+    return apiError(400, `at most ${deps.config.maxUrls} links per request`, `That's ${inputs.length} links — send at most ${deps.config.maxUrls} at a time.`);
   }
   if (b.playlist_name !== undefined && b.playlist_name !== null && typeof b.playlist_name !== "string") {
-    return json({ error: "playlist_name must be a string" }, 400);
+    return apiError(400, "playlist_name must be a string", "DJ Sync couldn't read the playlist — update the Shortcut from DJ Sync on your Mac.");
   }
   if (b.playlist_id !== undefined && b.playlist_id !== null && typeof b.playlist_id !== "string") {
-    return json({ error: "playlist_id must be a string" }, 400);
+    return apiError(400, "playlist_id must be a string", "DJ Sync couldn't read the playlist — update the Shortcut from DJ Sync on your Mac.");
   }
 
   const media: MediaRef[] = [];
@@ -109,7 +129,7 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
     if (!r.ok) rejected.push({ url: raw, reason: r.reason });
     else if (!media.some((m) => m.url === r.media.url)) media.push(r.media);
   }
-  if (media.length === 0) return json({ error: "no supported Spotify or YouTube links", rejected }, 400);
+  if (media.length === 0) return apiError(400, "no supported Spotify or YouTube links", NO_LINKS, { rejected });
 
   // A pinned playlist_id wins; a name (or "Folder/Name" path from
   // GET /api/playlists) that matches one playlist is pinned too; anything
@@ -121,7 +141,13 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
     const playlists = await deps.store.getLibraryPlaylists();
     if (pinned !== null) {
       const p = playlists?.find((x) => x.id === pinned);
-      if (!p) return json({ error: "no playlist has that playlist_id; get one from GET /api/playlists" }, 400);
+      if (!p) {
+        return apiError(
+          400,
+          "no playlist has that playlist_id; get one from GET /api/playlists",
+          "That playlist isn't in your Rekordbox library any more — pick another one.",
+        );
+      }
       playlistName = p.name;
       playlistId = p.id;
     } else if (playlists) {
@@ -134,11 +160,17 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   }
 
   const sub = await submit(deps, media, playlistName, "shortcut", playlistId);
-  if (!sub.ok) return json({ error: sub.error }, 400);
+  if (!sub.ok) return apiError(400, sub.error, sub.error);
   const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
   // The Shortcut shows `message` in a notification, so make it self-explanatory.
-  const message = job.message + (agent.online ? "" : offlineNote(agent, deps.now()));
+  const links = plural(job.urls.length, "link");
+  const message =
+    deduplicated && job.state === "done"
+      ? `Already in Rekordbox, in “${job.playlist}”.`
+      : (deduplicated ? `Already sent to “${job.playlist}”` : `Sent ${links} to “${job.playlist}”`) +
+        " — it'll be in Rekordbox in a few minutes." +
+        (agent.online ? "" : offlineNote(agent, deps.now()));
   return json(
     { ...jobView(job), playlist_id: job.playlist_id ?? null, message, position, deduplicated, rejected, mac_online: agent.online },
     202,
@@ -147,7 +179,9 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
 
 /**
  * GET /api/playlists: the DJ's playlists for the Shortcut's "Choose from
- * List" — the DJ Sync folder first, then A–Z by path.
+ * List" — the DJ Sync folder first, then A–Z by path. `names` is that list
+ * as plain strings with the default playlist first (spec §2b): the signed
+ * Shortcut shows it as is and posts the pick back as playlist_name.
  */
 export async function apiPlaylists(deps: Deps): Promise<Response> {
   const playlists = (await deps.store.getLibraryPlaylists()) ?? [];
@@ -155,12 +189,13 @@ export async function apiPlaylists(deps: Deps): Promise<Response> {
   const rows = sortPlaylists(playlists)
     .map((p) => ({ playlist_id: p.id, name: p.name, folder: p.folder, path: playlistPath(p), tracks: p.track_ids.length }))
     .sort((a, b) => djSync(a) - djSync(b) || a.path.toLocaleLowerCase().localeCompare(b.path.toLocaleLowerCase()));
-  return json({ playlists: rows });
+  const names = [...new Set([deps.config.defaultPlaylist, ...rows.map((r) => r.path)])];
+  return json({ playlists: rows, names });
 }
 
 export async function apiStatus(jobId: string, deps: Deps): Promise<Response> {
   const job = await deps.store.getJob(jobId);
-  if (!job) return json({ error: "no such job" }, 404);
+  if (!job) return apiError(404, "no such job", "DJ Sync doesn't know that download.");
   const agent = await agentStatus(deps);
   return json({ ...jobView(job), mac_online: agent.online });
 }

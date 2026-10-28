@@ -47,6 +47,13 @@
     { "binding": "LIBRARY", "id": "9ff56c62057649839c68af7e57527f09" }
   ],
 
+  // Workers AI for the Telegram assistant (connect-anywhere spec §1c): free
+  // text in a paired chat → @cf/zai-org/glm-4.7-flash with the MCP tools.
+  // Billed in neurons against the account's 10,000/day free allowance; when
+  // it runs out the bot says so and commands + links keep working. Optional
+  // var AI_MODEL overrides the model.
+  "ai": { "binding": "AI" },
+
   // Daily: v1 retention (finished jobs older than 30 days). Weekly (Mon, must
   // match SWEEP_CRON in src/constants.ts): purge DJs inactive for 90 days.
   "triggers": { "crons": ["17 3 * * *", "41 4 * * 1"] },

@@ -5,6 +5,7 @@ import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { Registry } from "../src/registry";
 import { route, type Namespaces, type Secrets } from "../src/router";
 import type { TelegramApi } from "../src/telegram";
+import type { AiRunner } from "../src/telegram-agent";
 import { Tenant } from "../src/tenant";
 import { FakeNamespace, FakeWebSocket } from "./do-harness";
 import { AGENT_TOKEN, SECRET, SHORTCUT_KEY, makeDeps } from "./helpers";
@@ -22,6 +23,8 @@ export interface CloudOptions {
   env?: Record<string, string>;
   /** A fake Bot API for the Worker and every Tenant. */
   telegram?: TelegramApi;
+  /** A fake Workers AI for every Tenant (the Telegram assistant). */
+  ai?: AiRunner;
 }
 
 export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
@@ -31,6 +34,7 @@ export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {
   const TENANT = new FakeNamespace(Tenant, () => env, (t) => {
     t.clock = clock;
     if (opts.telegram) t.telegramApi = opts.telegram;
+    if (opts.ai) t.aiRunner = opts.ai;
   });
   const REGISTRY = new FakeNamespace(Registry, () => env, (r) => (r.clock = clock));
   env.TENANT = TENANT;
@@ -144,3 +148,46 @@ export class FakeTelegram implements TelegramApi {
   }
 }
 
+
+/** One scripted model turn: tool calls, a text answer, a failure, or a function of the request. */
+export type AiStep = { calls: { name: string; args: Any }[] } | { text: string } | Error | ((inputs: Any) => AiStep);
+
+/** Workers AI that answers from a script, in the OpenAI chat-completion shape GLM returns. */
+export class FakeAi implements AiRunner {
+  /** Every request (cloned: the agent keeps appending to its messages). */
+  inputs: Any[] = [];
+  models: string[] = [];
+  private steps: AiStep[] = [];
+  script(...steps: AiStep[]): this {
+    this.steps.push(...steps);
+    return this;
+  }
+  async run(model: string, inputs: Record<string, unknown>): Promise<unknown> {
+    this.models.push(model);
+    this.inputs.push(structuredClone(inputs));
+    let step = this.steps.shift();
+    if (step === undefined) throw new Error("FakeAi: nothing scripted");
+    while (typeof step === "function") step = step(inputs);
+    if (step instanceof Error) throw step;
+    const message =
+      "text" in step
+        ? { role: "assistant", content: step.text }
+        : {
+            role: "assistant",
+            content: null,
+            tool_calls: step.calls.map((c, i) => ({
+              id: `call_${this.inputs.length}_${i}`,
+              type: "function",
+              function: { name: c.name, arguments: JSON.stringify(c.args) },
+            })),
+          };
+    return { id: "chatcmpl-test", object: "chat.completion", choices: [{ index: 0, message, finish_reason: "stop" }] };
+  }
+  /** Messages of request `n` (default: the latest) with this role. */
+  messages(role: string, n = -1): Any[] {
+    return this.inputs.at(n).messages.filter((m: Any) => m.role === role);
+  }
+  get pending(): number {
+    return this.steps.length;
+  }
+}

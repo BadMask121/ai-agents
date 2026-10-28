@@ -1,5 +1,5 @@
 /** Semver of this Worker. Keep in sync with package.json (a test checks it). */
-export const WORKER_VERSION = "1.3.0";
+export const WORKER_VERSION = "1.4.0";
 
 /**
  * Semver of the agent API the Mac polls. A Mac is compatible when it has the
@@ -83,6 +83,36 @@ export const TELEGRAM_PENDING_SECONDS = 24 * 3600;
 export const TELEGRAM_MESSAGES_PER_HOUR = 60;
 /** Playlist buttons offered for a link (plus Default / New). */
 export const TELEGRAM_BUTTONS = 6;
+
+// ---------- one-scan iPhone install (connect-anywhere spec §2b) ----------
+
+/** The signed .shortcut the Mac uploads. */
+export const MAX_SHORTCUT_BYTES = 256 * 1024;
+/** An install link works this long… */
+export const SHORTCUT_INSTALL_SECONDS = 600;
+/** …for this many downloads. */
+export const SHORTCUT_INSTALL_DOWNLOADS = 5;
+
+// ---------- the Telegram assistant (connect-anywhere spec §1c) ----------
+
+/**
+ * Workers AI model with function calling (OpenAI-style tools, tool_call_id
+ * round-trips, a thinking switch, 131K context); see README. The AI_MODEL
+ * var overrides it.
+ */
+export const AGENT_MODEL = "@cf/zai-org/glm-4.7-flash";
+/** Model calls per message (each may run several tools). */
+export const AGENT_MAX_ROUNDS = 5;
+export const AGENT_MAX_TOKENS = 700;
+/** Tool output fed back to the model is cut here. */
+export const AGENT_TOOL_RESULT_CHARS = 6000;
+/** Turns (user + assistant messages) remembered per chat, for a day at most. */
+export const AGENT_MEMORY_TURNS = 10;
+export const AGENT_MEMORY_SECONDS = 24 * 3600;
+/** Free-text questions per chat per UTC day (the account's AI allowance is shared). */
+export const AGENT_MESSAGES_PER_DAY = 60;
+/** A delete / move-everything question can be confirmed for this long. */
+export const AGENT_CONFIRM_SECONDS = 3600;
 
 /** WebSocket close codes (agent protocol 2). */
 export const CLOSE_UNAUTHORIZED = 4001;

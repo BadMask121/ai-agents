@@ -12,6 +12,8 @@
 //   GET  /v2/stats                        Bearer ADMIN_TOKEN
 //   POST /v2/admin/telegram/setup         Bearer ADMIN_TOKEN: webhook, commands, descriptions
 //   POST /telegram/webhook                X-Telegram-Bot-Api-Secret-Token (the shared bot)
+//   PUT  /v2/agent/links/{id}/install     agent: the signed iPhone Shortcut → {install_url, expires_at}
+//   GET  /i/<tenant_id>/<code>[/DJ%20Sync.shortcut]  the install page and file (the code is the secret)
 //   — protocol 1 —
 //   POST /<MCP_SECRET_PATH>/mcp, /api/downloads (Bearer SHORTCUT_API_KEY): D1, or the
 //        LEGACY_TENANT_ID DJ once retired
@@ -29,9 +31,11 @@ import {
   MAX_BODY_BYTES,
   MAX_LIBRARY_BYTES,
   MAX_LIBRARY_GZIP_BYTES,
+  MAX_SHORTCUT_BYTES,
   WORKER_VERSION,
 } from "./constants";
-import { apiPlaylists, apiStatus, apiSubmit, bearer, mcpPost, readJson, unauthorized } from "./http";
+import { SHORTCUT_DISCONNECTED, apiPlaylists, apiStatus, apiSubmit, bearer, mcpPost, readJson, unauthorized } from "./http";
+import { installExpired } from "./install";
 import { agentStatus, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
 import { botApi, telegramSetup, telegramWebhook, type TelegramApi, type TelegramEnv } from "./telegram";
@@ -64,7 +68,9 @@ const V2_MCP_PATH = /^\/([A-Za-z0-9_-]{22})\/([A-Za-z0-9_-]{43})\/mcp$/;
 const V2_SHORTCUT_BEARER = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
 const API_JOB_PATH = /^\/api\/downloads\/([^/]+)$/;
 const AGENT_COMPLETE_PATH = /^\/agent\/jobs\/([^/]+)\/complete$/;
-const V2_LINK_PATH = /^\/v2\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate)?$/;
+const V2_LINK_PATH = /^\/v2\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate|\/install)?$/;
+/** /i/<tenant_id>/<code>[/DJ%20Sync.shortcut]: the one-scan iPhone install (spec §2b). */
+const INSTALL_PATH = /^\/i\/([A-Za-z0-9_-]{22})\/([A-Za-z0-9_-]{22})(\/[^/]+\.shortcut)?$/;
 const TENANT_HEADER = "x-dj-sync-tenant";
 const WORKER_PROTOCOL_V2 = parseSemver(AGENT_PROTOCOL_V2)!;
 
@@ -117,14 +123,14 @@ export async function route(req: Request, secrets: Secrets, deps: Deps, ns?: Nam
 
   const apiKey = nonEmpty(secrets.SHORTCUT_API_KEY);
   if (apiKey && path === "/api/playlists" && req.method === "GET") {
-    if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized();
+    if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized(SHORTCUT_DISCONNECTED);
     if (retired) return legacyTenant ? forward(ns!, legacyTenant, "/__/shortcut_playlists", req, { "x-djs-legacy": "1" }) : empty(404);
     return apiPlaylists(deps);
   }
   if (apiKey) {
     const m = API_JOB_PATH.exec(path);
     if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET")) {
-      if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized();
+      if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized(SHORTCUT_DISCONNECTED);
       if (retired) {
         if (!legacyTenant) return empty(404);
         return forward(ns!, legacyTenant, m ? `/__/shortcut/${m[1]}` : "/__/shortcut", req, { "x-djs-legacy": "1" });
@@ -202,9 +208,17 @@ async function routeV2(req: Request, path: string, secrets: Secrets, ns: Namespa
       return forward(ns, tenant, "/__/agent/library", req, { "x-djs-token": token }, MAX_LIBRARY_GZIP_BYTES);
     }
     if (path === "/v2/agent/links" || V2_LINK_PATH.test(path)) {
-      return forward(ns, tenant, path.replace(/^\/v2\//, "/__/"), req, { "x-djs-token": token });
+      const maxBody = path.endsWith("/install") ? MAX_SHORTCUT_BYTES : MAX_BODY_BYTES;
+      return forward(ns, tenant, path.replace(/^\/v2\//, "/__/"), req, { "x-djs-token": token }, maxBody);
     }
     return empty(404);
+  }
+
+  if (path.startsWith("/i/")) {
+    if (req.method !== "GET" && req.method !== "HEAD") return empty(405, { allow: "GET, HEAD" });
+    const install = INSTALL_PATH.exec(path);
+    if (!install) return installExpired(404);
+    return forward(ns, install[1]!, `/__/install/${install[2]}${install[3] ? "/file" : ""}`, req, {});
   }
 
   const mcp = V2_MCP_PATH.exec(path);

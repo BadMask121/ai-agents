@@ -2,68 +2,9 @@ import { describe, expect, it } from "vitest";
 import { TELEGRAM_MESSAGES_PER_HOUR, TELEGRAM_PAIRING_SECONDS, TELEGRAM_PENDING_SECONDS } from "../src/constants";
 import { BAD_CODE, NOT_CONNECTED, clip } from "../src/telegram";
 import { splitMessage } from "../src/telegram-bot";
-import { ADMIN, FakeTelegram, YT, agentHeaders, makeCloud, req, type Any, type Registered } from "./cloud";
+import { ADMIN, FakeTelegram, YT, agentHeaders, makeCloud, req, type Any } from "./cloud";
+import { CHAT, TG, codeOf, hook, links, msg, paired, pushedJob, tap, tgCloud, upload } from "./telegram-helpers";
 
-const TG = {
-  TELEGRAM_BOT_TOKEN: "123456:fake-token-for-tests",
-  TELEGRAM_WEBHOOK_SECRET: "hook-secret-0123456789abcdef",
-  TELEGRAM_BOT_USERNAME: "DJSyncAppBot",
-};
-
-const LIBRARY = {
-  hash: "h1",
-  generated_at: "2026-10-28T11:00:00Z",
-  library_version: "1.2.0",
-  playlists: [
-    { id: "p1", name: "Gqom", folder: "GQOM", track_ids: ["t1", "t2"] },
-    { id: "p2", name: "Gqom", folder: "3 STEP", track_ids: [] },
-    { id: "p3", name: "Friday", folder: "DJ Sync", track_ids: ["t1"] },
-    { id: "p4", name: "Amapiano Chill", folder: "AMAPIANO", track_ids: [] },
-    { id: "p5", name: "Amapiano Tech", folder: "AMAPIANO", track_ids: [] },
-  ],
-  tracks: [
-    { id: "t1", title: "Ye", artist: "Burna Boy", album: null, genre: "Afrobeats", bpm: 102, key: "8A", duration_secs: 231 },
-    { id: "t2", title: "Ongcwele", artist: "Sizwe Mdlalose", album: null, genre: "Gqom", bpm: 127, key: "5A", duration_secs: 300 },
-  ],
-};
-
-function tgCloud() {
-  const tg = new FakeTelegram();
-  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg });
-  return { c, tg };
-}
-
-type Cloud = ReturnType<typeof makeCloud>;
-const CHAT = 555;
-
-const hook = (c: Cloud, update: unknown, secret: string | null = TG.TELEGRAM_WEBHOOK_SECRET) =>
-  c.call(req("POST", "/telegram/webhook", update, secret === null ? {} : { "x-telegram-bot-api-secret-token": secret }));
-const msg = (chat: number, text: string, from: Any = { username: "djbob", first_name: "Bob" }, type = "private") => ({
-  update_id: 1,
-  message: { message_id: 7, chat: { id: chat, type }, from, text },
-});
-const tap = (chat: number, data: string, messageId = 50) => ({
-  update_id: 2,
-  callback_query: { id: `cb-${data}`, from: { username: "djbob" }, data, message: { message_id: messageId, chat: { id: chat, type: "private" } } },
-});
-const codeOf = (link: Any) => new URL(link.url).searchParams.get("start")!;
-const links = async (c: Cloud, t: Registered): Promise<Any[]> =>
-  (await c.call(req("GET", "/v2/agent/links", undefined, agentHeaders(t)))).json() as Promise<Any[]>;
-const upload = (c: Cloud, t: Registered, body: unknown = LIBRARY) => c.call(req("PUT", "/v2/agent/library", body, agentHeaders(t)));
-
-async function paired(c: Cloud, chat = CHAT) {
-  const t = await c.registered(`198.51.100.${chat % 250}`);
-  const link = await c.link(t, "telegram");
-  expect((await hook(c, msg(chat, `/start ${codeOf(link)}`))).status).toBe(200);
-  return { t, link };
-}
-
-/** The pushed job frame once the Mac connects (to see playlist / playlist_id). */
-async function pushedJob(c: Cloud, t: Registered): Promise<Any> {
-  const ws = await c.connect(t);
-  await c.hello(t, ws);
-  return ws.frames().find((f) => f.type === "job");
-}
 
 describe("Telegram pairing (connect-anywhere spec §1)", () => {
   it("pairs a chat with a one-time code from the Mac, and the Mac sees it paired", async () => {

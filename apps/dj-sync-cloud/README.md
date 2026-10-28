@@ -50,8 +50,12 @@ and the connect-anywhere routes, per DJ:
 |---|---|---|
 | `POST /<tenant_id>/<link_secret>/mcp` | link secret | MCP, 11 tools including `move_tracks` |
 | `POST /api/downloads`, `GET /api/downloads/{id}` | `Bearer <tenant_id>.<secret>` (shortcut link) | iPhone Shortcut. `playlist_name` (a name or a "Folder/Name" path) is resolved and pinned; optional `playlist_id` |
-| `GET /api/playlists` | same | `{playlists: [{playlist_id, name, folder, path, tracks}]}`, the DJ Sync folder first, then A–Z |
-| `POST /telegram/webhook` | `X-Telegram-Bot-Api-Secret-Token` | the shared bot (pairing, links, buttons, commands) |
+| `POST /api/downloads` | same | also `{text}`: the links are pulled out of free text (the Share sheet's input). Every reply has a human `message` for the notification |
+| `GET /api/playlists` | same | `{playlists: [{playlist_id, name, folder, path, tracks}], names}`, the DJ Sync folder first, then A–Z; `names` = the default playlist, then every `path` |
+| `PUT /v2/agent/links/{id}/install` | agent headers | body = the Mac's signed `.shortcut` (≤ 256 KB, shortcut links only) → `{install_url: "https://<PUBLIC_HOST>/i/<tenant_id>/<code>", expires_at}`; 10 minutes, 5 downloads, replaced by the next upload |
+| `GET /i/<tenant_id>/<code>` | the code | iPhone install page (one Add Shortcut button; `noindex`, `no-store`); a dead code gets "This link expired" (410) |
+| `GET /i/<tenant_id>/<code>/DJ%20Sync.shortcut` | the code | the signed Shortcut (`attachment; filename="DJ Sync.shortcut"`); counts a download |
+| `POST /telegram/webhook` | `X-Telegram-Bot-Api-Secret-Token` | the shared bot (pairing, links, buttons, commands, and the assistant for plain words) |
 | `POST /v2/admin/telegram/setup` | `Bearer ADMIN_TOKEN` | setWebhook, setMyCommands and the descriptions; returns getMe |
 | `POST /v2/agent/links {kind:"telegram"}` | agent headers | `{…, url: "https://t.me/<bot>?start=<code>", expires_at, paired: false}`. 503 `telegram_not_configured` without the bot |
 
@@ -75,6 +79,58 @@ curl -s -X POST -H "Authorization: Bearer $(cat ~/path/to/admin-token)" \
 
 The webhook runs on the canonical host (`djsync.jeffrey.build`), which
 dj-sync-site forwards here.
+
+## Telegram assistant (connect-anywhere spec §1c)
+
+The bot understands plain words. Commands (`/playlists`, …), a link on its
+own and a link followed by just a playlist name stay rule-based (instant, no
+AI). Anything else — "list the playlists in DJ sync folder", "move the first
+two into Gqom", "download this into a new playlist called Lagos Nights
+<link>" — goes to `src/telegram-agent.ts`:
+
+1. **Prompt:** a short system prompt (what DJ Sync is, look before acting,
+   Folder/Name and playlist_id for duplicates, ask when unclear, never invent
+   ids, plain text, today's date), the chat's memory, then the message.
+2. **Tools:** the 11 MCP tools from `tools/list`, as OpenAI-style functions.
+   Each call runs through `dispatch()` in `mcp.ts` — the exact MCP code path,
+   so there is no second copy of validation, resolution or dedupe.
+3. **Loop:** up to 5 model rounds. Tool results go back with their
+   `tool_call_id`, cut at 6,000 characters. The final text is tidied
+   (no Markdown, "•" lists) and clipped to 4,096 characters.
+4. **Memory:** the last 10 turns per chat for 24 hours, in the tenant's
+   `tg_memory` table: the DJ's words and the replies, plus the track/playlist
+   ids the tools showed that turn (so follow-ups can use them). No tool dumps.
+5. **Confirm first:** `delete_playlist`, and `move_tracks` with `all: true`,
+   are never run by the model. The bot stores the call (`tg_confirm`, 1 hour,
+   single use) and shows "[Delete] [Cancel]"; the tap runs it.
+
+**Model: `@cf/zai-org/glm-4.7-flash`**, with `chat_template_kwargs:
+{enable_thinking: false}`. Chosen from the Workers AI models with function
+calling (none are flagged beta) for function-calling quality per neuron:
+
+| Model | Neurons / M in · out | Cost of one typical message* | Why not |
+|---|---|---|---|
+| **glm-4.7-flash** | 5,500 · 36,364 | **≈ 34** (measured) | — built for multi-turn tool calling; OpenAI tool format with `tool_call_id`; thinking can be switched off; 131K context |
+| qwen3-30b-a3b-fp8 | 4,625 · 30,475 | ≈ 30 + reasoning | 32K context; no `tool_call_id` on tool results; thinks by default (output tokens) |
+| gemma-4-26b-a4b-it | 9,091 · 27,273 | ≈ 54 | about 1.6× the cost |
+| gpt-oss-20b | 18,182 · 27,273 | ≈ 105 + reasoning | reasoning is mandatory |
+| llama-4-scout-17b | 24,545 · 77,273 | ≈ 145 | about 4× the cost |
+| mistral-small-3.1-24b | 31,876 · 50,488 | ≈ 185 | about 5× the cost |
+
+\* Two rounds (tool call, then answer), measured on 2026-10-28 with the real
+tools for "list the playlists in DJ sync folder": 2,804 + 2,901 prompt
+tokens and 13 + 56 output tokens = **33.9 neurons** (the other rows apply
+the same token counts to their prices). The prompt is mostly the
+tool list (~2,500 tokens), so a three-round request (search, then move) is
+≈ 55 neurons; the worst case (5 rounds of long results) is ≈ 300.
+
+**Cost.** Workers AI is billed in neurons. Every account gets 10,000 free per
+day (reset 00:00 UTC), shared by all DJs on this Worker: about 300 typical
+messages a day. On Workers Free, past that, calls fail (error 3036) until the
+reset and the bot answers "I can't think right now — commands and links still
+work: …". On Workers Paid, extra neurons are $0.011 per 1,000, so ≈ $0.0004 a
+message. Each chat may ask 60 questions per UTC day. Set `AI_MODEL` to try
+another function-calling model without a code change.
 
 ## Agent protocol (1.1.0)
 

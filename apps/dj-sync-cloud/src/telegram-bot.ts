@@ -1,15 +1,18 @@
 // The DJ Sync bot for one paired chat, run inside that DJ's Tenant
 // (connect-anywhere spec §1): links (with a playlist hint, or buttons),
-// /playlists, /search, /status, /help, /stop. Replies are plain text.
+// /playlists, /search, /status, /help, /stop. Free text — and links with more
+// than a playlist name after them — go to the assistant (telegram-agent.ts,
+// spec §1c) when Workers AI is bound. Replies are plain text.
 
 import { TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, searchTracks, sortPlaylists } from "./library";
-import { extractMediaRef, type MediaRef } from "./links";
+import { asLink, extractMediaRef, type MediaRef } from "./links";
 import type { SqlStore } from "./sqlstore";
 import type { LibPlaylist } from "./store";
 import { answerCallback, clip, send, updateChat, type TelegramApi, type TgUpdate } from "./telegram";
 import { randomBase64url } from "./bytes";
+import { resolveConfirmation, runAgent, type AiRunner } from "./telegram-agent";
 import { addSeconds } from "./util";
 
 export interface BotHost {
@@ -21,6 +24,8 @@ export interface BotHost {
   disconnect(linkId: string): Promise<void>;
   /** The per-chat limit: "ok", "warn" (tell them once), or "drop" (ignore). */
   rateLimit(chatId: string): "ok" | "warn" | "drop";
+  /** Workers AI for free text; null without the binding (then the bot stays rule-based). */
+  agent: { ai: AiRunner; model?: string } | null;
 }
 
 const DJ_SYNC_FOLDER = "DJ Sync";
@@ -28,7 +33,8 @@ const DJ_SYNC_FOLDER = "DJ Sync";
 export const HELP =
   "Send me a Spotify or YouTube link and it goes into your Rekordbox on your Mac. " +
   "Add a playlist name after the link to choose where it goes (e.g. “https://youtu.be/… gqom”), " +
-  "or pick one from the buttons I show.\n\n" +
+  "or pick one from the buttons I show. You can also just ask, e.g. “list the playlists in my DJ Sync " +
+  "folder” or “move the first two tracks of Friday into Gqom”.\n\n" +
   "/playlists — your playlists (add words to filter)\n" +
   "/search <words> — find tracks in your library\n" +
   "/status — your latest downloads and changes\n" +
@@ -83,7 +89,8 @@ export function splitMessage(text: string): { links: string[]; full: string; hin
   const words: string[] = [];
   for (const raw of text.split(/\s+/u)) {
     if (raw === "") continue;
-    if (/^(https?:\/\/|spotify:)/iu.test(raw)) links.push(raw.replace(/[),.!?]+$/u, ""));
+    const link = asLink(raw);
+    if (link !== null) links.push(link);
     else words.push(raw);
   }
   const trimmed = [...words];
@@ -95,7 +102,8 @@ export function splitMessage(text: string): { links: string[]; full: string; hin
 async function onText(host: BotHost, chatId: string, text: string): Promise<void> {
   const { links, full, hint } = splitMessage(text);
   if (links.length === 0) {
-    await send(host.api, chatId, `Send me a Spotify or YouTube link to download it into Rekordbox.\n\n${HELP}`);
+    if (host.agent) return ask(host, chatId, text);
+    await send(host.api, chatId, HELP);
     return;
   }
   const media: MediaRef[] = [];
@@ -121,12 +129,7 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   const skipped = rejected.length > 0 ? ` (Skipped ${plural(rejected.length, "unsupported link")}.)` : "";
 
   const playlists = await host.store.getLibraryPlaylists();
-  if (!playlists) {
-    // No library shared yet: use the name as given (or the default).
-    await send(host.api, chatId, (await queue(host, chatId, urls, hint || null, null)) + skipped);
-    return;
-  }
-  if (hint !== "") {
+  if (hint !== "" && playlists) {
     for (const candidate of [...new Set([full, hint])]) {
       const m = resolvePlaylist(playlists, candidate);
       if (m.kind === "one") {
@@ -134,6 +137,15 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
         return;
       }
     }
+  }
+  // More than a playlist name after the link ("into a new playlist called
+  // Lagos Nights"): the assistant reads it. A short unclear name or a
+  // duplicate keeps the one-tap buttons below.
+  if (host.agent && hint.split(/\s+/u).filter(Boolean).length >= 3) return ask(host, chatId, text);
+  if (!playlists) {
+    // No library shared yet: use the name as given (or the default).
+    await send(host.api, chatId, (await queue(host, chatId, urls, hint || null, null)) + skipped);
+    return;
   }
 
   const id = randomBase64url(6);
@@ -167,7 +179,64 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   await send(host.api, chatId, question + skipped, { reply_markup: { inline_keyboard: rows } });
 }
 
+/** Free text → the assistant, with a typing indicator; a delete waits for a tap. */
+async function ask(host: BotHost, chatId: string, text: string): Promise<void> {
+  try {
+    await host.api.call("sendChatAction", { chat_id: chatId, action: "typing" });
+  } catch {
+    /* cosmetic */
+  }
+  const outcome = await runAgent(
+    { ai: host.agent!.ai, model: host.agent!.model, deps: host.deps, store: host.store, chatId, now: () => host.now() },
+    text,
+    (jobId) => host.store.addTgJob(jobId, chatId),
+  );
+  if (outcome.kind === "confirm") {
+    await send(host.api, chatId, outcome.text, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: outcome.button, callback_data: `c:${outcome.id}:y` },
+            { text: "Cancel", callback_data: `c:${outcome.id}:n` },
+          ],
+        ],
+      },
+    });
+    return;
+  }
+  await send(host.api, chatId, outcome.text);
+}
+
+/** Edit the message with the buttons (or send a new one if that fails). */
+async function replaceMessage(host: BotHost, chatId: string, messageId: number | null, text: string): Promise<void> {
+  if (messageId !== null) {
+    try {
+      await host.api.call("editMessageText", { chat_id: chatId, message_id: messageId, text: clip(text) });
+      return;
+    } catch {
+      /* fall through to a new message */
+    }
+  }
+  await send(host.api, chatId, text);
+}
+
 async function onButton(host: BotHost, chatId: string, callbackId: string, data: string, messageId: number | null): Promise<void> {
+  const confirm = /^c:([A-Za-z0-9_-]{8}):([yn])$/u.exec(data);
+  if (confirm) {
+    const text = await resolveConfirmation(
+      { deps: host.deps, store: host.store, chatId, now: () => host.now() },
+      confirm[1]!,
+      confirm[2] === "y",
+      (jobId) => host.store.addTgJob(jobId, chatId),
+    );
+    if (text === null) {
+      await answerCallback(host.api, callbackId, "That question has expired — ask again.");
+      return;
+    }
+    await answerCallback(host.api, callbackId);
+    await replaceMessage(host, chatId, messageId, text);
+    return;
+  }
   const m = /^d:([A-Za-z0-9_-]{8}):(.+)$/u.exec(data);
   const pending = m ? host.store.getTgPending(m[1]!) : null;
   if (!m || !pending || pending.chat_id !== chatId) {

@@ -13,6 +13,76 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.4.0] — 2026-10-28
+
+Connect-anywhere spec §1c (the Telegram assistant) and the cloud side of §2b
+(one-scan iPhone install). Agent protocol unchanged (2.0.0).
+
+### Added
+- **The Telegram bot understands plain words** (§1c). Free text in a paired
+  chat — and a link with more than a playlist name after it ("download this
+  into a new playlist called Lagos Nights <link>") — goes to Workers AI
+  (`@cf/zai-org/glm-4.7-flash`, thinking off) with the same 11 tools as MCP.
+  - **Tools:** run through the MCP dispatcher, so validation, playlist
+    resolution, suggestions and dedupe are the MCP ones. At most 5 model
+    rounds per message; tool output is cut at 6,000 characters before it goes
+    back to the model.
+  - **Replies:** plain text (Markdown stripped, "•" lists), at most 4,096
+    characters, with a "typing…" indicator while it works. Jobs it queues get
+    the usual finish message.
+  - **Memory:** the last 10 turns per chat (the DJ's words, the replies, and
+    the track ids / playlist ids the tools showed — not the tool output), for
+    24 hours, so "now move the first two into Gqom" works. Cleared on unpair.
+  - **Confirm first:** `delete_playlist` and `move_tracks` with `all: true`
+    stop at "Delete “Folder/Name” (n tracks)? [Delete] [Cancel]" (or
+    "Move all … [Move] [Cancel]"); only the button runs it. Questions last an
+    hour and work once. A playlist that doesn't resolve isn't asked about: the
+    tool's "which one?" goes back to the model.
+  - **Limits:** 60 questions per chat per UTC day ("That's today's limit …");
+    commands and links don't count.
+  - **Failures:** any Workers AI error (including 3036, the daily free
+    allocation) or unusable output gets "I can't think right now — commands
+    and links still work: /playlists, …". Errors are logged, never shown.
+  - **Storage:** tenant tables `tg_memory` and `tg_confirm`, added to existing
+    DJs on first use.
+- **`ai` binding** (`AI`) in `wrangler.jsonc`, and an optional `AI_MODEL` var
+  to override the model. Without the binding the bot stays rule-based.
+- **One-scan iPhone install** (§2b).
+  - **Upload:** `PUT /v2/agent/links/{id}/install` (agent auth, shortcut links
+    only, body = the signed `.shortcut`, at most 256 KB) returns
+    `{install_url: "https://<PUBLIC_HOST>/i/<tenant_id>/<code>", expires_at}`.
+    The code is 16 random bytes (base64url, stored hashed); it works for 10
+    minutes and 5 downloads. A new upload replaces the old one, and rotating
+    or deleting the link removes it (the file holds the old key). Other links
+    → 409 `not_a_shortcut_link`; empty → 400; too big → 413.
+  - **Page:** `GET /i/<tenant_id>/<code>` — "Add DJ Sync to your iPhone" with
+    one big Add Shortcut button. `noindex`, `no-store`, `no-referrer`, a
+    strict CSP, nothing loaded from elsewhere. Unknown, expired or used-up
+    codes get "This link expired — make a new QR code in DJ Sync on your Mac"
+    (410; malformed URLs 404).
+  - **File:** `GET /i/<tenant_id>/<code>/DJ%20Sync.shortcut` —
+    `application/octet-stream`, `attachment; filename="DJ Sync.shortcut"`,
+    `no-store`; each GET counts as a download (HEAD doesn't).
+  - **Storage:** tenant table `shortcut_installs`, added to existing DJs on
+    first use.
+- **`GET /api/playlists`** also returns `names`: the default playlist's name
+  first, then every playlist's path (DJ Sync folder first, then A–Z).
+- **`POST /api/downloads`** also takes `text` and pulls the links out of it,
+  so what the Share sheet hands over works as is.
+
+### Changed
+- **Every `POST /api/downloads` reply carries a human `message`** for the
+  Shortcut's notification: "Sent 2 links to “Gqom” — it'll be in Rekordbox in
+  a few minutes." (plus the offline note), "Already sent to …", or the problem
+  in plain words ("No Spotify or YouTube link found — …", "That's 4 links —
+  send at most 3 at a time.", "This Shortcut isn't connected to DJ Sync any
+  more — …" on a 401). `error` stays for programs. `GET /api/downloads/{id}`
+  errors carry one too.
+
+### Fixed
+- **Help text:** words that aren't a link or a command no longer get the help
+  with its first sentence twice; the help now mentions asking in plain words.
+
 ## [1.3.0] — 2026-10-28
 
 Connect-anywhere spec (`docs/superpowers/specs/2026-10-28-dj-sync-connect-anywhere-design.md`).

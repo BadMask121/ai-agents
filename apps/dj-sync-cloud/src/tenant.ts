@@ -34,21 +34,30 @@ import {
   MAX_LINKS,
   MAX_MCP_CALLS_PER_HOUR,
   MAX_QUEUED_JOBS,
+  MAX_SHORTCUT_BYTES,
   RETENTION_DAYS,
+  SHORTCUT_INSTALL_DOWNLOADS,
+  SHORTCUT_INSTALL_SECONDS,
   TELEGRAM_MESSAGES_PER_HOUR,
   TELEGRAM_PAIRING_SECONDS,
   WORKER_VERSION,
 } from "./constants";
-import { apiPlaylists, apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
+import { SHORTCUT_DISCONNECTED, apiPlaylists, apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
+import { SHORTCUT_FILENAME, installExpired, installPage, shortcutFile } from "./install";
 import { normalizePlaylistName, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
 import { LINK_KINDS, SqlStore, type LinkKind, type LinkRow, type SqlDb, type TelegramChat } from "./sqlstore";
 import { botApi, send, telegramConfigured, type TelegramApi, type TelegramEnv, type TgUpdate } from "./telegram";
+import type { AiRunner } from "./telegram-agent";
 import { handleUpdate, welcome } from "./telegram-bot";
 import { addSeconds, empty, json, publicHosts, timingSafeEqual } from "./util";
 
 export interface TenantEnv extends TelegramEnv {
   REGISTRY?: DurableObjectNamespace;
+  /** Workers AI, for the Telegram assistant (spec §1c); without it the bot is rule-based. */
+  AI?: AiRunner;
+  /** Overrides AGENT_MODEL. */
+  AI_MODEL?: string;
   DEFAULT_PLAYLIST?: string;
   MAX_URLS?: string;
   PUBLIC_HOST?: string;
@@ -88,6 +97,8 @@ export class Tenant extends DurableObject<TenantEnv> {
   private mcpCalls: number[] = [];
   /** The Bot API; tests set a fake. */
   telegramApi: TelegramApi | null = null;
+  /** Workers AI; tests set a fake (otherwise env.AI). */
+  aiRunner: AiRunner | null = null;
   /** Telegram messages per chat in the last hour (in memory). */
   private tgRate = new Map<string, { times: number[]; warned: boolean }>();
 
@@ -145,13 +156,17 @@ export class Tenant extends DurableObject<TenantEnv> {
       if (path === "/__/purge" && req.method === "POST") return await this.purge();
 
       const store = this.store;
+      if (path.startsWith("/__/install/")) return await this.install(req, store, path);
       if (path === "/__/agent" && req.method === "GET") {
         if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return empty(426, { upgrade: "websocket" });
         const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
         await this.acceptAgent(server, req.headers);
         return new Response(null, { status: 101, webSocket: client });
       }
-      if (!store) return empty(404);
+      if (!store) {
+        // A purged DJ's Shortcut: say so in its notification.
+        return path.startsWith("/__/shortcut") ? unauthorized(SHORTCUT_DISCONNECTED) : empty(404);
+      }
 
       if (path === "/__/mcp") return await this.mcp(req, store);
       if (path === "/__/shortcut" || path.startsWith("/__/shortcut/") || path === "/__/shortcut_playlists") {
@@ -237,7 +252,7 @@ export class Tenant extends DurableObject<TenantEnv> {
 
   private async shortcut(req: Request, store: SqlStore, path: string): Promise<Response> {
     const auth = await this.authenticate(req, store);
-    if (!auth || (auth.kind === "link" && auth.link.kind !== "shortcut")) return unauthorized();
+    if (!auth || (auth.kind === "link" && auth.link.kind !== "shortcut")) return unauthorized(SHORTCUT_DISCONNECTED);
     const deps = this.deps(store);
     if (path === "/__/shortcut_playlists") return req.method === "GET" ? apiPlaylists(deps) : empty(405, { allow: "GET" });
     if (path === "/__/shortcut" && req.method === "POST") return apiSubmit(req, deps);
@@ -275,9 +290,10 @@ export class Tenant extends DurableObject<TenantEnv> {
       }
       if (req.method === "POST") return this.createLink(req, store);
     }
-    const m = /^\/__\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate)?$/.exec(path);
+    const m = /^\/__\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate|\/install)?$/.exec(path);
     if (m) {
-      if (m[2] && req.method === "POST") return this.rotateLink(store, m[1]!);
+      if (m[2] === "/rotate" && req.method === "POST") return this.rotateLink(store, m[1]!);
+      if (m[2] === "/install" && req.method === "PUT") return this.uploadInstall(req, store, m[1]!);
       if (!m[2] && req.method === "DELETE") {
         const link = store.links().find((l) => l.id === m[1]);
         if (!link) return json({ error: "not_found" }, 404);
@@ -387,6 +403,44 @@ export class Tenant extends DurableObject<TenantEnv> {
     return json(this.secretView(store, link, secret));
   }
 
+  // ---------- one-scan iPhone install (connect-anywhere spec §2b) ----------
+
+  /** PUT /v2/agent/links/{id}/install: the Mac's signed Shortcut → a short-lived install link. */
+  private async uploadInstall(req: Request, store: SqlStore, id: string): Promise<Response> {
+    const link = store.links().find((l) => l.id === id);
+    if (!link) return json({ error: "not_found" }, 404);
+    if (link.kind !== "shortcut") {
+      return json({ error: "not_a_shortcut_link", detail: "Only shortcut links have an iPhone install." }, 409);
+    }
+    const bytes = await req.arrayBuffer();
+    if (bytes.byteLength > MAX_SHORTCUT_BYTES) return empty(413);
+    if (bytes.byteLength === 0) return json({ error: "invalid_body", detail: "send the signed .shortcut file as the body" }, 400);
+    const code = randomBase64url(16);
+    const now = this.clock();
+    const expiresAt = addSeconds(now, SHORTCUT_INSTALL_SECONDS).toISOString();
+    store.purgeInstallsBefore(now.toISOString());
+    store.putInstall(link.id, await sha256Hex(code), bytes, expiresAt);
+    const host = this.env.PUBLIC_HOST || "djsync.jeffrey.build";
+    return json({ install_url: `https://${host}/i/${store.meta("tenant_id")}/${code}`, expires_at: expiresAt });
+  }
+
+  /** GET /i/<tenant>/<code> (the page) and …/<code>/DJ Sync.shortcut (the file, counted). */
+  private async install(req: Request, store: SqlStore | null, path: string): Promise<Response> {
+    const m = /^\/__\/install\/([A-Za-z0-9_-]{22})(\/file)?$/.exec(path);
+    if (!m || !store) return installExpired();
+    const hash = await sha256Hex(m[1]!);
+    const now = this.clock().toISOString();
+    if (!m[2]) {
+      if (!store.installLive(hash, now, SHORTCUT_INSTALL_DOWNLOADS)) return installExpired();
+      return installPage(`/i/${store.meta("tenant_id")}/${m[1]}/${encodeURIComponent(SHORTCUT_FILENAME)}`);
+    }
+    const head = req.method === "HEAD";
+    const bytes = head
+      ? store.installBytes(hash, now, SHORTCUT_INSTALL_DOWNLOADS)
+      : store.takeInstallDownload(hash, now, SHORTCUT_INSTALL_DOWNLOADS);
+    return bytes ? shortcutFile(bytes, head) : installExpired();
+  }
+
   // ---------- Telegram (connect-anywhere spec §1) ----------
 
   private registryStub() {
@@ -473,6 +527,7 @@ export class Tenant extends DurableObject<TenantEnv> {
             store.deleteLink(id);
           },
           rateLimit: (chatId) => this.telegramRate(chatId),
+          agent: (this.aiRunner ?? this.env.AI) ? { ai: (this.aiRunner ?? this.env.AI)!, model: this.env.AI_MODEL } : null,
         },
         b.update as TgUpdate,
         link.id,
