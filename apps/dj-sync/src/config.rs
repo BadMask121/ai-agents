@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context};
@@ -11,6 +12,10 @@ pub struct Config {
     pub matcher: MatcherCfg,
     #[serde(default)]
     pub usb: UsbCfg,
+    #[serde(default)]
+    pub mcp: McpCfg,
+    #[serde(default)]
+    pub download: DownloadCfg,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -54,13 +59,109 @@ pub struct UsbCfg {
     pub mount: Option<PathBuf>,
 }
 
+/// HTTP lane: MCP endpoint for ChatGPT (+ optional Shortcut REST).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct McpCfg {
+    pub enabled: bool,
+    pub bind: SocketAddr,
+    pub public_base_url: Option<String>,
+}
+
+impl Default for McpCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: SocketAddr::from(([127, 0, 0, 1], 8000)),
+            public_base_url: None,
+        }
+    }
+}
+
+/// Where downloads land and how spotdl / yt-dlp are invoked.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DownloadCfg {
+    pub dir: PathBuf,
+    pub import_xml: PathBuf,
+    pub default_playlist: String,
+    pub spotdl_bin: PathBuf,
+    pub ytdlp_bin: PathBuf,
+    pub ffmpeg_bin: PathBuf,
+    /// Prepended to the child PATH (launchd starts us with a bare PATH).
+    pub extra_path: Option<String>,
+    pub format: String,
+    pub bitrate: String,
+    pub spotdl_use_official_api: bool,
+    pub job_timeout_secs: u64,
+    pub max_urls_per_job: usize,
+}
+
+impl Default for DownloadCfg {
+    fn default() -> Self {
+        let music = dirs::home_dir().unwrap_or_default().join("Music");
+        Self {
+            dir: music.join("DJ_Downloads"),
+            import_xml: music.join("rekordbox_import.xml"),
+            default_playlist: "ChatGPT Downloads".to_string(),
+            spotdl_bin: PathBuf::from("spotdl"),
+            ytdlp_bin: PathBuf::from("yt-dlp"),
+            ffmpeg_bin: PathBuf::from("ffmpeg"),
+            extra_path: None,
+            format: "mp3".to_string(),
+            bitrate: "320k".to_string(),
+            spotdl_use_official_api: false,
+            job_timeout_secs: 1800,
+            max_urls_per_job: 25,
+        }
+    }
+}
+
+/// Formats both spotdl and yt-dlp can produce that Rekordbox can also play.
+const REKORDBOX_FORMATS: &[&str] = &["mp3", "m4a", "flac", "wav"];
+
+impl DownloadCfg {
+    fn expand_paths(&mut self) {
+        for p in [
+            &mut self.dir,
+            &mut self.import_xml,
+            &mut self.spotdl_bin,
+            &mut self.ytdlp_bin,
+            &mut self.ffmpeg_bin,
+        ] {
+            *p = expand_tilde(p);
+        }
+    }
+
+    /// Creates the download dir and the XML's parent dir if missing.
+    pub fn prepare(&self) -> anyhow::Result<()> {
+        if !REKORDBOX_FORMATS.contains(&self.format.as_str()) {
+            return Err(anyhow!(
+                "config: download.format must be one of {REKORDBOX_FORMATS:?}, got {:?}",
+                self.format
+            ));
+        }
+        if self.max_urls_per_job == 0 {
+            return Err(anyhow!("config: download.max_urls_per_job must be > 0"));
+        }
+        std::fs::create_dir_all(&self.dir)
+            .with_context(|| format!("creating {}", self.dir.display()))?;
+        if let Some(parent) = self.import_xml.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        Ok(())
+    }
+}
+
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         let path = config_path()?;
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        let cfg: Config =
+        let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+        cfg.download.expand_paths();
         cfg.validate()?;
         Ok(cfg)
     }
@@ -76,8 +177,34 @@ impl Config {
         Ok(())
     }
 
+    /// An empty value (e.g. `TELEGRAM_BOT_TOKEN=` copied from .env.example)
+    /// counts as unset, so the bot lane stays off.
     pub fn telegram_bot_token() -> anyhow::Result<String> {
-        std::env::var("TELEGRAM_BOT_TOKEN").map_err(|_| anyhow!("TELEGRAM_BOT_TOKEN not set"))
+        std::env::var("TELEGRAM_BOT_TOKEN")
+            .ok()
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| anyhow!("TELEGRAM_BOT_TOKEN not set"))
+    }
+
+    /// Secret path segment for the MCP endpoint (`/<secret>/mcp`). Behind TLS
+    /// this acts as the bearer token, same model as mail-mcp.
+    pub fn mcp_secret_path() -> anyhow::Result<String> {
+        let s = std::env::var("MCP_SECRET_PATH").map_err(|_| anyhow!("MCP_SECRET_PATH not set"))?;
+        validate_secret_path(&s)?;
+        Ok(s)
+    }
+
+    /// Optional bearer key for the iOS Shortcut REST routes. Unset (or empty)
+    /// leaves `/api/*` switched off.
+    pub fn shortcut_api_key() -> anyhow::Result<Option<String>> {
+        match std::env::var("SHORTCUT_API_KEY") {
+            Ok(k) if k.trim().is_empty() => Ok(None),
+            Ok(k) if k.trim().len() < 24 => Err(anyhow!(
+                "SHORTCUT_API_KEY must be at least 24 characters (try `openssl rand -hex 24`)"
+            )),
+            Ok(k) => Ok(Some(k.trim().to_string())),
+            Err(_) => Ok(None),
+        }
     }
 
     pub fn allowed_user_ids() -> Vec<i64> {
@@ -86,6 +213,29 @@ impl Config {
             .split(',')
             .filter_map(|s| s.trim().parse::<i64>().ok())
             .collect()
+    }
+}
+
+fn validate_secret_path(s: &str) -> anyhow::Result<()> {
+    if s.len() < 32 {
+        return Err(anyhow!(
+            "MCP_SECRET_PATH must be at least 32 characters (try `openssl rand -hex 24`)"
+        ));
+    }
+    if !s
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(anyhow!("MCP_SECRET_PATH may only contain [A-Za-z0-9_-]"));
+    }
+    Ok(())
+}
+
+/// TOML has no `~`; expand a leading `~/` against the home directory.
+fn expand_tilde(p: &Path) -> PathBuf {
+    match p.strip_prefix("~") {
+        Ok(rest) => dirs::home_dir().unwrap_or_default().join(rest),
+        Err(_) => p.to_path_buf(),
     }
 }
 
@@ -109,4 +259,81 @@ pub fn state_dir() -> anyhow::Result<PathBuf> {
     let dir = home.join(".dj-sync");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINIMAL: &str = r#"
+[library]
+roots = ["/tmp"]
+[rekordbox]
+autoimport_dir = "/tmp"
+"#;
+
+    #[test]
+    fn mcp_and_download_sections_default_when_absent() {
+        let cfg: Config = toml::from_str(MINIMAL).unwrap();
+        assert!(!cfg.mcp.enabled);
+        assert_eq!(cfg.mcp.bind.to_string(), "127.0.0.1:8000");
+        assert!(cfg.download.dir.ends_with("Music/DJ_Downloads"));
+        assert!(cfg
+            .download
+            .import_xml
+            .ends_with("Music/rekordbox_import.xml"));
+        assert_eq!(cfg.download.format, "mp3");
+    }
+
+    #[test]
+    fn partial_download_section_keeps_other_defaults_and_expands_tilde() {
+        let raw = format!(
+            "{MINIMAL}\n[mcp]\nenabled = true\n[download]\ndir = \"~/DJ\"\nformat = \"flac\"\n"
+        );
+        let mut cfg: Config = toml::from_str(&raw).unwrap();
+        cfg.download.expand_paths();
+        assert!(cfg.mcp.enabled);
+        assert_eq!(cfg.download.dir, dirs::home_dir().unwrap().join("DJ"));
+        assert_eq!(cfg.download.format, "flac");
+        assert_eq!(cfg.download.job_timeout_secs, 1800);
+    }
+
+    #[test]
+    fn prepare_rejects_formats_rekordbox_cannot_play() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = DownloadCfg {
+            dir: dir.path().join("dl"),
+            import_xml: dir.path().join("x/import.xml"),
+            format: "opus".into(),
+            ..DownloadCfg::default()
+        };
+        assert!(cfg.prepare().is_err());
+        let cfg = DownloadCfg {
+            format: "mp3".into(),
+            ..cfg
+        };
+        cfg.prepare().unwrap();
+        assert!(dir.path().join("dl").is_dir());
+        assert!(dir.path().join("x").is_dir());
+    }
+
+    #[test]
+    fn shipped_example_config_parses() {
+        let raw = include_str!("../config.example.toml");
+        let mut cfg: Config = toml::from_str(raw).unwrap();
+        cfg.download.expand_paths();
+        assert!(!cfg.mcp.enabled);
+        assert_eq!(
+            cfg.download.import_xml,
+            dirs::home_dir().unwrap().join("Music/rekordbox_import.xml")
+        );
+        assert_eq!(cfg.download.max_urls_per_job, 25);
+    }
+
+    #[test]
+    fn secret_path_rules() {
+        assert!(validate_secret_path("short").is_err());
+        assert!(validate_secret_path(&"a/".repeat(20)).is_err());
+        assert!(validate_secret_path(&"ab12_-".repeat(6)).is_ok());
+    }
 }

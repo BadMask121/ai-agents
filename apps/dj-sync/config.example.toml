@@ -18,3 +18,37 @@ ai_budget_per_playlist = 20
 [usb]
 # Optional. If unset, USB sync step is skipped.
 # mount = "/Volumes/CDJ"
+
+# ---- ChatGPT MCP download lane (optional) ----
+# docs/dj-sync/41-chatgpt-mcp-setup.md walks through the whole setup.
+
+[mcp]
+# Serve the MCP endpoint (and the optional iOS Shortcut API). Needs
+# MCP_SECRET_PATH in ~/.dj-sync/.env.
+enabled = false
+# Keep this on 127.0.0.1 — Cloudflare Tunnel is the only public way in.
+bind = "127.0.0.1:8000"
+public_base_url = "https://mcp.triplejmusic.art"
+
+[download]
+# Every key is optional; these are the defaults (~ is expanded).
+dir = "~/Music/DJ_Downloads"
+# Point Rekordbox → Preferences → Advanced → Database → rekordbox xml →
+# Imported Library at this file. dj-sync owns it; don't use Rekordbox's own export.
+import_xml = "~/Music/rekordbox_import.xml"
+default_playlist = "ChatGPT Downloads"
+# Use absolute paths (`which spotdl yt-dlp ffmpeg`): launchd's PATH is bare.
+spotdl_bin = "spotdl"
+ytdlp_bin = "yt-dlp"
+ffmpeg_bin = "ffmpeg"
+# Prepended to the downloaders' PATH, e.g. so yt-dlp can find deno.
+# extra_path = "/opt/homebrew/bin:/usr/local/bin"
+# mp3 | m4a | flac | wav (formats both downloaders write and Rekordbox plays).
+format = "mp3"
+# spotdl: auto | disable | 8k…320k. yt-dlp gets the same number as --audio-quality.
+bitrate = "320k"
+# spotdl ≥ 4.5 scrapes Spotify by default. Set true to use your own
+# SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET via --use-official-api instead.
+spotdl_use_official_api = false
+job_timeout_secs = 1800
+max_urls_per_job = 25

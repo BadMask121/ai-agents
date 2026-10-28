@@ -5,7 +5,7 @@ use teloxide::dptree;
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, MessageId};
 use teloxide::utils::command::BotCommands;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 use tracing::{info, warn};
 
 use crate::config::Config;
@@ -64,7 +64,11 @@ pub struct ReplyHandle {
 type AllowedIds = Arc<Vec<i64>>;
 type JobTx = Arc<mpsc::Sender<Job>>;
 
-pub async fn run_bot(_cfg: Config, job_tx: mpsc::Sender<Job>) -> anyhow::Result<()> {
+pub async fn run_bot(
+    _cfg: Config,
+    job_tx: mpsc::Sender<Job>,
+    mut shutdown: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
     let token = Config::telegram_bot_token().context("telegram token")?;
     let bot = Bot::new(token);
     let allowed: AllowedIds = Arc::new(Config::allowed_user_ids());
@@ -74,12 +78,20 @@ pub async fn run_bot(_cfg: Config, job_tx: mpsc::Sender<Job>) -> anyhow::Result<
     let job_tx: JobTx = Arc::new(job_tx);
     let handler = Update::filter_message().endpoint(handle_message);
 
-    Dispatcher::builder(bot, handler)
+    let mut dispatcher = Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![allowed, job_tx])
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
+        .build();
+
+    // main owns signal handling (Ctrl-C and SIGTERM) and fans it out to every lane.
+    let token = dispatcher.shutdown_token();
+    tokio::spawn(async move {
+        let _ = shutdown.wait_for(|stop| *stop).await;
+        if let Ok(done) = token.shutdown() {
+            done.await;
+        }
+    });
+
+    dispatcher.dispatch().await;
     Ok(())
 }
 

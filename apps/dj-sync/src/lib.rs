@@ -1,8 +1,13 @@
 pub mod ai_assist;
 pub mod bot;
 pub mod config;
+pub mod downloader;
+pub mod http;
+pub mod import_xml;
+pub mod jobs;
 pub mod library;
 pub mod matcher;
+pub mod mcp;
 pub mod nlu;
 pub mod parser;
 pub mod rekordbox;
@@ -65,6 +70,46 @@ impl MatchResult {
             MatchResult::Hit { spotify, .. } | MatchResult::Miss { spotify, .. } => spotify,
         }
     }
+}
+
+/// A link the download lane knows how to fetch audio for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MediaRef {
+    Spotify(url::Url),
+    YouTube(url::Url),
+}
+
+impl MediaRef {
+    pub fn url(&self) -> &url::Url {
+        match self {
+            MediaRef::Spotify(u) | MediaRef::YouTube(u) => u,
+        }
+    }
+
+    pub fn source(&self) -> &'static str {
+        match self {
+            MediaRef::Spotify(_) => "spotify",
+            MediaRef::YouTube(_) => "youtube",
+        }
+    }
+}
+
+/// Tags + file properties of one audio file, in the shape Rekordbox's XML wants.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TrackMeta {
+    pub path: PathBuf,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub genre: String,
+    pub year: Option<u32>,
+    pub isrc: Option<String>,
+    pub duration_ms: u32,
+    pub bitrate_kbps: Option<u32>,
+    pub sample_rate: Option<u32>,
+    pub size_bytes: u64,
+    /// Rekordbox `Kind`, e.g. "MP3 File".
+    pub kind: String,
 }
 
 // ---------- Rekordbox Location URIs ----------
