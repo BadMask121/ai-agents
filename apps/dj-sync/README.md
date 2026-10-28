@@ -18,6 +18,14 @@ in [`40-chatgpt-mcp-design.md`](../../docs/dj-sync/40-chatgpt-mcp-design.md) and
 [`41-chatgpt-mcp-setup.md`](../../docs/dj-sync/41-chatgpt-mcp-setup.md). The second
 doc covers spotdl, Cloudflare Tunnel, launchd, Rekordbox and ChatGPT step by step.
 
+## Menu bar app
+
+[`macos/`](macos/) holds **DJ Sync.app**, a small SwiftUI menu bar app. Use it
+to choose where songs are downloaded, see the service status and the
+Rekordbox XML version, restart the service, and open the log. Build and
+install it with `macos/build-app.sh --install`. The folder you pick goes into
+`~/.dj-sync/settings.json`, and dj-sync applies it from the next download.
+
 ## First run
 
 ```bash

@@ -5,6 +5,7 @@
 //! - `POST /<MCP_SECRET_PATH>/mcp` — MCP (Streamable HTTP, JSON responses)
 //! - `POST /api/downloads`       — iOS Shortcut fallback (Bearer `SHORTCUT_API_KEY`)
 //! - `GET  /api/downloads/{id}`  — job status for the Shortcut
+//! - `GET  /local/status`        — for the menu bar app on this Mac only
 //! - anything else               — 404 (including `/api/*` when no key is set)
 //!
 //! The secret path is the credential (ChatGPT connects with "No
@@ -28,10 +29,11 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-use crate::config::Config;
+use crate::config::{CloudCfg, Config, DownloadCfg};
 use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
 use crate::parser::extract_media_ref;
+use crate::xml_versions::Versions;
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
 
@@ -44,6 +46,8 @@ pub struct AppState {
     public_host: Option<String>,
     /// Bearer key for `/api/*`; `None` turns those routes off.
     api_key: Option<Arc<str>>,
+    download: DownloadCfg,
+    cloud: CloudCfg,
 }
 
 impl AppState {
@@ -59,6 +63,8 @@ impl AppState {
                 .and_then(|u| url::Url::parse(u).ok())
                 .and_then(|u| u.host_str().map(str::to_ascii_lowercase)),
             api_key: None,
+            download: cfg.download.clone(),
+            cloud: cfg.cloud.clone(),
         }
     }
 
@@ -69,12 +75,15 @@ impl AppState {
 }
 
 pub fn router(state: AppState, secret: &str) -> Router {
-    let mut app = Router::new().route("/health", get(health)).route(
-        &format!("/{secret}/mcp"),
-        post(mcp_post)
-            .get(method_not_allowed)
-            .delete(method_not_allowed),
-    );
+    let mut app = Router::new()
+        .route("/health", get(health))
+        .route("/local/status", get(local_status))
+        .route(
+            &format!("/{secret}/mcp"),
+            post(mcp_post)
+                .get(method_not_allowed)
+                .delete(method_not_allowed),
+        );
     if state.api_key.is_some() {
         app = app
             .route("/api/downloads", post(api_submit))
@@ -126,6 +135,51 @@ pub async fn serve(
 
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
+}
+
+/// What the DJ Sync menu bar app shows. Only for this Mac: anything that
+/// came through Cloudflare (the tunnel, if it's ever routed again) is refused.
+async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if headers.contains_key("cf-ray") || headers.contains_key("cf-connecting-ip") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let (dir, source) = state.download.current_dir();
+    // Probe as dj-sync itself: macOS may block the background service from a
+    // folder the user can see fine in Finder.
+    let dir_error = crate::settings::ensure_writable(&dir)
+        .err()
+        .map(|e| format!("{e:#}"));
+    let xml_version = Versions::for_xml(&state.download.import_xml, state.download.keep_versions)
+        .latest()
+        .map(|(v, _)| v.to_string());
+    let recent: Vec<Value> = state
+        .jobs
+        .recent(3)
+        .into_iter()
+        .map(|j| {
+            json!({
+                "job_id": j.job_id,
+                "state": j.state,
+                "playlist": j.playlist,
+                "message": j.message,
+                "created_at": j.created_at,
+                "finished_at": j.finished_at,
+            })
+        })
+        .collect();
+    Json(json!({
+        "service": "dj-sync",
+        "version": env!("CARGO_PKG_VERSION"),
+        "download_dir": dir,
+        "download_dir_source": source.as_str(),
+        "download_dir_writable": dir_error.is_none(),
+        "download_dir_error": dir_error,
+        "import_xml": state.download.import_xml,
+        "xml_version": xml_version,
+        "cloud": { "enabled": state.cloud.enabled, "base_url": state.cloud.base_url },
+        "recent_jobs": recent,
+    }))
+    .into_response()
 }
 
 async fn not_found() -> StatusCode {

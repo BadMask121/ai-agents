@@ -159,6 +159,9 @@ One binary with two optional lanes:
   cargo test                # parser, matcher, XML, job queue, MCP + HTTP router tests
   cargo install --path . --locked   # for the launchd agent (deploy/)
   ```
+- **Menu bar app:** [`apps/dj-sync/macos`](apps/dj-sync/macos/) is
+  **DJ Sync.app** (SwiftUI). Use it to choose the downloads folder, see status,
+  and restart the service: `macos/build-app.sh --install`.
 - **Entry point:** `src/main.rs`. Key modules: `matcher.rs`, `library.rs`,
   `bot.rs` (Telegram); `http.rs`, `mcp.rs`, `jobs.rs`, `downloader.rs`,
   `import_xml.rs` (download lane).

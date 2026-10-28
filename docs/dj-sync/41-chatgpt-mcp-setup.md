@@ -97,6 +97,18 @@ chmod 600 ~/.dj-sync/.env
   the Telegram bot running under launchd. Leaving it out runs the MCP lane alone.
 - `SHORTCUT_API_KEY` is optional (see step 7).
 
+## 2b. Choosing the downloads folder
+
+Downloads go to `~/Music/DJ_Downloads` by default. To pick a different folder,
+install the menu bar app with `apps/dj-sync/macos/build-app.sh --install` and
+choose **DJ Sync → Downloads folder → Change…**. The new folder applies from
+the next download, with no restart.
+
+Prefer a folder under `~/Music` or another ordinary folder. macOS blocks
+background services from Desktop, Documents, Downloads, iCloud Drive and
+external drives unless dj-sync has been given Full Disk Access, and the app
+warns you about this.
+
 ## 3. Build, run, and keep it running (launchd)
 
 ```bash

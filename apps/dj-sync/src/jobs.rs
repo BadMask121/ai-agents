@@ -105,7 +105,7 @@ impl JobQueue {
     ) -> anyhow::Result<(Self, JoinHandle<()>)> {
         cfg.prepare()?;
         // Jobs don't survive a restart, so anything still staged is debris.
-        let _ = std::fs::remove_dir_all(cfg.dir.join(".staging"));
+        let _ = std::fs::remove_dir_all(cfg.current_dir().0.join(".staging"));
         if !cfg.import_xml.exists() {
             if let Some(parent) = cfg.import_xml.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -290,7 +290,19 @@ async fn worker<F: Fetcher>(
         });
         info!(%job_id, links = media.len(), %playlist, "download job started");
 
-        let outcome = run_job(&cfg, &fetcher, &job_id, &media, &playlist).await;
+        // The folder can change between jobs (menu bar app); pick it up now.
+        let (dir, source) = cfg.current_dir();
+        let job_cfg = DownloadCfg {
+            dir: dir.clone(),
+            ..cfg.clone()
+        };
+        let outcome = match crate::settings::ensure_writable(&dir) {
+            Ok(()) => {
+                info!(%job_id, dir = %dir.display(), source = source.as_str(), "download folder");
+                run_job(&job_cfg, &fetcher, &job_id, &media, &playlist).await
+            }
+            Err(e) => Err(e),
+        };
 
         update(&store, &job_id, |s| {
             s.finished_at = Some(now_rfc3339());
@@ -793,6 +805,45 @@ mod tests {
             original,
             "startup doesn't write"
         );
+    }
+
+    #[tokio::test]
+    async fn download_folder_change_applies_to_the_next_job_without_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = tmp.path().join("settings.json");
+        let c = DownloadCfg {
+            settings_file: Some(settings.clone()),
+            ..cfg(tmp.path())
+        };
+        let (q, _w) = JobQueue::start(c.clone(), FakeFetcher).unwrap();
+
+        let a = q
+            .submit(media(&["https://open.spotify.com/track/aaa1"]), None)
+            .unwrap();
+        wait_done(&q, &a.job.job_id).await;
+        assert!(
+            c.dir.join("DJ Test - aaa1.mp3").exists(),
+            "config folder first"
+        );
+
+        // The menu bar app picks a new folder while dj-sync keeps running.
+        let chosen = tmp.path().join("Chosen/DJ");
+        std::fs::write(&settings, format!(r#"{{"download_dir":{:?}}}"#, chosen)).unwrap();
+        let b = q
+            .submit(media(&["https://open.spotify.com/track/bbb2"]), None)
+            .unwrap();
+        let done = wait_done(&q, &b.job.job_id).await;
+        assert_eq!(done.state, JobState::Done, "{done:?}");
+        assert!(
+            chosen.join("DJ Test - bbb2.mp3").exists(),
+            "new folder, created on demand"
+        );
+        assert!(!c.dir.join("DJ Test - bbb2.mp3").exists());
+        // Rekordbox points at wherever each file actually landed.
+        let lib = RekordboxLib::load(&c.import_xml).unwrap();
+        let paths: Vec<_> = lib.tracks.values().map(|t| t.path.clone()).collect();
+        assert!(paths.contains(&chosen.join("DJ Test - bbb2.mp3")));
+        assert!(paths.contains(&c.dir.join("DJ Test - aaa1.mp3")));
     }
 
     #[test]

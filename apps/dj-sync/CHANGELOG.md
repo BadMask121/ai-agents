@@ -11,6 +11,20 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.3.0] — 2026-10-28
+
+### Added
+- `~/.dj-sync/settings.json` (written by the **DJ Sync menu bar app**,
+  `macos/`): `download_dir` overrides `[download].dir`. It's re-read before
+  every job, so a new folder applies from the next download with no restart.
+  The folder is created on demand and write-tested first. If it's blocked (for
+  example by macOS privacy controls), the job fails with a clear hint instead
+  of downloading nowhere.
+- `GET /local/status` for the menu bar app (localhost only; refuses requests
+  relayed by Cloudflare). It reports the effective download folder and its
+  source, whether dj-sync can write there, the import XML path and version,
+  the cloud lane, and recent jobs.
+
 ## [0.2.0] — 2026-10-28
 
 ### Added

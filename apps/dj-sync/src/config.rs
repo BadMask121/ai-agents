@@ -122,6 +122,10 @@ pub struct DownloadCfg {
     pub max_urls_per_job: usize,
     /// Semver snapshots of the import XML to keep (every X.0.0 is kept too).
     pub keep_versions: usize,
+    /// `~/.dj-sync/settings.json` (written by the menu bar app), consulted
+    /// per job. `None` (tests, or no state dir) means config.toml only.
+    #[serde(skip)]
+    pub settings_file: Option<PathBuf>,
 }
 
 impl Default for DownloadCfg {
@@ -141,6 +145,7 @@ impl Default for DownloadCfg {
             job_timeout_secs: 1800,
             max_urls_per_job: 25,
             keep_versions: 100,
+            settings_file: None,
         }
     }
 }
@@ -149,6 +154,12 @@ impl Default for DownloadCfg {
 const REKORDBOX_FORMATS: &[&str] = &["mp3", "m4a", "flac", "wav"];
 
 impl DownloadCfg {
+    /// The download folder right now: the menu bar app's choice if set,
+    /// else `[download].dir`. Read fresh each call.
+    pub fn current_dir(&self) -> (PathBuf, crate::settings::Source) {
+        crate::settings::download_dir(self.settings_file.as_deref(), &self.dir)
+    }
+
     fn expand_paths(&mut self) {
         for p in [
             &mut self.dir,
@@ -193,6 +204,7 @@ impl Config {
         let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         cfg.download.expand_paths();
+        cfg.download.settings_file = crate::settings::settings_path().ok();
         cfg.resolve_import_xml(rekordbox_settings_path().as_deref());
         cfg.validate()?;
         Ok(cfg)

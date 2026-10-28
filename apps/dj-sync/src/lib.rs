@@ -13,6 +13,7 @@ pub mod nlu;
 pub mod parser;
 pub mod rekordbox;
 pub mod rekordbox_xml;
+pub mod settings;
 pub mod spotify;
 pub mod usb;
 pub mod xml_versions;

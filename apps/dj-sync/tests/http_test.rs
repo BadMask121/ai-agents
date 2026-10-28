@@ -74,6 +74,30 @@ fn mcp_path() -> String {
 }
 
 #[tokio::test]
+async fn local_status_reports_folder_and_refuses_proxied_requests() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (s, b) = send(
+        app(tmp.path()),
+        Request::get("/local/status").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let v: Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["service"], "dj-sync");
+    assert_eq!(v["download_dir"], format!("{}/dl", tmp.path().display()));
+    assert_eq!(v["download_dir_source"], "config");
+    assert_eq!(v["download_dir_writable"], true);
+    assert_eq!(v["xml_version"], "1.0.0");
+    assert!(v["recent_jobs"].as_array().unwrap().is_empty());
+
+    let req = Request::get("/local/status")
+        .header("cf-ray", "8a1b2c3d4e5f-LIS")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(app(tmp.path()), req).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn health_is_public() {
     let tmp = tempfile::tempdir().unwrap();
     let (s, b) = send(
