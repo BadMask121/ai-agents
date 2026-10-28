@@ -4,6 +4,7 @@
 //   GET  /health                          public liveness (no per-DJ data once v1 is retired)
 //   POST /v2/register                     new DJ (rate-limited in the Registry)
 //   GET  /v2/agent  (WebSocket)           the Mac: Bearer agent_token + X-DJ-Sync-Tenant
+//   DELETE /v2/agent                      ″  the Mac uninstalled: forget this DJ (204, 401, 404)
 //   PUT  /v2/agent/library                ″  gzip'd library snapshot
 //   GET|POST /v2/agent/links, POST /v2/agent/links/{id}/rotate, DELETE /v2/agent/links/{id}
 //   POST /<tenant_id>/<link_secret>/mcp   MCP for one DJ
@@ -198,11 +199,16 @@ async function routeV2(req: Request, path: string, secrets: Secrets, ns: Namespa
     const token = bearer(req);
     const socket = path === "/v2/agent";
     if (!TENANT_ID.test(tenant) || !AGENT_TOKEN.test(token)) {
-      return socket
+      // Only an upgrade can take a socket refusal; a 101 to anything else is a 500.
+      return socket && req.headers.get("upgrade")?.toLowerCase() === "websocket"
         ? refuseSocket(CLOSE_UNAUTHORIZED, "unauthorized", "Unknown DJ or wrong token; register again.")
         : json({ error: "unauthorized" }, 401, { "www-authenticate": "Bearer" });
     }
-    if (socket) return req.method === "GET" ? forward(ns, tenant, "/__/agent", req, { "x-djs-token": token }) : empty(405, { allow: "GET" });
+    if (socket) {
+      return req.method === "GET" || req.method === "DELETE"
+        ? forward(ns, tenant, "/__/agent", req, { "x-djs-token": token })
+        : empty(405, { allow: "GET, DELETE" });
+    }
     if (path === "/v2/agent/library") {
       if (req.method !== "PUT") return empty(405, { allow: "PUT" });
       return forward(ns, tenant, "/__/agent/library", req, { "x-djs-token": token }, MAX_LIBRARY_GZIP_BYTES);

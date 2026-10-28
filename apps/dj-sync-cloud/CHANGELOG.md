@@ -13,6 +13,30 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.5.0] — 2026-10-28 · uninstall forgets the DJ
+
+### Added
+- **`DELETE /v2/agent`: the Mac uninstalled, so the cloud forgets this DJ.**
+  `dj-sync uninstall` calls it (uninstaller spec §2).
+  - **Auth:** the agent's Bearer token plus `X-DJ-Sync-Tenant`. Only the token
+    is checked, with no protocol gate, so any app version can uninstall.
+  - **Order:** the Tenant DO checks the token and purges itself (jobs, links,
+    library, the live socket closes). Then the Registry's new `POST /__/forget`
+    drops the tenant row, its pairing codes and its paired Telegram chats.
+    Purging first means a failed Registry call only leaves a row the 90-day
+    sweep removes.
+  - **Responses:** 204 forgotten, 401 wrong token, 404 unknown DJ (the Mac
+    treats it as done).
+
+### Fixed
+- **A non-WebSocket request to `/v2/agent` without valid credentials now gets a
+  JSON 401.** It used to be a 500: the router answered every such request with
+  a WebSocket refusal (101), which only an upgrade can take.
+
+### Changed
+- **The 90-day sweep and the uninstall share `Registry.forget(id)`.** The
+  sweep calls it after purging each idle DJ.
+
 ## [1.4.0] — 2026-10-28
 
 Connect-anywhere spec §1c (the Telegram assistant) and the cloud side of §2b

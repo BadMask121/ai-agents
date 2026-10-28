@@ -6,6 +6,7 @@
 // against a stored hash. Internal routes, never reachable from outside:
 //   POST /__/init                    from the Registry, once
 //   POST /__/purge                   from the Registry's inactivity sweep
+//   DELETE /__/agent                 x-djs-token: the Mac uninstalled → purge + Registry forget → 204
 //   POST /__/mcp                     x-djs-link: <secret> | x-djs-legacy: 1
 //   POST /__/shortcut, GET /__/shortcut/{id}   same auth; shortcut links only
 //   GET  /__/agent (Upgrade)         x-djs-token: <agent_token>
@@ -154,6 +155,7 @@ export class Tenant extends DurableObject<TenantEnv> {
     try {
       if (path === "/__/init" && req.method === "POST") return await this.init(req);
       if (path === "/__/purge" && req.method === "POST") return await this.purge();
+      if (path === "/__/agent" && req.method === "DELETE") return await this.forget(req.headers);
 
       const store = this.store;
       if (path.startsWith("/__/install/")) return await this.install(req, store, path);
@@ -194,7 +196,32 @@ export class Tenant extends DurableObject<TenantEnv> {
     return json({ ok: true }, 201);
   }
 
-  /** Delete everything (90 days inactive). A returning Mac gets 4001 and re-registers. */
+  /** The Mac uninstalled DJ Sync (`dj-sync uninstall`): purge, then drop the DJ
+   *  from the Registry. Only the agent token is checked (no protocol gate), so
+   *  any version can uninstall. Purging first means a failed Registry call
+   *  leaves just a row the 90-day sweep removes. */
+  private async forget(headers: Headers): Promise<Response> {
+    const store = this.store;
+    if (!store) return json({ error: "not_found" }, 404);
+    const token = headers.get("x-djs-token") ?? "";
+    const expected = store.meta("agent_token_hash");
+    if (expected === null || token === "" || !timingSafeEqual(await sha256Hex(token), expected)) {
+      return json({ error: "unauthorized" }, 401, { "www-authenticate": "Bearer" });
+    }
+    const tenantId = store.meta("tenant_id");
+    await this.purge();
+    try {
+      await this.registryStub()?.fetch("https://registry/__/forget", {
+        method: "POST",
+        body: JSON.stringify({ tenant_id: tenantId }),
+      });
+    } catch (e) {
+      console.error(`forget: registry call failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return empty(204);
+  }
+
+  /** Delete everything (90 days inactive, or the DJ uninstalled). A returning Mac gets 4001 and re-registers. */
   async purge(): Promise<Response> {
     for (const ws of this.ctx.getWebSockets(AGENT_TAG)) {
       try {
