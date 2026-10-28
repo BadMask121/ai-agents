@@ -121,6 +121,22 @@ pub struct RekordboxLibrary {
 struct Memory {
     last_applied: Option<Applied>,
     last_error: Option<String>,
+    /// Batch id → library version, for batches applied since startup.
+    applied: std::collections::HashMap<String, Option<String>>,
+}
+
+/// Where one queued batch stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchOutcome {
+    Pending,
+    Applied {
+        version: Option<String>,
+    },
+    Failed {
+        error: String,
+    },
+    /// Not known to this process (e.g. queued before a restart and applied).
+    Unknown,
 }
 
 impl RekordboxLibrary {
@@ -167,20 +183,58 @@ impl RekordboxLibrary {
 
     // ---------- queue ----------
 
-    pub fn enqueue(&self, summary: String, ops: Vec<Value>) -> anyhow::Result<()> {
+    /// Queue a batch; returns its id (see `batch_outcome`).
+    pub fn enqueue(&self, summary: String, ops: Vec<Value>) -> anyhow::Result<String> {
+        let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         if ops.is_empty() {
-            return Ok(());
+            return Ok(id);
         }
         let _guard = self.lock.lock().expect("library lock");
         let mut pending = self.read_pending();
         pending.batches.push(Batch {
-            id: uuid::Uuid::new_v4().simple().to_string()[..12].to_string(),
+            id: id.clone(),
             created_at: now(),
             summary,
             ops,
             attempts: 0,
         });
-        self.write_pending(&pending)
+        self.write_pending(&pending)?;
+        Ok(id)
+    }
+
+    pub fn batch_outcome(&self, id: &str) -> BatchOutcome {
+        let memory = self.lock.lock().expect("library lock");
+        if let Some(version) = memory.applied.get(id) {
+            return BatchOutcome::Applied {
+                version: version.clone(),
+            };
+        }
+        let pending = self.read_pending();
+        if pending.batches.iter().any(|b| b.id == id) {
+            return BatchOutcome::Pending;
+        }
+        if let Some(f) = pending.failed.iter().find(|f| f.batch.id == id) {
+            return BatchOutcome::Failed {
+                error: f.error.clone(),
+            };
+        }
+        BatchOutcome::Unknown
+    }
+
+    /// Read-only snapshot of playlists and tracks (safe while Rekordbox runs).
+    pub fn snapshot(&self) -> anyhow::Result<Value> {
+        match self.run_helper(&["snapshot"], None)? {
+            HelperOutcome::Done(v) => Ok(v),
+            HelperOutcome::RekordboxRunning => bail!("unexpected: snapshot refused"),
+        }
+    }
+
+    pub fn current_version(&self) -> Option<String> {
+        self.versions().latest().map(|(v, _)| v.to_string())
+    }
+
+    pub fn db_path(&self) -> &Path {
+        &self.cfg.db_path
     }
 
     fn read_pending(&self) -> Pending {
@@ -238,7 +292,10 @@ impl RekordboxLibrary {
                     }
                     None => before,
                 };
-                pending.batches.clear();
+                let version_str = version.map(|v| v.to_string());
+                for b in pending.batches.drain(..) {
+                    memory.applied.insert(b.id, version_str.clone());
+                }
                 self.write_pending(&pending)?;
                 let applied = Applied {
                     at: now(),
@@ -715,6 +772,21 @@ mod tests {
         assert!(msg.contains("v1.0.0"), "{msg}");
         assert_eq!(std::fs::read_to_string(&r.db).unwrap(), "library v0\n");
         assert!(r.lib.restore("7.7.7").is_err());
+    }
+
+    #[test]
+    fn batch_outcomes_track_each_batch() {
+        let r = rig(CREATED_PLAYLIST, false);
+        let id = r.lib.enqueue("x".into(), vec![json!({"op": "x"})]).unwrap();
+        assert_eq!(r.lib.batch_outcome(&id), BatchOutcome::Pending);
+        r.lib.apply_pending().unwrap();
+        assert_eq!(
+            r.lib.batch_outcome(&id),
+            BatchOutcome::Applied {
+                version: Some("1.1.0".into())
+            }
+        );
+        assert_eq!(r.lib.batch_outcome("nope"), BatchOutcome::Unknown);
     }
 
     #[test]

@@ -311,6 +311,54 @@ impl ImportDoc {
         added
     }
 
+    /// TrackID of the collection entry for this file, if any.
+    pub fn track_id_for_path(&self, path: &Path) -> Option<String> {
+        self.doc
+            .collection
+            .tracks
+            .iter()
+            .find(|t| location_path(&t.location) == path)
+            .map(|t| t.track_id.clone())
+    }
+
+    pub fn rename_playlist(&mut self, name: &str, new_name: &str) -> bool {
+        match self.playlist_mut(name) {
+            Some(p) if p.name != new_name => {
+                p.name = new_name.to_string();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn remove_from_playlist(&mut self, name: &str, track_id: &str) -> bool {
+        let Some(p) = self.playlist_mut(name) else {
+            return false;
+        };
+        let before = p.tracks.len();
+        p.tracks.retain(|t| t.key != track_id);
+        p.entries = Some(p.tracks.len());
+        p.tracks.len() != before
+    }
+
+    pub fn delete_playlist(&mut self, name: &str) -> bool {
+        let root = &mut self.doc.playlists.root;
+        let before = root.children.len();
+        root.children
+            .retain(|n| !(n.node_type == PLAYLIST && n.name == name));
+        root.count = Some(root.children.len());
+        root.children.len() != before
+    }
+
+    fn playlist_mut(&mut self, name: &str) -> Option<&mut Node> {
+        self.doc
+            .playlists
+            .root
+            .children
+            .iter_mut()
+            .find(|n| n.node_type == PLAYLIST && n.name == name)
+    }
+
     pub fn track_count(&self) -> usize {
         self.doc.collection.tracks.len()
     }
@@ -478,6 +526,34 @@ mod tests {
             xml.contains(r#"Name="Some Upload (Official Audio)""#),
             "{xml}"
         );
+    }
+
+    #[test]
+    fn playlists_can_be_renamed_trimmed_and_deleted() {
+        let mut doc = ImportDoc::new();
+        let a = doc.upsert_track(&meta("/m/a.mp3", "A", "X"), "d", "");
+        let b = doc.upsert_track(&meta("/m/b.mp3", "B", "X"), "d", "");
+        doc.upsert_playlist("Fri", &[a.clone(), b.clone()]);
+        assert_eq!(
+            doc.track_id_for_path(Path::new("/m/b.mp3")),
+            Some(b.clone())
+        );
+
+        assert!(doc.rename_playlist("Fri", "Friday"));
+        assert!(!doc.rename_playlist("Fri", "x"), "gone under the old name");
+        assert!(doc.remove_from_playlist("Friday", &a));
+        assert!(!doc.remove_from_playlist("Friday", &a), "only once");
+        assert_eq!(doc.playlist_len("Friday"), Some(1));
+        let xml = doc.to_xml().unwrap();
+        assert!(
+            xml.contains(r#"Name="Friday" KeyType="0" Entries="1""#),
+            "{xml}"
+        );
+
+        assert!(doc.delete_playlist("Friday"));
+        assert_eq!(doc.playlist_len("Friday"), None);
+        assert_eq!(doc.track_count(), 2, "tracks stay in the collection");
+        assert!(doc.to_xml().unwrap().contains(r#"Name="ROOT" Count="0""#));
     }
 
     #[test]

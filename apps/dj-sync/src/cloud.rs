@@ -8,22 +8,25 @@
 //! newer than its own, and we stop claiming work until one side is updated.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Context};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 use crate::config::CloudCfg;
-use crate::jobs::{JobError, JobQueue, JobState, JobStatus, JobTrack};
+use crate::jobs::{JobError, JobKind, JobQueue, JobState, JobStatus, JobTrack, LibraryWork};
 use crate::parser::extract_media_ref;
+use crate::rekordbox_db::{BatchOutcome, RekordboxLibrary};
 
 /// Bump MAJOR for breaking changes to the agent API, MINOR for additions the
 /// agent relies on, PATCH for fixes. Must stay in step with the Worker's.
-pub const AGENT_PROTOCOL: &str = "1.0.0";
+pub const AGENT_PROTOCOL: &str = "1.1.0";
 
 const PROTOCOL_HEADER: &str = "x-dj-sync-agent-protocol";
 const VERSION_HEADER: &str = "x-dj-sync-agent-version";
@@ -35,15 +38,28 @@ struct PollResponse {
     #[serde(default)]
     worker_version: Option<String>,
     job: Option<ClaimedJob>,
+    /// The Worker's copy of the library snapshot is stale (protocol ≥ 1.1).
+    #[serde(default)]
+    library_wanted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct ClaimedJob {
     job_id: String,
+    #[serde(default)]
     playlist: String,
+    #[serde(default)]
     urls: Vec<String>,
     #[serde(default)]
     attempt: u32,
+    /// "download" (default) or "library" (protocol ≥ 1.1).
+    #[serde(default)]
+    kind: Option<String>,
+    /// rbdb.py ops for library jobs.
+    #[serde(default)]
+    ops: Vec<Value>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +69,27 @@ struct Completion<'a> {
     tracks: &'a [JobTrack],
     errors: &'a [JobError],
     xml_version: Option<&'a str>,
+    library_version: Option<&'a str>,
+}
+
+impl<'a> Completion<'a> {
+    fn new(state: &'static str, message: &'a str) -> Self {
+        Self {
+            state,
+            message,
+            tracks: &[],
+            errors: &[],
+            xml_version: None,
+            library_version: None,
+        }
+    }
+
+    fn failed(message: &'a str, errors: &'a [JobError]) -> Self {
+        Self {
+            errors,
+            ..Self::new("failed", message)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -82,6 +119,87 @@ pub struct CloudAgent {
     jobs: JobQueue,
     /// cloud job id → local job id, for jobs claimed but not yet reported.
     active: HashMap<String, String>,
+    library: Option<LibrarySync>,
+}
+
+/// Keeps a snapshot of Rekordbox's library (playlists + a track index) for
+/// the Worker, so ChatGPT can browse it while this Mac is offline. Rebuilt
+/// when master.db changes (at most once a minute); uploaded only when the
+/// Worker says its copy is stale. File paths never leave the Mac.
+struct LibrarySync {
+    lib: Arc<RekordboxLibrary>,
+    db_mtime: Option<SystemTime>,
+    last_built: Option<Instant>,
+    hash: Option<String>,
+    body: Option<Value>,
+    /// Rekordbox content id → local file, for mirroring edits into the XML.
+    paths: HashMap<String, PathBuf>,
+}
+
+const SNAPSHOT_MIN_INTERVAL: Duration = Duration::from_secs(60);
+
+impl LibrarySync {
+    async fn refresh(&mut self) {
+        let mtime = std::fs::metadata(self.lib.db_path())
+            .and_then(|m| m.modified())
+            .ok();
+        let stale = self.hash.is_none() || mtime != self.db_mtime;
+        let due = self
+            .last_built
+            .is_none_or(|t| t.elapsed() >= SNAPSHOT_MIN_INTERVAL);
+        if !(stale && due) {
+            return;
+        }
+        self.last_built = Some(Instant::now());
+        let lib = self.lib.clone();
+        match tokio::task::spawn_blocking(move || lib.snapshot()).await {
+            Ok(Ok(snapshot)) => {
+                let (body, paths) = split_snapshot(snapshot);
+                let hash = sha256_hex(&serde_json::to_vec(&body).unwrap_or_default());
+                info!(
+                    tracks = body["tracks"].as_array().map_or(0, Vec::len),
+                    playlists = body["playlists"].as_array().map_or(0, Vec::len),
+                    "library snapshot built"
+                );
+                self.db_mtime = mtime;
+                self.hash = Some(hash);
+                self.body = Some(body);
+                self.paths = paths;
+            }
+            Ok(Err(e)) => {
+                warn!(error = %format!("{e:#}"), "couldn't snapshot the Rekordbox library")
+            }
+            Err(e) => warn!(error = %e, "library snapshot task panicked"),
+        }
+    }
+}
+
+/// Split the helper's snapshot into what's shared (no paths) and the local
+/// id → path map.
+fn split_snapshot(mut snapshot: Value) -> (Value, HashMap<String, PathBuf>) {
+    let mut paths = HashMap::new();
+    if let Some(tracks) = snapshot.get_mut("tracks").and_then(Value::as_array_mut) {
+        for t in tracks.iter_mut() {
+            if let Some(obj) = t.as_object_mut() {
+                let path = obj.remove("path");
+                if let (Some(id), Some(Value::String(path))) =
+                    (obj.get("id").and_then(Value::as_str), path)
+                {
+                    paths.insert(id.to_string(), PathBuf::from(path));
+                }
+            }
+        }
+    }
+    let body = json!({
+        "playlists": snapshot.get("playlists").cloned().unwrap_or(json!([])),
+        "tracks": snapshot.get("tracks").cloned().unwrap_or(json!([])),
+    });
+    (body, paths)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 impl CloudAgent {
@@ -101,7 +219,21 @@ impl CloudAgent {
             token,
             jobs,
             active: HashMap::new(),
+            library: None,
         })
+    }
+
+    /// Share the library snapshot and take playlist (library) jobs too.
+    pub fn with_library(mut self, lib: Option<Arc<RekordboxLibrary>>) -> Self {
+        self.library = lib.map(|lib| LibrarySync {
+            lib,
+            db_mtime: None,
+            last_built: None,
+            hash: None,
+            body: None,
+            paths: HashMap::new(),
+        });
+        self
     }
 
     fn post(&self, path: &str) -> reqwest::RequestBuilder {
@@ -116,15 +248,26 @@ impl CloudAgent {
     /// claim a new job if we're idle. Returns the cloud id claimed, if any.
     pub async fn tick(&mut self) -> Result<Option<String>, TickError> {
         self.report_finished().await?;
+        if let Some(sync) = self.library.as_mut() {
+            sync.refresh().await;
+        }
 
         let active: Vec<&String> = self.active.keys().collect();
+        let library_hash = self.library.as_ref().and_then(|s| s.hash.clone());
         let res = self
             .post("/agent/poll")
-            .json(&json!({ "active": active, "can_claim": self.active.is_empty() }))
+            .json(&json!({
+                "active": active,
+                "can_claim": self.active.is_empty(),
+                "library_hash": library_hash,
+            }))
             .send()
             .await?;
         let res = check_status(res).await?;
         let poll: PollResponse = res.json().await.context("parsing poll response")?;
+        if poll.library_wanted {
+            self.upload_library().await?;
+        }
 
         let Some(job) = poll.job else {
             return Ok(None);
@@ -141,7 +284,32 @@ impl CloudAgent {
         Ok(self.active.keys().next().cloned())
     }
 
+    async fn upload_library(&self) -> Result<(), TickError> {
+        let Some(sync) = self.library.as_ref() else {
+            return Ok(());
+        };
+        let (Some(hash), Some(body)) = (&sync.hash, &sync.body) else {
+            return Ok(());
+        };
+        let mut upload = body.clone();
+        upload["hash"] = json!(hash);
+        upload["generated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        upload["library_version"] = json!(sync.lib.current_version());
+        let res = self
+            .post("/agent/library")
+            .timeout(Duration::from_secs(120))
+            .json(&upload)
+            .send()
+            .await?;
+        check_status(res).await?;
+        info!(%hash, "shared library snapshot");
+        Ok(())
+    }
+
     async fn start(&mut self, job: ClaimedJob) -> Result<(), TickError> {
+        if job.kind.as_deref() == Some("library") {
+            return self.start_library(job).await;
+        }
         // The Worker already validated these; re-check here anyway.
         let mut media = Vec::new();
         let mut rejected = Vec::new();
@@ -158,7 +326,7 @@ impl CloudAgent {
         if media.is_empty() {
             let msg = "None of the links can be downloaded on this Mac.";
             return self
-                .complete(&job.job_id, "failed", msg, &[], &rejected, None)
+                .complete(&job.job_id, Completion::failed(msg, &rejected))
                 .await;
         }
         match self.jobs.submit(media, Some(&job.playlist)) {
@@ -168,7 +336,43 @@ impl CloudAgent {
             }
             Err(e) => {
                 let msg = format!("Could not queue on the Mac: {e:#}");
-                self.complete(&job.job_id, "failed", &msg, &[], &rejected, None)
+                self.complete(&job.job_id, Completion::failed(&msg, &rejected))
+                    .await
+            }
+        }
+    }
+
+    async fn start_library(&mut self, job: ClaimedJob) -> Result<(), TickError> {
+        let summary = job
+            .summary
+            .clone()
+            .unwrap_or_else(|| "Playlist change".into());
+        let Some(sync) = self.library.as_ref() else {
+            let msg = "This Mac doesn't write to Rekordbox's library ([rekordbox_db] is off).";
+            return self
+                .complete(&job.job_id, Completion::failed(msg, &[]))
+                .await;
+        };
+        let paths = job
+            .ops
+            .iter()
+            .filter_map(|op| op.get("content_id").and_then(Value::as_str))
+            .filter_map(|id| sync.paths.get(id).map(|p| (id.to_string(), p.clone())))
+            .collect();
+        let work = LibraryWork {
+            summary,
+            playlist: job.playlist.clone(),
+            ops: job.ops,
+            paths,
+        };
+        match self.jobs.submit_library(work) {
+            Ok(sub) => {
+                self.active.insert(job.job_id, sub.job.job_id);
+                Ok(())
+            }
+            Err(e) => {
+                let msg = format!("Could not queue on the Mac: {e:#}");
+                self.complete(&job.job_id, Completion::failed(&msg, &[]))
                     .await
             }
         }
@@ -184,6 +388,51 @@ impl CloudAgent {
             })
             .collect();
         for (cloud_id, status) in finished {
+            // A playlist change is done when it reaches Rekordbox's library,
+            // not when it's queued: keep the cloud job (and its lease) open.
+            if let Some(s) = &status {
+                if s.kind == JobKind::Library && s.state == JobState::Done {
+                    if let (Some(batch), Some(sync)) = (&s.library_batch, &self.library) {
+                        match sync.lib.batch_outcome(batch) {
+                            BatchOutcome::Pending => continue,
+                            BatchOutcome::Applied { version } => {
+                                let msg = format!(
+                                    "{} — applied to your Rekordbox library{}.",
+                                    s.message
+                                        .split(". ")
+                                        .next()
+                                        .unwrap_or(&s.message)
+                                        .trim_end_matches('.'),
+                                    version
+                                        .as_ref()
+                                        .map(|v| format!(" (v{v})"))
+                                        .unwrap_or_default()
+                                );
+                                let done = Completion {
+                                    xml_version: s.xml_version.as_deref(),
+                                    library_version: version.as_deref(),
+                                    ..Completion::new("done", &msg)
+                                };
+                                self.complete(&cloud_id, done).await?;
+                                self.active.remove(&cloud_id);
+                                continue;
+                            }
+                            BatchOutcome::Failed { error } => {
+                                let msg =
+                                    format!("Couldn't change your Rekordbox library: {error}");
+                                let failed = Completion {
+                                    xml_version: s.xml_version.as_deref(),
+                                    ..Completion::failed(&msg, &[])
+                                };
+                                self.complete(&cloud_id, failed).await?;
+                                self.active.remove(&cloud_id);
+                                continue;
+                            }
+                            BatchOutcome::Unknown => {}
+                        }
+                    }
+                }
+            }
             match status {
                 Some(s) => {
                     let state = if s.state == JobState::Done {
@@ -191,26 +440,17 @@ impl CloudAgent {
                     } else {
                         "failed"
                     };
-                    self.complete(
-                        &cloud_id,
-                        state,
-                        &s.message,
-                        &s.tracks,
-                        &s.errors,
-                        s.xml_version.as_deref(),
-                    )
-                    .await?;
+                    let result = Completion {
+                        tracks: &s.tracks,
+                        errors: &s.errors,
+                        xml_version: s.xml_version.as_deref(),
+                        ..Completion::new(state, &s.message)
+                    };
+                    self.complete(&cloud_id, result).await?;
                 }
                 None => {
-                    self.complete(
-                        &cloud_id,
-                        "failed",
-                        "The Mac lost track of this job.",
-                        &[],
-                        &[],
-                        None,
-                    )
-                    .await?;
+                    let lost = Completion::failed("The Mac lost track of this job.", &[]);
+                    self.complete(&cloud_id, lost).await?;
                 }
             }
             self.active.remove(&cloud_id);
@@ -218,29 +458,19 @@ impl CloudAgent {
         Ok(())
     }
 
-    async fn complete(
-        &self,
-        cloud_id: &str,
-        state: &'static str,
-        message: &str,
-        tracks: &[JobTrack],
-        errors: &[JobError],
-        xml_version: Option<&str>,
-    ) -> Result<(), TickError> {
+    async fn complete(&self, cloud_id: &str, result: Completion<'_>) -> Result<(), TickError> {
         let res = self
             .post(&format!("/agent/jobs/{cloud_id}/complete"))
-            .json(&Completion {
-                state,
-                message,
-                tracks,
-                errors,
-                xml_version,
-            })
+            .json(&result)
             .send()
             .await?;
         let status = res.status();
         if status.is_success() {
-            info!(cloud_job = cloud_id, state, "reported cloud job result");
+            info!(
+                cloud_job = cloud_id,
+                state = result.state,
+                "reported cloud job result"
+            );
             return Ok(());
         }
         let body = res.text().await.unwrap_or_default();
@@ -282,9 +512,10 @@ pub async fn run(
     cfg: CloudCfg,
     token: String,
     jobs: JobQueue,
+    library: Option<Arc<RekordboxLibrary>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let mut agent = CloudAgent::new(&cfg.base_url, token, jobs)?;
+    let mut agent = CloudAgent::new(&cfg.base_url, token, jobs)?.with_library(library);
     let poll = Duration::from_secs(cfg.poll_secs.max(2));
     let mut delay = Duration::ZERO;
     let mut offline_since: Option<std::time::Instant> = None;
@@ -349,6 +580,9 @@ mod tests {
         polls: Vec<Value>,
         bad_headers: usize,
         protocol: String,
+        /// Hash of the snapshot the "Worker" holds, and uploads received.
+        library_hash: Option<String>,
+        uploads: Vec<Value>,
     }
 
     type Shared = Arc<Mutex<Fake>>;
@@ -378,9 +612,14 @@ mod tests {
         } else {
             None
         };
+        let wanted = body["library_hash"]
+            .as_str()
+            .is_some_and(|h| f.library_hash.as_deref() != Some(h));
         (
             axum::http::StatusCode::OK,
-            Json(json!({"worker_version":"0.1.0","protocol":f.protocol,"job":job})),
+            Json(
+                json!({"worker_version":"0.2.0","protocol":f.protocol,"job":job,"library_wanted":wanted}),
+            ),
         )
     }
 
@@ -393,9 +632,17 @@ mod tests {
         Json(json!({"ok":true}))
     }
 
+    async fn library_upload(State(s): State<Shared>, Json(body): Json<Value>) -> Json<Value> {
+        let mut f = s.lock().unwrap();
+        f.library_hash = body["hash"].as_str().map(String::from);
+        f.uploads.push(body);
+        Json(json!({"ok": true}))
+    }
+
     async fn fake_worker(fake: Shared) -> String {
         let app = Router::new()
             .route("/agent/poll", post(poll))
+            .route("/agent/library", post(library_upload))
             .route("/agent/jobs/{id}/complete", post(complete))
             .with_state(fake);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -482,6 +729,121 @@ mod tests {
         assert_eq!(body["tracks"][0]["title"], "Fixture Tune");
         assert_eq!(body["xml_version"], "1.1.0");
         assert!(agent.active.is_empty());
+    }
+
+    /// rbdb.py stand-in: a fixed snapshot, and `apply` that changes the db.
+    fn fake_library(dir: &Path, track: &Path) -> Arc<RekordboxLibrary> {
+        let db = dir.join("master.db");
+        std::fs::write(&db, "library\n").unwrap();
+        let script = dir.join("rbdb.sh");
+        let snapshot = json!({"ok": true,
+            "playlists": [{"id": "1", "name": "Old", "folder": "", "track_ids": ["101"]}],
+            "tracks": [{"id": "101", "title": "T", "artist": "A", "path": track}]});
+        let apply = r#"{"ok": true, "results": [{"playlist_id": "7", "created": true}]}"#;
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$3\" = snapshot ]; then echo '{snapshot}'; \
+                 else cat >/dev/null; printf 'x\\n' >> \"$2\"; echo '{apply}'; fi\n"
+            ),
+        )
+        .unwrap();
+        let cfg = crate::config::RekordboxDbCfg {
+            enabled: true,
+            db_path: db,
+            ..Default::default()
+        };
+        Arc::new(RekordboxLibrary::with_parts(
+            cfg,
+            dir.join("state"),
+            crate::rekordbox_db::Helper {
+                program: "/bin/sh".into(),
+                prefix_args: vec![script.into()],
+            },
+            Arc::new(|| false),
+        ))
+    }
+
+    #[tokio::test]
+    async fn shares_the_library_and_applies_playlist_jobs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let track = tmp.path().join("music/T.mp3");
+        std::fs::create_dir_all(track.parent().unwrap()).unwrap();
+        std::fs::copy(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.mp3"),
+            &track,
+        )
+        .unwrap();
+        let lib = fake_library(tmp.path(), &track);
+        let fake: Shared = Arc::new(Mutex::new(Fake {
+            protocol: "1.1.0".into(),
+            ..Fake::default()
+        }));
+        fake.lock().unwrap().queued.push(json!({
+            "job_id": "11b000000001", "kind": "library", "playlist": "Sat",
+            "summary": "Create “Sat” with 1 track", "urls": [], "attempt": 1,
+            "ops": [{"op": "ensure_playlist", "name": "Sat"},
+                    {"op": "add_to_playlist", "playlist": "Sat", "content_id": "101"}]
+        }));
+        let base = fake_worker(fake.clone()).await;
+        let cfg = DownloadCfg {
+            dir: tmp.path().join("dl"),
+            import_xml: tmp.path().join("import.xml"),
+            ..DownloadCfg::default()
+        };
+        let fetcher = CopyFixture {
+            gate: Arc::new(tokio::sync::Semaphore::new(9)),
+        };
+        let (jobs, _) = JobQueue::start_with(cfg.clone(), fetcher, Some(lib.clone())).unwrap();
+        let mut agent = CloudAgent::new(&base, "agent-token".into(), jobs)
+            .unwrap()
+            .with_library(Some(lib.clone()));
+
+        // First tick: snapshot built, shared (without paths), job claimed.
+        assert_eq!(agent.tick().await.unwrap().as_deref(), Some("11b000000001"));
+        {
+            let f = fake.lock().unwrap();
+            assert_eq!(f.uploads.len(), 1);
+            let up = &f.uploads[0];
+            assert_eq!(up["tracks"][0]["id"], "101");
+            assert!(
+                up["tracks"][0].get("path").is_none(),
+                "paths stay on the Mac"
+            );
+            assert_eq!(up["playlists"][0]["name"], "Old");
+        }
+        // Wait for the local job (XML mirror + queued library batch).
+        for _ in 0..200 {
+            agent.tick().await.unwrap();
+            if lib.status().pending.len() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            fake.lock().unwrap().completed.is_empty(),
+            "not done until it's in the library"
+        );
+        let xml = crate::rekordbox_xml::RekordboxLib::load(&cfg.import_xml).unwrap();
+        assert_eq!(
+            xml.lookup("Sat").unwrap().track_ids.len(),
+            1,
+            "mirrored into the XML"
+        );
+
+        // Rekordbox is closed: the batch is applied, then reported.
+        lib.apply_pending().unwrap().expect("applied");
+        agent.tick().await.unwrap();
+        let f = fake.lock().unwrap();
+        assert_eq!(f.uploads.len(), 1, "unchanged snapshot isn't re-sent");
+        let (id, body) = &f.completed[0];
+        assert_eq!(id, "11b000000001");
+        assert_eq!(body["state"], "done");
+        assert_eq!(body["library_version"], "1.1.0");
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("applied to your Rekordbox library"));
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@
 //! never loses files — anything already moved into the download dir and
 //! written to the XML stays there.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -20,6 +20,7 @@ use crate::downloader::Fetcher;
 use crate::import_xml::ImportDoc;
 use crate::library::{is_audio_file, read_meta};
 use crate::rekordbox_db::RekordboxLibrary;
+use crate::xml_versions::Version;
 use crate::xml_versions::{Bump, Versions};
 use crate::{unique_name, MediaRef};
 
@@ -59,9 +60,19 @@ pub struct JobError {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobKind {
+    /// Download links into a playlist.
+    Download,
+    /// Change Rekordbox playlists (from ChatGPT).
+    Library,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct JobStatus {
     pub job_id: JobId,
+    pub kind: JobKind,
     pub state: JobState,
     pub playlist: String,
     pub urls: Vec<String>,
@@ -73,11 +84,29 @@ pub struct JobStatus {
     pub message: String,
     /// Semver of the import XML after this job (see `xml_versions`).
     pub xml_version: Option<String>,
+    /// The Rekordbox library batch this job queued, if any.
+    pub library_batch: Option<String>,
 }
 
 struct Entry {
     status: JobStatus,
-    media: Vec<MediaRef>,
+    work: Work,
+}
+
+#[derive(Clone)]
+enum Work {
+    Download(Vec<MediaRef>),
+    Library(LibraryWork),
+}
+
+/// A playlist change for Rekordbox's library, in rbdb.py op form, plus the
+/// local paths of the tracks it mentions (to mirror it into the import XML).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryWork {
+    pub summary: String,
+    pub playlist: String,
+    pub ops: Vec<serde_json::Value>,
+    pub paths: HashMap<String, PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,9 +198,52 @@ impl JobQueue {
             });
         }
 
+        self.push(
+            &mut store,
+            JobKind::Download,
+            playlist,
+            urls,
+            Work::Download(media),
+        )
+    }
+
+    /// Queue a playlist change for Rekordbox (mirrored into the import XML).
+    pub fn submit_library(&self, work: LibraryWork) -> anyhow::Result<Submitted> {
+        anyhow::ensure!(!work.ops.is_empty(), "nothing to change");
+        let mut store = self.store.lock().expect("job store");
+        if let Some(e) = store.iter().find(|e| {
+            e.status.state.is_active() && matches!(&e.work, Work::Library(w) if *w == work)
+        }) {
+            let job = e.status.clone();
+            let position = position_of(&store, &job.job_id);
+            return Ok(Submitted {
+                job,
+                position,
+                deduplicated: true,
+            });
+        }
+        let playlist = work.playlist.clone();
+        self.push(
+            &mut store,
+            JobKind::Library,
+            playlist,
+            Vec::new(),
+            Work::Library(work),
+        )
+    }
+
+    fn push(
+        &self,
+        store: &mut VecDeque<Entry>,
+        kind: JobKind,
+        playlist: String,
+        urls: Vec<String>,
+        work: Work,
+    ) -> anyhow::Result<Submitted> {
         let job_id = new_job_id();
         let status = JobStatus {
             job_id: job_id.clone(),
+            kind,
             state: JobState::Queued,
             playlist,
             urls,
@@ -182,16 +254,17 @@ impl JobQueue {
             errors: Vec::new(),
             message: "Queued.".into(),
             xml_version: None,
+            library_batch: None,
         };
         self.tx
             .try_send(job_id.clone())
-            .map_err(|_| anyhow::anyhow!("download queue is full; try again later"))?;
+            .map_err(|_| anyhow::anyhow!("job queue is full; try again later"))?;
         store.push_back(Entry {
             status: status.clone(),
-            media,
+            work,
         });
-        trim(&mut store);
-        let position = position_of(&store, &job_id);
+        trim(store);
+        let position = position_of(store, &job_id);
         Ok(Submitted {
             job: status,
             position,
@@ -285,14 +358,21 @@ async fn worker<F: Fetcher>(
     library: Option<Arc<RekordboxLibrary>>,
 ) {
     while let Some(job_id) = rx.recv().await {
-        let Some((media, playlist)) = ({
+        let Some((work, playlist)) = ({
             let store = store.lock().expect("job store");
             store
                 .iter()
                 .find(|e| e.status.job_id == job_id)
-                .map(|e| (e.media.clone(), e.status.playlist.clone()))
+                .map(|e| (e.work.clone(), e.status.playlist.clone()))
         }) else {
             continue;
+        };
+        let media = match work {
+            Work::Download(media) => media,
+            Work::Library(work) => {
+                run_library_job(&store, &job_id, &cfg, work, library.clone()).await;
+                continue;
+            }
         };
 
         update(&store, &job_id, |s| {
@@ -610,8 +690,8 @@ fn queue_for_library(
     }));
     let summary = format!("Add {} track(s) to “{playlist}”", placed.len());
     match lib.enqueue(summary, ops) {
-        Ok(()) if lib.rekordbox_running() => LibraryNote::WhenRekordboxQuits,
-        Ok(()) => LibraryNote::Soon,
+        Ok(_) if lib.rekordbox_running() => LibraryNote::WhenRekordboxQuits,
+        Ok(_) => LibraryNote::Soon,
         Err(e) => {
             warn!(error = %format!("{e:#}"), "couldn't queue rekordbox library update");
             LibraryNote::Failed
@@ -654,6 +734,148 @@ fn place(src: &Path, dest_dir: &Path) -> anyhow::Result<(PathBuf, bool)> {
     std::fs::rename(src, &dest)
         .with_context(|| format!("moving {} -> {}", src.display(), dest.display()))?;
     Ok((dest, false))
+}
+
+/// Run a playlist change: mirror it into the import XML (visible under
+/// "rekordbox xml" right away, even with Rekordbox open), then queue it for
+/// Rekordbox's own library.
+async fn run_library_job(
+    store: &Mutex<VecDeque<Entry>>,
+    job_id: &str,
+    cfg: &DownloadCfg,
+    work: LibraryWork,
+    library: Option<Arc<RekordboxLibrary>>,
+) {
+    update(store, job_id, |s| {
+        s.state = JobState::Running;
+        s.started_at = Some(now_rfc3339());
+        s.message = format!("{}…", work.summary);
+    });
+    info!(%job_id, summary = %work.summary, "library job started");
+    let cfg = cfg.clone();
+    let result = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<(Option<Version>, Option<String>, Option<LibraryNote>)> {
+            let xml_version = mirror_into_xml(&cfg, &work)?;
+            let (batch, note) = match &library {
+                Some(lib) => {
+                    let id = lib.enqueue(work.summary.clone(), work.ops.clone())?;
+                    let note = if lib.rekordbox_running() {
+                        LibraryNote::WhenRekordboxQuits
+                    } else {
+                        LibraryNote::Soon
+                    };
+                    (Some(id), Some(note))
+                }
+                None => (None, None),
+            };
+            Ok((xml_version, batch, note))
+        },
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("library job panicked: {e}"))
+    .and_then(|r| r);
+
+    update(store, job_id, |s| {
+        s.finished_at = Some(now_rfc3339());
+        match result {
+            Ok((xml_version, batch, note)) => {
+                s.state = JobState::Done;
+                s.xml_version = xml_version.map(|v| v.to_string());
+                s.library_batch = batch;
+                let when = match note {
+                    Some(LibraryNote::Soon) => " Going into your Rekordbox library now.",
+                    Some(LibraryNote::WhenRekordboxQuits) => {
+                        " It goes into your Rekordbox library when you quit Rekordbox; until then \
+                         it's under \"rekordbox xml\" (refresh it)."
+                    }
+                    _ => " It's under \"rekordbox xml\" in Rekordbox (refresh it).",
+                };
+                s.message = format!("{}.{when}", s.message.trim_end_matches('…'));
+            }
+            Err(e) => {
+                s.state = JobState::Failed;
+                s.message = format!("Playlist change failed: {e:#}");
+            }
+        }
+        info!(%job_id, state = ?s.state, "library job finished");
+    });
+}
+
+/// Apply library ops to the import XML too. Tracks are matched by local path
+/// (from the library snapshot); ones without a known path are skipped here
+/// but still change Rekordbox's library.
+fn mirror_into_xml(cfg: &DownloadCfg, work: &LibraryWork) -> anyhow::Result<Option<Version>> {
+    use crate::xml_versions::{Bump, Versions};
+    let versions = Versions::for_xml(&cfg.import_xml, cfg.keep_versions);
+    let base = versions.reconcile(&cfg.import_xml)?;
+    let mut doc = ImportDoc::load_or_new(&cfg.import_xml)?;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let mut bump: Option<Bump> = None;
+    let mut note = |b: Bump| {
+        bump = Some(match (bump, b) {
+            (Some(Bump::Minor), _) | (_, Bump::Minor) => Bump::Minor,
+            _ => Bump::Patch,
+        })
+    };
+    let str_of =
+        |op: &serde_json::Value, k: &str| op.get(k).and_then(|v| v.as_str()).map(str::to_string);
+
+    for op in &work.ops {
+        let (Some(kind), name) = (
+            str_of(op, "op"),
+            str_of(op, "name").or_else(|| str_of(op, "playlist")),
+        ) else {
+            continue;
+        };
+        let name = name.unwrap_or_default();
+        let path = str_of(op, "content_id").and_then(|id| work.paths.get(&id).cloned());
+        match kind.as_str() {
+            "ensure_playlist" if doc.playlist_len(&name).is_none() => {
+                doc.upsert_playlist(&name, &[]);
+                note(Bump::Minor);
+            }
+            "add_to_playlist" => {
+                let Some(path) = path else { continue };
+                let Ok(meta) = read_meta(&path) else { continue };
+                if doc.playlist_len(&name).is_none() {
+                    note(Bump::Minor);
+                }
+                let before = doc.track_count();
+                let id = doc.upsert_track(&meta, &today, "");
+                if doc.upsert_playlist(&name, &[id]) > 0 || doc.track_count() > before {
+                    note(Bump::Patch);
+                }
+            }
+            "remove_from_playlist" => {
+                let Some(id) = path.and_then(|p| doc.track_id_for_path(&p)) else {
+                    continue;
+                };
+                if doc.remove_from_playlist(&name, &id) {
+                    note(Bump::Patch);
+                }
+            }
+            "rename_playlist" => {
+                if let Some(new_name) = str_of(op, "new_name") {
+                    if doc.rename_playlist(&name, &new_name) {
+                        note(Bump::Patch);
+                    }
+                }
+            }
+            "delete_playlist" => {
+                if doc.delete_playlist(&name) {
+                    note(Bump::Patch);
+                }
+            }
+            _ => {}
+        }
+    }
+    match bump {
+        Some(b) => {
+            doc.save_atomic(&cfg.import_xml)?;
+            Ok(Some(versions.record(&cfg.import_xml, base, b)?))
+        }
+        None => Ok(base),
+    }
 }
 
 #[cfg(test)]
@@ -943,6 +1165,131 @@ mod tests {
         let paths: Vec<_> = lib.tracks.values().map(|t| t.path.clone()).collect();
         assert!(paths.contains(&chosen.join("DJ Test - bbb2.mp3")));
         assert!(paths.contains(&c.dir.join("DJ Test - aaa1.mp3")));
+    }
+
+    fn library_stub(dir: &Path, running: bool) -> Arc<RekordboxLibrary> {
+        let cfg = crate::config::RekordboxDbCfg {
+            enabled: true,
+            db_path: dir.join("master.db"),
+            ..Default::default()
+        };
+        Arc::new(RekordboxLibrary::with_parts(
+            cfg,
+            dir.join("state"),
+            crate::rekordbox_db::Helper {
+                program: "/usr/bin/true".into(),
+                prefix_args: vec![],
+            },
+            Arc::new(move || running),
+        ))
+    }
+
+    fn library_work(ops: Vec<serde_json::Value>, paths: &[(&str, &Path)]) -> LibraryWork {
+        LibraryWork {
+            summary: "Change playlists".into(),
+            playlist: "Sat".into(),
+            ops,
+            paths: paths
+                .iter()
+                .map(|(id, p)| (id.to_string(), p.to_path_buf()))
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn library_jobs_mirror_into_xml_and_queue_for_rekordbox() {
+        use serde_json::json;
+        let tmp = tempfile::tempdir().unwrap();
+        let c = cfg(tmp.path());
+        let lib = library_stub(tmp.path(), true);
+        let (q, _w) = JobQueue::start_with(c.clone(), FakeFetcher, Some(lib.clone())).unwrap();
+        let track = tmp.path().join("lib/Track One.mp3");
+        std::fs::create_dir_all(track.parent().unwrap()).unwrap();
+        std::fs::copy(fixture(), &track).unwrap();
+
+        let create = library_work(
+            vec![
+                json!({"op": "ensure_playlist", "name": "Sat"}),
+                json!({"op": "add_to_playlist", "playlist": "Sat", "content_id": "101"}),
+                json!({"op": "add_to_playlist", "playlist": "Sat", "content_id": "999"}),
+            ],
+            &[("101", &track)],
+        );
+        let s = q.submit_library(create.clone()).unwrap();
+        assert_eq!(s.job.kind, JobKind::Library);
+        let done = wait_done(&q, &s.job.job_id).await;
+        assert_eq!(done.state, JobState::Done, "{done:?}");
+        assert_eq!(
+            done.xml_version.as_deref(),
+            Some("1.1.0"),
+            "new playlist → minor"
+        );
+        assert!(
+            done.message.contains("when you quit Rekordbox"),
+            "{}",
+            done.message
+        );
+        let batch = done.library_batch.clone().expect("queued for the library");
+        assert_eq!(
+            lib.batch_outcome(&batch),
+            crate::rekordbox_db::BatchOutcome::Pending
+        );
+
+        // In the XML: the playlist with the one track whose path we know.
+        let lib_xml = RekordboxLib::load(&c.import_xml).unwrap();
+        let sat = lib_xml.lookup("Sat").unwrap();
+        assert_eq!(sat.track_ids.len(), 1);
+        assert_eq!(lib_xml.tracks[&sat.track_ids[0]].path, track);
+
+        // Retrying the same change while it's still active is deduplicated.
+        let again = q.submit_library(create).unwrap();
+        assert!(!again.deduplicated, "the first one already finished");
+
+        // Rename, remove, delete are mirrored too (patch bumps).
+        let edit = library_work(
+            vec![
+                json!({"op": "remove_from_playlist", "playlist": "Sat", "content_id": "101"}),
+                json!({"op": "rename_playlist", "name": "Sat", "new_name": "Saturday"}),
+            ],
+            &[("101", &track)],
+        );
+        let s = q.submit_library(edit).unwrap();
+        let done = wait_done(&q, &s.job.job_id).await;
+        let lib_xml = RekordboxLib::load(&c.import_xml).unwrap();
+        // (lookup() also matches substrings, so compare names exactly.)
+        let names: Vec<&str> = lib_xml.flat().iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["Saturday"]);
+        assert!(lib_xml.flat()[0].track_ids.is_empty());
+        assert!(done.xml_version.unwrap().starts_with("1.1."), "patch");
+
+        let del = library_work(
+            vec![json!({"op": "delete_playlist", "name": "Saturday"})],
+            &[],
+        );
+        let s = q.submit_library(del).unwrap();
+        wait_done(&q, &s.job.job_id).await;
+        assert!(RekordboxLib::load(&c.import_xml).unwrap().flat().is_empty());
+    }
+
+    #[tokio::test]
+    async fn library_jobs_without_rekordbox_db_still_update_the_xml() {
+        use serde_json::json;
+        let tmp = tempfile::tempdir().unwrap();
+        let c = cfg(tmp.path());
+        let (q, _w) = JobQueue::start(c.clone(), FakeFetcher).unwrap();
+        let s = q
+            .submit_library(library_work(
+                vec![json!({"op": "ensure_playlist", "name": "Sat"})],
+                &[],
+            ))
+            .unwrap();
+        let done = wait_done(&q, &s.job.job_id).await;
+        assert_eq!(done.state, JobState::Done);
+        assert!(done.library_batch.is_none());
+        assert!(RekordboxLib::load(&c.import_xml)
+            .unwrap()
+            .lookup("Sat")
+            .is_some());
     }
 
     #[test]

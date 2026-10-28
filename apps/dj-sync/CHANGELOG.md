@@ -11,6 +11,36 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.7.0] — 2026-10-28 · agent protocol 1.1.0
+
+### Added
+- **ChatGPT playlist management, Mac side.**
+  - **Library jobs** from the cloud queue (create, add to, remove from, rename
+    or delete a playlist) run through the job queue. Each one is mirrored
+    into the import XML straight away, so it shows under "rekordbox xml" even
+    with Rekordbox open, and queued for Rekordbox's own library.
+  - **Done means applied.** The cloud job stays open, with its lease extended,
+    until that batch is actually applied to master.db. It's then reported
+    with the library version.
+- **Library snapshot sharing.** dj-sync shares the playlists (with folders and
+  track IDs) and a track index (title, artist, album, genre, BPM, key, length)
+  with the Worker, so ChatGPT can browse and search the library while this
+  Mac is offline.
+  - **Rebuilt** when master.db changes, at most once a minute (`rbdb.py
+    snapshot`, read-only).
+  - **Uploaded** only when the Worker's copy is stale (`library_hash` and
+    `library_wanted`).
+  - **File paths stay on this Mac.**
+- `ImportDoc`: `rename_playlist`, `remove_from_playlist`, `delete_playlist`,
+  `track_id_for_path`.
+- `RekordboxLibrary`: `enqueue` returns a batch ID, plus `batch_outcome`,
+  `snapshot` and `current_version`.
+
+### Changed
+- **Agent protocol 1.0.0 → 1.1.0 (MINOR, additive).** Deploy dj-sync-cloud
+  0.2.0 first: a 1.0 Worker refuses 1.1 agents with `409 incompatible_protocol`
+  by design.
+
 ## [0.6.0] — 2026-10-28
 
 ### Added

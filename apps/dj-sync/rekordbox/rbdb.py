@@ -6,6 +6,7 @@ dj-sync (Rust) runs this with JSON in and JSON out:
     rbdb.py [--db PATH] apply            < {"ops": [...]}
     rbdb.py [--db PATH] playlists
     rbdb.py [--db PATH] search QUERY [--limit N]
+    rbdb.py [--db PATH] snapshot         (read-only: playlists + track index)
 
 `apply` runs every op in ONE transaction and commits once at the end; any
 failure rolls everything back, so the library never ends up half-changed.
@@ -246,6 +247,52 @@ def track_row(c) -> dict[str, Any]:
     }
 
 
+def cmd_snapshot(db: MasterDatabase) -> None:
+    """Everything ChatGPT needs to browse the library, read-only (safe while
+    Rekordbox is open). `path` stays on this Mac; dj-sync strips it before
+    sharing the snapshot."""
+    pls = db.get_playlist().all()
+    by_id = {str(p.ID): p for p in pls}
+
+    def folder_of(p) -> str:
+        parts, seen = [], set()
+        parent = by_id.get(str(p.ParentID))
+        while parent is not None and str(parent.ID) not in seen:
+            seen.add(str(parent.ID))
+            parts.insert(0, parent.Name)
+            parent = by_id.get(str(parent.ParentID))
+        return "/".join(parts)
+
+    playlists = []
+    for p in sorted(pls, key=lambda p: (folder_of(p), p.Name or "")):
+        if p.Attribute != PLAYLIST:
+            continue
+        songs = db.get_playlist_songs(PlaylistID=p.ID).all()
+        songs.sort(key=lambda s: s.TrackNo or 0)
+        playlists.append({
+            "id": str(p.ID),
+            "name": p.Name,
+            "folder": folder_of(p),
+            "track_ids": [str(s.ContentID) for s in songs],
+        })
+
+    tracks = []
+    for c in db.get_content().all():
+        tracks.append({
+            "id": str(c.ID),
+            "title": c.Title,
+            "artist": c.ArtistName,
+            "album": c.AlbumName,
+            "genre": c.GenreName,
+            "bpm": round(c.BPM / 100, 2) if c.BPM else None,
+            "key": c.KeyName,
+            "duration_secs": c.Length,
+            "path": c.FolderPath,
+        })
+    tracks.sort(key=lambda t: t["id"])
+    out({"ok": True, "playlists": playlists, "tracks": tracks})
+
+
 def cmd_search(db: MasterDatabase, query: str, limit: int) -> None:
     hits = db.search_content(query)[:limit]
     out({"ok": True, "tracks": [track_row(c) for c in hits]})
@@ -258,6 +305,7 @@ def main() -> None:
     sub.add_parser("status")
     sub.add_parser("apply")
     sub.add_parser("playlists")
+    sub.add_parser("snapshot")
     search = sub.add_parser("search")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=25)
@@ -274,6 +322,8 @@ def main() -> None:
             cmd_apply(db)
         elif args.cmd == "playlists":
             cmd_playlists(db)
+        elif args.cmd == "snapshot":
+            cmd_snapshot(db)
         elif args.cmd == "search":
             cmd_search(db, args.query, args.limit)
     finally:

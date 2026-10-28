@@ -118,11 +118,12 @@ async fn main() -> anyhow::Result<()> {
     };
     let cloud_lane = {
         let (cloud_cfg, tx) = (cfg.cloud.clone(), shutdown_tx.clone());
+        let library = library.clone();
         async move {
             let (Some(token), Some(jobs)) = (cloud_token, jobs) else {
                 return Ok(());
             };
-            let r = cloud::run(cloud_cfg, token, jobs, shutdown_rx).await;
+            let r = cloud::run(cloud_cfg, token, jobs, library, shutdown_rx).await;
             if r.is_err() {
                 let _ = tx.send(true);
             }
