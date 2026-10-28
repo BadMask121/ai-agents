@@ -48,6 +48,10 @@ pub struct AppState {
     api_key: Option<Arc<str>>,
     download: DownloadCfg,
     cloud: CloudCfg,
+    mcp_bind: SocketAddr,
+    public_base_url: Option<String>,
+    /// Set by `router`; only reported to the menu bar app on this Mac.
+    mcp_secret: Arc<str>,
 }
 
 impl AppState {
@@ -65,6 +69,9 @@ impl AppState {
             api_key: None,
             download: cfg.download.clone(),
             cloud: cfg.cloud.clone(),
+            mcp_bind: cfg.mcp.bind,
+            public_base_url: cfg.mcp.public_base_url.clone(),
+            mcp_secret: Arc::from(""),
         }
     }
 
@@ -74,7 +81,8 @@ impl AppState {
     }
 }
 
-pub fn router(state: AppState, secret: &str) -> Router {
+pub fn router(mut state: AppState, secret: &str) -> Router {
+    state.mcp_secret = Arc::from(secret);
     let mut app = Router::new()
         .route("/health", get(health))
         .route("/local/status", get(local_status))
@@ -167,8 +175,25 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
             })
         })
         .collect();
+    // ChatGPT reaches the cloud Worker when the cloud lane is on, else the
+    // public base (tunnel); both serve the same secret path.
+    let public_base = if state.cloud.enabled {
+        Some(state.cloud.base_url.clone())
+    } else {
+        state.public_base_url.clone()
+    }
+    .map(|b| b.trim_end_matches('/').to_string());
+    let secret = &*state.mcp_secret;
     Json(json!({
         "service": "dj-sync",
+        "mcp": {
+            "public_url": public_base.as_ref().map(|b| format!("{b}/{secret}/mcp")),
+            "local_url": format!("http://{}/{secret}/mcp", state.mcp_bind),
+        },
+        "shortcut_url": match (&public_base, state.api_key.is_some()) {
+            (Some(b), true) => Some(format!("{b}/api/downloads")),
+            _ => None,
+        },
         "version": env!("CARGO_PKG_VERSION"),
         "download_dir": dir,
         "download_dir_source": source.as_str(),

@@ -12,10 +12,25 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     public var state: String
     public var playlist: String
     public var message: String
+    public var createdAt: String?
+    public var finishedAt: String?
     public var id: String { jobId }
+
+    /// When it finished, else when it was queued.
+    public var date: Date? { parseTimestamp(finishedAt ?? createdAt) }
+  }
+
+  public struct Mcp: Decodable, Equatable, Sendable {
+    /// What ChatGPT connects to (contains the secret path).
+    public var publicUrl: String?
+    /// The same endpoint on this Mac, for testing tools.
+    public var localUrl: String
   }
 
   public var version: String
+  /// Optional so the app still works with dj-sync < 0.3.
+  public var mcp: Mcp?
+  public var shortcutUrl: String?
   public var downloadDir: String
   /// `"settings"` when chosen in this app, `"config"` for dj-sync's default.
   public var downloadDirSource: String
@@ -33,6 +48,14 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     decoder.keyDecodingStrategy = .convertFromSnakeCase
     return try decoder.decode(ServiceStatus.self, from: data)
   }
+}
+
+/// dj-sync writes RFC 3339 timestamps (`2026-10-28T02:34:13+00:00`).
+public func parseTimestamp(_ string: String?) -> Date? {
+  guard let string else { return nil }
+  let formatter = ISO8601DateFormatter()
+  formatter.formatOptions = [.withInternetDateTime]
+  return formatter.date(from: string)
 }
 
 /// Talks to the dj-sync service on this Mac.

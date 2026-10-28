@@ -89,6 +89,19 @@ async fn local_status_reports_folder_and_refuses_proxied_requests() {
     assert_eq!(v["download_dir_writable"], true);
     assert_eq!(v["xml_version"], "1.0.0");
     assert!(v["recent_jobs"].as_array().unwrap().is_empty());
+    assert_eq!(
+        v["mcp"]["public_url"],
+        format!("https://mcp.example.test/{SECRET}/mcp")
+    );
+    assert_eq!(
+        v["mcp"]["local_url"],
+        format!("http://127.0.0.1:8000/{SECRET}/mcp")
+    );
+    assert_eq!(
+        v["shortcut_url"],
+        Value::Null,
+        "no SHORTCUT_API_KEY in this app"
+    );
 
     let req = Request::get("/local/status")
         .header("cf-ray", "8a1b2c3d4e5f-LIS")

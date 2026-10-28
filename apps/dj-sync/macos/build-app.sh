@@ -7,8 +7,11 @@ cd "$(dirname "$0")"
 
 VERSION=$(tr -d '[:space:]' < VERSION)   # semver, single source of truth
 
-swift build -c release --product DJSyncMenu
-BIN="$(swift build -c release --show-bin-path)/DJSyncMenu"
+# Build products live outside ~/Desktop too: iCloud's file provider tags them
+# and codesign (including SwiftPM's own test-bundle signing) then fails.
+SCRATCH="$HOME/Library/Caches/dj-sync-menu/build"
+swift build -c release --product DJSyncMenu --scratch-path "$SCRATCH"
+BIN="$(swift build -c release --scratch-path "$SCRATCH" --show-bin-path)/DJSyncMenu"
 
 # Assemble and sign outside the repo: ~/Desktop is managed by iCloud's file
 # provider, which re-tags new bundles with Finder/provider xattrs that
@@ -34,6 +37,8 @@ if [[ "${1:-}" == "--install" ]]; then
   DEST="$HOME/Applications/DJ Sync.app"
   mkdir -p "$HOME/Applications"
   pkill -x DJSyncMenu 2>/dev/null || true
+  # Wait for the old copy to exit, or LaunchServices fails the open (-600).
+  for _ in {1..50}; do pgrep -x DJSyncMenu >/dev/null || break; sleep 0.1; done
   rm -rf "$DEST"
   ditto "$APP" "$DEST"
   codesign --verify --deep --strict "$DEST"

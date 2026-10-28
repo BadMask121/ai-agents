@@ -18,14 +18,29 @@ enum ServiceState: Equatable {
 final class MenuModel {
   private(set) var service: ServiceState = .checking
   private(set) var actionError: String?
+  private(set) var isRestarting = false
+  /// Whether the menu bar icon can actually be seen (set by AppDelegate).
+  var menuBarIcon: MenuBarIconVisibility = .unknown
+
+  /// Cloud queue Worker health; `nil` when unreachable or the lane is off.
+  private(set) var cloud: CloudHealth?
+  private(set) var tunnel: TunnelConfig?
+  private(set) var tunnelRunning: Bool?
+  /// Which URL was just copied, for a moment of "Copied" feedback.
+  private(set) var copied: String?
+  /// MCP URLs contain the secret path; masked unless the user asks.
+  var revealSecrets = false
 
   private let settings = SettingsFile.standard
   private let client = StatusClient()
   private let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+  @ObservationIgnored private var iconCache: [String: NSImage] = [:]
 
   static let serviceLabel = "com.triplejmusic.dj-sync"
   static let logURL = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: "Library/Logs/dj-sync.log")
+  static let agentPlist = FileManager.default.homeDirectoryForCurrentUser
+    .appending(path: "Library/LaunchAgents/\(serviceLabel).plist")
 
   var status: ServiceStatus? { service.status }
 
@@ -47,8 +62,34 @@ final class MenuModel {
     protectedLocation(of: path, home: home)
   }
 
+  /// The folder's real Finder icon (custom icons, colour tags and all).
+  func icon(forPath path: String) -> NSImage {
+    if let cached = iconCache[path] { return cached }
+    let icon = NSWorkspace.shared.icon(forFile: path)
+    iconCache[path] = icon
+    return icon
+  }
+
   func refresh() async {
     service = await client.fetch().map(ServiceState.running) ?? .notRunning
+    if let s = status, s.cloud.enabled {
+      cloud = await CloudHealth.fetch(baseURL: s.cloud.baseUrl)
+    } else {
+      cloud = nil
+    }
+    tunnel = TunnelConfig.load()
+    let state = await launchctlOutput(["print", "gui/\(getuid())/com.cloudflare.cloudflared"])
+    tunnelRunning = state.map { $0.contains("state = running") }
+  }
+
+  func copy(_ text: String, key: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+    copied = key
+    Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      if copied == key { copied = nil }
+    }
   }
 
   // MARK: Downloads folder
@@ -96,19 +137,24 @@ final class MenuModel {
 
   // MARK: Service
 
+  /// Restart dj-sync, or start it if its LaunchAgent isn't loaded.
   func restartService() {
-    let process = Process()
-    process.executableURL = URL(filePath: "/bin/launchctl")
-    process.arguments = ["kickstart", "-k", "gui/\(getuid())/\(Self.serviceLabel)"]
-    do {
-      try process.run()
-      actionError = nil
-    } catch {
-      actionError = "Couldn't restart dj-sync: \(error.localizedDescription)"
-    }
+    guard !isRestarting else { return }
+    isRestarting = true
+    actionError = nil
     Task {
-      try? await Task.sleep(for: .seconds(2))
+      let target = "gui/\(getuid())/\(Self.serviceLabel)"
+      var code = await launchctl(["kickstart", "-k", target])
+      if code != 0 {
+        // Not loaded (e.g. after `launchctl bootout`): load it, which starts it.
+        code = await launchctl(["bootstrap", "gui/\(getuid())", Self.agentPlist.path(percentEncoded: false)])
+      }
+      if code != 0 {
+        actionError = "Couldn't start dj-sync (launchctl exit \(code)). See the log."
+      }
+      try? await Task.sleep(for: .seconds(1.5))
       await refresh()
+      isRestarting = false
     }
   }
 
@@ -131,6 +177,45 @@ final class MenuModel {
       } catch {
         actionError = "Couldn't change Open at Login: \(error.localizedDescription)"
       }
+    }
+  }
+}
+
+/// `launchctl` output, or `nil` if it failed (e.g. the job isn't loaded).
+nonisolated private func launchctlOutput(_ arguments: [String]) async -> String? {
+  await withCheckedContinuation { continuation in
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(filePath: "/bin/launchctl")
+    process.arguments = arguments
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    process.terminationHandler = { process in
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      continuation.resume(
+        returning: process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil)
+    }
+    do {
+      try process.run()
+    } catch {
+      continuation.resume(returning: nil)
+    }
+  }
+}
+
+/// Run `launchctl` without blocking the main actor; returns its exit status.
+nonisolated private func launchctl(_ arguments: [String]) async -> Int32 {
+  await withCheckedContinuation { continuation in
+    let process = Process()
+    process.executableURL = URL(filePath: "/bin/launchctl")
+    process.arguments = arguments
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+    do {
+      try process.run()
+    } catch {
+      continuation.resume(returning: -1)
     }
   }
 }

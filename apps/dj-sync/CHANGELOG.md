@@ -11,6 +11,14 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.4.0] — 2026-10-28
+
+### Added
+- `GET /local/status` now also reports `mcp.public_url` (the URL the ChatGPT
+  plugin uses: the cloud queue host, or the tunnel host if the cloud lane is
+  off), `mcp.local_url`, and `shortcut_url`. All are for the menu bar app's
+  Connections card.
+
 ## [0.3.0] — 2026-10-28
 
 ### Added

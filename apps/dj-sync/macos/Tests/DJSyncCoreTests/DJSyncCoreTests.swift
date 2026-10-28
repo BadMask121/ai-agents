@@ -92,8 +92,90 @@ struct ServiceStatusTests {
     #expect(s.recentJobs.first?.playlist == "Offline Test")
   }
 
+  @Test func `job dates come from finished_at, else created_at`() throws {
+    let s = try ServiceStatus.decode(Data(Self.sample.utf8))
+    #expect(s.recentJobs.first?.date == nil, "created_at \"x\" isn't a date")
+    let date = try #require(parseTimestamp("2026-10-28T02:34:13+00:00"))
+    #expect(date.timeIntervalSince1970 == 1_793_154_853)
+    #expect(parseTimestamp(nil) == nil)
+  }
+
   @Test func `nothing listening means not running`() async {
     let client = StatusClient(url: URL(string: "http://127.0.0.1:9/local/status")!)
     #expect(await client.fetch() == nil)
+  }
+}
+
+struct MenuBarPlacementTests {
+  /// 16" MacBook Pro: 1728 pt wide, notch between x=771 and x=956.
+  func placement(x: Double, notch: Bool = true, occluded: Bool = false, userHidden: Bool = false)
+    -> MenuBarPlacement
+  {
+    MenuBarPlacement(
+      itemMinX: x, itemWidth: 28, screenWidth: 1728,
+      leftAreaWidth: notch ? 771 : nil, rightAreaWidth: notch ? 772 : nil,
+      occluded: occluded, userHidden: userHidden)
+  }
+
+  @Test func `right of the notch is visible`() {
+    #expect(placement(x: 1500).visibility == .visible)
+  }
+
+  @Test(arguments: [800.0, 760.0, 940.0])
+  func `overlapping the notch is hidden`(x: Double) {
+    #expect(placement(x: x).underNotch)
+    #expect(placement(x: x).visibility != .visible)
+  }
+
+  @Test func `no notch, no notch problem`() {
+    #expect(placement(x: 800, notch: false).visibility == .visible)
+  }
+
+  @Test func `off-screen or removed is hidden; occlusion alone is not`() {
+    // Occlusion also happens when the menu bar auto-hides in full screen.
+    #expect(placement(x: 1500, occluded: true).visibility == .visible)
+    #expect(placement(x: -40).visibility != .visible)
+    #expect(placement(x: 1500, userHidden: true).visibility != .visible)
+  }
+}
+
+struct ConnectionsTests {
+  @Test(arguments: [
+    ("https://mcp.triplejmusic.art/c14d12f694749358212013e9623b4dc0c5fcd70c6439d91d/mcp",
+     "https://mcp.triplejmusic.art/c14d…/mcp"),
+    ("http://127.0.0.1:8000/c14d12f694749358212013e9623b4dc0c5fcd70c6439d91d/mcp",
+     "http://127.0.0.1:8000/c14d…/mcp"),
+    ("https://example.com/short/mcp", "https://example.com/short/mcp"),
+    ("https://mcp.triplejmusic.art/health", "https://mcp.triplejmusic.art/health"),
+  ])
+  func `secret path segment is masked`(url: String, masked: String) {
+    #expect(maskingSecretPath(url) == masked)
+  }
+
+  @Test func `reads tunnel id and first ingress rule`() throws {
+    let yaml = """
+      # comment
+      tunnel: 44ec5053-29d3-4dca-9c65-014b4d3a586f
+      credentials-file: /Users/me/.cloudflared/44ec5053.json
+
+      ingress:
+        # 127.0.0.1, not localhost
+        - hostname: mcp.triplejmusic.art
+          service: http://127.0.0.1:8000
+        - service: http_status:404
+      """
+    let t = try #require(TunnelConfig.parse(yaml))
+    #expect(t.tunnelId == "44ec5053-29d3-4dca-9c65-014b4d3a586f")
+    #expect(t.hostname == "mcp.triplejmusic.art")
+    #expect(t.service == "http://127.0.0.1:8000")
+    #expect(TunnelConfig.parse("ingress:\n  - service: http_status:404") == nil)
+  }
+
+  @Test func `decodes worker health`() throws {
+    let json = #"{"status":"ok","version":"0.1.0","protocol":"1.0.0","agent":{"online":true,"last_seen":"2026-10-28T02:34:40.599Z","version":"0.2.0"},"queued":2}"#
+    let h = try CloudHealth.decode(Data(json.utf8))
+    #expect(h.agent.online)
+    #expect(h.queued == 2)
+    #expect(h.protocol == "1.0.0")
   }
 }
