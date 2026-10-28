@@ -63,8 +63,11 @@ impl ProcessFetcher {
                 let mut args = vec![
                     os("download"),
                     os(url.as_str()),
+                    // Relative to the child's cwd (the staging dir): spotdl
+                    // sanitises every path component of --output, which
+                    // turns ".staging" into "staging".
                     os("--output"),
-                    staging.join("{artists} - {title}.{output-ext}").into(),
+                    os("{artists} - {title}.{output-ext}"),
                     os("--format"),
                     os(&c.format),
                     os("--bitrate"),
@@ -273,7 +276,8 @@ mod tests {
             ["download", "https://open.spotify.com/track/abc123"]
         );
         let joined = a.join(" ");
-        assert!(joined.contains("--output /stage/{artists} - {title}.{output-ext}"));
+        // Relative template: run_logged sets cwd to the staging dir.
+        assert!(joined.contains("--output {artists} - {title}.{output-ext} --format"));
         assert!(joined.contains("--format mp3 --bitrate 320k --ffmpeg /opt/bin/ffmpeg"));
         assert!(!joined.contains("--client-secret"));
     }
