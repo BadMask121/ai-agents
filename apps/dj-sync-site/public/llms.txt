@@ -4,7 +4,7 @@
 
 - Price: free. No account, email or password.
 - Requirements: a Mac with macOS 14 Sonoma or later (Apple silicon or Intel) and Rekordbox 6 or 7. Windows is planned.
-- Download: https://djsync.jeffrey.build/download/DJ-Sync-1.3.0.dmg
+- Download: https://djsync.jeffrey.build/download/DJ-Sync-1.3.1.dmg
 - Works while the Mac is asleep or offline: requests wait in the DJ Sync cloud until the Mac is back.
 - Privacy: the cloud keeps links, playlist names, job results and a copy of track metadata (title, artist, album, genre, BPM, key, length). Never file paths, audio, names or emails.
 
