@@ -38,6 +38,7 @@ use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
 use crate::parser::extract_media_ref;
 use crate::rekordbox_db::RekordboxLibrary;
+use crate::toolbox::Toolbox;
 use crate::xml_versions::Versions;
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -60,6 +61,7 @@ pub struct AppState {
     library: Option<Arc<RekordboxLibrary>>,
     /// This Mac's cloud v2 identity, for `/local/links`.
     session: Option<Arc<CloudSession>>,
+    toolbox: Option<Arc<Toolbox>>,
 }
 
 impl AppState {
@@ -82,7 +84,13 @@ impl AppState {
             mcp_secret: Arc::from(""),
             library: None,
             session: None,
+            toolbox: None,
         }
+    }
+
+    pub fn with_toolbox(mut self, toolbox: Option<Arc<Toolbox>>) -> Self {
+        self.toolbox = toolbox;
+        self
     }
 
     pub fn with_session(mut self, session: Option<Arc<CloudSession>>) -> Self {
@@ -109,6 +117,8 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
         .route("/local/rekordbox/apply", post(local_apply))
         .route("/local/rekordbox/restore", post(local_restore))
         .route("/local/rekordbox/retry", post(local_retry))
+        .route("/local/toolbox", get(local_toolbox))
+        .route("/local/toolbox/install", post(local_toolbox_install))
         .route("/local/links", get(local_links).post(local_create_link))
         .route("/local/links/{id}/rotate", post(local_rotate_link))
         .route("/local/links/{id}", delete(local_delete_link))
@@ -142,6 +152,7 @@ pub async fn serve(
     jobs: JobQueue,
     library: Option<Arc<RekordboxLibrary>>,
     session: Option<Arc<CloudSession>>,
+    toolbox: Option<Arc<Toolbox>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let secret = Config::mcp_secret_path()?;
@@ -163,7 +174,8 @@ pub async fn serve(
     let mut state = AppState::new(jobs, &cfg)
         .with_api_key(api_key)
         .with_library(library)
-        .with_session(session);
+        .with_session(session)
+        .with_toolbox(toolbox);
     state.mcp_bind = addr;
     axum::serve(listener, router(state, &secret))
         .with_graceful_shutdown(async move {
@@ -550,6 +562,32 @@ fn write_runtime_file(addr: SocketAddr) {
     }
 }
 
+// ---------- toolbox ----------
+
+async fn local_toolbox(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !local_only(&headers, false) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match &state.toolbox {
+        Some(tb) => Json(json!(tb.report())).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Install or repair now (the menu app's Repair button).
+async fn local_toolbox_install(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !local_only(&headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match &state.toolbox {
+        Some(tb) => {
+            tb.request_install();
+            (StatusCode::ACCEPTED, Json(json!({ "ok": true }))).into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 // ---------- assistant links (cloud v2) ----------
 
 const LINK_KINDS: [&str; 4] = ["chatgpt", "claude", "shortcut", "other"];
@@ -560,6 +598,9 @@ fn cloud_error(e: CloudError) -> Response {
         CloudError::Incompatible(_) => StatusCode::CONFLICT,
         CloudError::Unauthorized => StatusCode::SERVICE_UNAVAILABLE,
         CloudError::Replaced | CloudError::Transient(_) => StatusCode::BAD_GATEWAY,
+        CloudError::Rejected(status, _) => {
+            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
+        }
     };
     (status, Json(json!({ "ok": false, "error": e.to_string() }))).into_response()
 }

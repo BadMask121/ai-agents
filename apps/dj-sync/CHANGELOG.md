@@ -35,6 +35,30 @@ Three things are versioned independently:
   `cloud.protocol`, `cloud.registered` and `cloud.connected`.
 - **`[cloud] protocol`** (default 2; 1 is the v1 poll, kept for rollback) and
   **`ping_secs`** (default 60).
+- **Toolbox** (`toolbox.rs`, `[toolbox]`, spec §2.4). It installs yt-dlp,
+  deno, uv, ffmpeg and spotdl (in a uv-managed Python) into
+  `~/.dj-sync/tools`.
+  - **Manifest:** signed with the release key. It comes from
+    `downloads.triplejmusic.art`, else the last verified copy, else the one
+    built in.
+  - **Downloads:** sha256-checked, smoke-tested (`--version`), then switched
+    live by an atomic `current` symlink. The previous version is kept.
+  - **yt-dlp** follows its GitHub releases daily, verified against
+    `SHA2-256SUMS`, and never downgrades.
+  - **Cloud lane** waits for the first install pass, so jobs wait in the
+    cloud rather than failing.
+  - **Local API:** `GET /local/toolbox`, `POST /local/toolbox/install`.
+  - **Tested for real:** all five tools install and run on this Mac in
+    48 s (about 390 MB once uv's cache is cleared).
+- **Defaults point at the toolbox:** tool paths, `extra_path` (deno and
+  ffmpeg) and `rekordbox_db.uv_bin`. Explicit paths in `config.toml` still
+  win. uv's Pythons and cache stay inside the toolbox.
+- **`signing.rs` + `dj-sync-sign`** (feature `release-tools`): Ed25519 keygen,
+  sign and verify for the tools manifest and the update feed. The release
+  public key is compiled in; the private key lives in
+  `~/.dj-sync-release/ed25519.key` (0600).
+- **Shortcut links** keep `api_url` and `token`. Cloud refusals (400/409, e.g.
+  `too_many_links`) reach the menu app with their status and message.
 
 ### Changed
 - **`agent_core.rs`:** the job handling both lanes share, with results kept

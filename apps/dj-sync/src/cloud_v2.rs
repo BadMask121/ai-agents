@@ -57,6 +57,9 @@ pub enum CloudError {
     Limited(String),
     /// Another connection took over this DJ's socket.
     Replaced,
+    /// The cloud refused the request itself (bad kind, too many links, …):
+    /// pass its status and message on.
+    Rejected(StatusCode, String),
     /// Offline, DNS, 5xx, …: back off and retry.
     Transient(anyhow::Error),
 }
@@ -68,6 +71,7 @@ impl std::fmt::Display for CloudError {
             CloudError::Incompatible(b) => write!(f, "incompatible cloud protocol: {b}"),
             CloudError::Limited(b) => write!(f, "over a DJ Sync limit: {b}"),
             CloudError::Replaced => write!(f, "another connection replaced this one"),
+            CloudError::Rejected(_, msg) => write!(f, "{msg}"),
             CloudError::Transient(e) => write!(f, "{e:#}"),
         }
     }
@@ -107,6 +111,11 @@ pub struct Link {
     pub last_used_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Shortcut links: the REST endpoint and its bearer token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 /// This Mac's identity with the shared Worker, shared by the lane and the
@@ -244,10 +253,11 @@ impl CloudSession {
         let mut known = self.local_links();
         known.retain(|k| links.iter().any(|l| l.id == k.id));
         for l in &mut links {
-            l.url = known
-                .iter()
-                .find(|k| k.id == l.id)
-                .and_then(|k| k.url.clone());
+            if let Some(k) = known.iter().find(|k| k.id == l.id) {
+                l.url = k.url.clone();
+                l.api_url = k.api_url.clone();
+                l.token = k.token.clone();
+            }
         }
         write_private_json(&self.links_path(), &known)?;
         Ok(links)
@@ -277,21 +287,28 @@ impl CloudSession {
             .json()
             .await
             .context("parsing rotated link")?;
-        let url = body["url"].as_str().map(String::from);
+        let text = |k: &str| body[k].as_str().map(String::from);
         let mut link = {
             let _files = self.files.lock().await;
             self.local_links().into_iter().find(|l| l.id == id)
         }
         .unwrap_or(Link {
             id: id.to_string(),
-            kind: body["kind"].as_str().unwrap_or("other").to_string(),
-            label: None,
-            created_at: None,
+            kind: text("kind").unwrap_or_else(|| "other".into()),
+            label: text("label"),
+            created_at: text("created_at"),
             last_used_at: None,
             url: None,
+            api_url: None,
+            token: None,
         });
-        link.url = url;
+        link.url = text("url");
         link.last_used_at = None;
+        // Shortcut links get a new bearer token with the new secret.
+        if let Some(token) = text("token") {
+            link.token = Some(token);
+            link.api_url = text("api_url").or(link.api_url);
+        }
         self.remember(link.clone()).await?;
         info!(link = %id, "rotated assistant link");
         Ok(link)
@@ -408,6 +425,18 @@ fn classify(status: StatusCode, body: String) -> CloudError {
             CloudError::Incompatible(snippet)
         }
         StatusCode::TOO_MANY_REQUESTS => CloudError::Limited(snippet),
+        s if s.is_client_error() => {
+            let msg = serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .or(v["error"].as_str())
+                        .map(String::from)
+                })
+                .unwrap_or(snippet);
+            CloudError::Rejected(s, msg)
+        }
         _ => CloudError::Transient(anyhow!("cloud returned {status}: {snippet}")),
     }
 }
@@ -563,6 +592,10 @@ pub async fn run_with(
             Err(CloudError::Replaced) => {
                 warn!("another connection took over this Mac's DJ Sync identity");
                 t.replaced_retry
+            }
+            Err(CloudError::Rejected(status, msg)) => {
+                warn!(%status, detail = %msg, "cloud refused the connection");
+                t.slow_retry
             }
             Err(CloudError::Transient(e)) => {
                 if offline_since.is_none() {
@@ -1158,6 +1191,15 @@ mod tests {
             classify(StatusCode::BAD_GATEWAY, String::new()),
             CloudError::Transient(_)
         ));
+        match classify(
+            StatusCode::CONFLICT,
+            r#"{"error":"too_many_links","limit":10}"#.into(),
+        ) {
+            CloudError::Rejected(s, msg) => {
+                assert_eq!((s.as_u16(), msg.as_str()), (409, "too_many_links"))
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

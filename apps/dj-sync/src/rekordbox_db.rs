@@ -478,11 +478,13 @@ impl RekordboxLibrary {
             info!(venv = %venv.display(), "creating python environment for pyrekordbox");
             run_checked(
                 Command::new(&self.cfg.uv_bin)
+                    .envs(uv_env())
                     .args(["venv", "--python", "3.12"])
                     .arg(venv),
             )?;
             run_checked(
                 Command::new(&self.cfg.uv_bin)
+                    .envs(uv_env())
                     .args(["pip", "install", "--python"])
                     .arg(&self.cfg.python)
                     .arg(format!("pyrekordbox=={}", self.cfg.pyrekordbox_version)),
@@ -619,6 +621,11 @@ pub async fn run(library: Arc<RekordboxLibrary>, mut shutdown: watch::Receiver<b
             Err(e) => error!(error = %e, "rekordbox apply task panicked"),
         }
     }
+}
+
+/// uv keeps its Pythons and cache inside the toolbox (see `toolbox.rs`).
+fn uv_env() -> Vec<(&'static str, PathBuf)> {
+    crate::toolbox::ToolPaths::new(crate::toolbox::ToolPaths::default_root()).uv_env()
 }
 
 #[cfg(test)]

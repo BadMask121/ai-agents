@@ -47,6 +47,14 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    let toolbox = if cfg.toolbox.enabled {
+        Some(dj_sync::toolbox::Toolbox::new(
+            dj_sync::toolbox::ToolPaths::new(dj_sync::toolbox::ToolPaths::default_root()),
+            Some(cfg.toolbox.manifest_url.clone()),
+        )?)
+    } else {
+        None
+    };
     let cloud_session = if cloud_enabled && !cloud_v1 {
         Some(cloud_v2::CloudSession::new(
             &cfg.cloud.base_url,
@@ -116,24 +124,40 @@ async fn main() -> anyhow::Result<()> {
         );
         let library = library.clone();
         let session = cloud_session.clone();
+        let toolbox = toolbox.clone();
         async move {
             let (true, Some(jobs)) = (http_enabled, jobs) else {
                 return Ok(());
             };
-            let r = http::serve(cfg, jobs, library, session, shutdown).await;
+            let r = http::serve(cfg, jobs, library, session, toolbox, shutdown).await;
             if r.is_err() {
                 let _ = tx.send(true);
             }
             r
         }
     };
+    let toolbox_lane = {
+        let (toolbox, shutdown) = (toolbox.clone(), shutdown_rx.clone());
+        async move {
+            match toolbox {
+                Some(tb) => dj_sync::toolbox::run(tb, shutdown).await,
+                None => Ok(()),
+            }
+        }
+    };
+
     let cloud_lane = {
         let (cloud_cfg, tx) = (cfg.cloud.clone(), shutdown_tx.clone());
         let library = library.clone();
+        let toolbox_gate = toolbox.clone();
         async move {
             let Some(jobs) = jobs else {
                 return Ok(());
             };
+            // Jobs wait in the cloud until the tools they need exist.
+            if let Some(tb) = &toolbox_gate {
+                tb.wait_first_pass().await;
+            }
             let r = match (cloud_token, cloud_session) {
                 (Some(token), _) => cloud::run(cloud_cfg, token, jobs, library, shutdown_rx).await,
                 (None, Some(session)) => {
@@ -148,7 +172,11 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let ((), http_result, cloud_result) = tokio::join!(bot_lane, http_lane, cloud_lane);
+    let ((), http_result, cloud_result, toolbox_result) =
+        tokio::join!(bot_lane, http_lane, cloud_lane, toolbox_lane);
+    if let Err(e) = toolbox_result {
+        error!(error = %format!("{e:#}"), "toolbox lane failed");
+    }
     http_result.context("http lane")?;
     cloud_result.context("cloud lane")
 }

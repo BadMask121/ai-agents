@@ -21,6 +21,27 @@ pub struct Config {
     pub cloud: CloudCfg,
     #[serde(default)]
     pub rekordbox_db: RekordboxDbCfg,
+    #[serde(default)]
+    pub toolbox: ToolboxCfg,
+}
+
+/// The toolbox installs and updates yt-dlp, deno, uv, ffmpeg and spotdl in
+/// `~/.dj-sync/tools` (see `toolbox.rs`). The download and library defaults
+/// point there; explicit paths in this file still win.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ToolboxCfg {
+    pub enabled: bool,
+    pub manifest_url: String,
+}
+
+impl Default for ToolboxCfg {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            manifest_url: crate::toolbox::MANIFEST_URL.to_string(),
+        }
+    }
 }
 
 /// Write downloads and playlist edits into Rekordbox's own library
@@ -47,7 +68,7 @@ impl Default for RekordboxDbCfg {
             enabled: false,
             db_path: home.join("Library/Pioneer/rekordbox/master.db"),
             python: home.join(".dj-sync/pyenv/bin/python"),
-            uv_bin: PathBuf::from("uv"),
+            uv_bin: tools().bin("uv", "uv"),
             pyrekordbox_version: "0.5.0".to_string(),
             keep_backups: 12,
             check_secs: 10,
@@ -177,10 +198,15 @@ impl Default for DownloadCfg {
             dir: music.join("DJ_Downloads"),
             import_xml: PathBuf::new(),
             default_playlist: "ChatGPT Downloads".to_string(),
-            spotdl_bin: PathBuf::from("spotdl"),
-            ytdlp_bin: PathBuf::from("yt-dlp"),
-            ffmpeg_bin: PathBuf::from("ffmpeg"),
-            extra_path: None,
+            spotdl_bin: tools().venv("spotdl").join("bin/spotdl"),
+            ytdlp_bin: tools().bin("yt-dlp", "yt-dlp"),
+            ffmpeg_bin: tools().bin("ffmpeg", "ffmpeg"),
+            // yt-dlp needs deno for YouTube; spotdl finds ffmpeg on PATH too.
+            extra_path: Some(format!(
+                "{}:{}",
+                tools().current_dir("deno").display(),
+                tools().current_dir("ffmpeg").display()
+            )),
             format: "mp3".to_string(),
             bitrate: "320k".to_string(),
             spotdl_use_official_api: false,
@@ -413,6 +439,11 @@ pub fn state_dir() -> anyhow::Result<PathBuf> {
     let dir = home.join(".dj-sync");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+/// The toolbox's layout (`~/.dj-sync/tools`), for path defaults.
+fn tools() -> crate::toolbox::ToolPaths {
+    crate::toolbox::ToolPaths::new(crate::toolbox::ToolPaths::default_root())
 }
 
 #[cfg(test)]
