@@ -58,3 +58,8 @@ export function json(body: unknown, status = 200, headers: Record<string, string
 export function empty(status: number, headers: Record<string, string> = {}): Response {
   return new Response(null, { status, headers });
 }
+
+/** "canonical,alias,…" for the Origin check. */
+export function publicHosts(env: { PUBLIC_HOST?: string; PUBLIC_HOST_ALIASES?: string }): string {
+  return [env.PUBLIC_HOST, env.PUBLIC_HOST_ALIASES].filter(Boolean).join(",");
+}

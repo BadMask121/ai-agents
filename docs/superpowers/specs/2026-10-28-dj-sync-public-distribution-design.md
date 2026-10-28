@@ -511,3 +511,15 @@ messages bill at 20:1)?
   - The closed beta (§6 step 3) is **dropped**. The public page went live
     directly after the owner migration, a fresh-home E2E run, and a live
     updater test (rc.1 → 1.0.0).
+- **Moved to djsync.jeffrey.build (2026-10-28),** to sit alongside the owner's
+  other apps. This supersedes decision 7.
+  - **One host** serves everything: the website, `/download/*` from R2, and
+    the cloud and MCP endpoints, which dj-sync-site passes to dj-sync-cloud
+    over a service binding.
+  - **Old hosts:** djsync.triplejmusic.art 301s to the new host.
+    mcp.triplejmusic.art and downloads.triplejmusic.art stay as aliases
+    rather than redirects, because connector URLs (POST, WebSocket) and
+    already-installed apps can't follow them.
+  - **App 1.0.1** carries each Mac's identity and saved links over to the
+    new host.
+

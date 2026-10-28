@@ -1,14 +1,24 @@
 {
-  // DJ Sync website: static files only (no Worker script), served by
-  // Cloudflare Workers static assets on djsync.triplejmusic.art.
+  // DJ Sync's one public host, djsync.jeffrey.build (src/worker.mjs): the
+  // website (static files in ./public), /download/* from R2, and the cloud
+  // endpoints passed to dj-sync-cloud over a service binding.
+  // djsync.triplejmusic.art (the launch host) is routed here too and 301s.
   "$schema": "../dj-sync-cloud/node_modules/wrangler/config-schema.json",
   "name": "dj-sync-site",
+  "main": "src/worker.mjs",
   "compatibility_date": "2026-10-20",
   "assets": {
     "directory": "./public",
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    "run_worker_first": true
   },
+  "r2_buckets": [{ "binding": "DOWNLOADS", "bucket_name": "dj-sync-downloads" }],
+  "services": [{ "binding": "CLOUD", "service": "dj-sync-cloud" }],
   "workers_dev": false,
-  "routes": [{ "pattern": "djsync.triplejmusic.art", "custom_domain": true }]
+  "routes": [
+    { "pattern": "djsync.jeffrey.build", "custom_domain": true },
+    { "pattern": "djsync.triplejmusic.art", "custom_domain": true }
+  ]
 }

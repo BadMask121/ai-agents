@@ -1,6 +1,6 @@
 # dj-sync-site
 
-The public DJ Sync website: <https://djsync.triplejmusic.art>.
+The public DJ Sync website: <https://djsync.jeffrey.build>.
 
 Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` §4.
 
@@ -9,14 +9,22 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
 - **Static files only**: plain HTML and CSS, plus one tiny script. There's no
   framework, no build step, no cookies and no analytics, and no third-party
   scripts or fonts.
-- **Hosting**: served by Cloudflare **Workers static assets** (`wrangler.jsonc`,
-  with no Worker script) on the custom domain `djsync.triplejmusic.art`. This
+- **Hosting**: a Cloudflare Worker with static assets (`wrangler.jsonc`,
+  `src/worker.mjs`) on `djsync.jeffrey.build`, DJ Sync's one public host. This
   stands in for "Cloudflare Pages" in the spec: equivalent, free, and deployable
   from the CLI.
-- **Downloads** live in the R2 bucket `dj-sync-downloads`, behind the custom
-  domain `downloads.triplejmusic.art`. Every Download button links to
-  `https://downloads.triplejmusic.art/djsync/DJ-Sync-latest.dmg`, which the
-  release pipeline in `apps/dj-sync` uploads.
+  - **Pages:** static files in `public/`.
+  - **Downloads:** `/download/<file>` comes from the R2 bucket
+    `dj-sync-downloads` (key `djsync/<file>`, uploaded by
+    `apps/dj-sync/release.sh`), with HEAD and byte ranges.
+  - **Cloud endpoints:** `/health`, `/v2/*`, `/api/downloads*`, `/agent/*`,
+    and any path ending in `/mcp` go to the `dj-sync-cloud` Worker over a
+    service binding.
+  - **Old host:** `djsync.triplejmusic.art` (the launch host) is routed here
+    and answers with a 301 to the same path.
+  - **Old downloads domain:** `downloads.triplejmusic.art` (the bucket's
+    original custom domain) keeps serving, for apps that predate the move.
+  - **Tests:** `node --test test/*.test.mjs`. No dependencies.
 
 ```
 public/
@@ -56,6 +64,6 @@ The first deploy also creates the custom domain (DNS record and certificate).
 
 ```bash
 for p in / /install/ /connect/chatgpt/ /connect/claude/ /faq/ /privacy/ /terms/; do
-  curl -s -o /dev/null -w "%{http_code} %{content_type} $p\n" "https://djsync.triplejmusic.art$p"
+  curl -s -o /dev/null -w "%{http_code} %{content_type} $p\n" "https://djsync.jeffrey.build$p"
 done
 ```

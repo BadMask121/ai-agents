@@ -13,6 +13,20 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.2.0] — 2026-10-28
+
+### Changed
+- **The canonical host is djsync.jeffrey.build** (`PUBLIC_HOST`). It's reached
+  through dj-sync-site's service binding, and new link and Shortcut URLs use
+  it.
+- **mcp.triplejmusic.art stays an alias** (`PUBLIC_HOST_ALIASES`): its route is
+  kept and its Origin is accepted. Existing connector URLs keep working, since
+  MCP clients don't reliably follow redirects on POST or WebSocket.
+
+### Added
+- **A browser opening `/` on an alias host gets a 301** to the canonical
+  website.
+
 ## [1.1.0] — 2026-10-28
 
 ### Added

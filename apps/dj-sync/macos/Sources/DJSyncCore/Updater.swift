@@ -34,8 +34,8 @@ public enum UpdateCheck: Equatable, Sendable {
 /// Checks the feed: the signature must verify against the release key, and
 /// only a strictly newer version (that this macOS can run) is offered.
 public struct UpdateFeed: Sendable {
-  public static let defaultURL = URL(string: "https://downloads.triplejmusic.art/djsync/appcast.json")!
-  public static let latestDMG = URL(string: "https://downloads.triplejmusic.art/djsync/DJ-Sync-latest.dmg")!
+  public static let defaultURL = URL(string: "https://djsync.jeffrey.build/download/appcast.json")!
+  public static let latestDMG = URL(string: "https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg")!
   /// Same key as `signing::RELEASE_PUBLIC_KEY` in dj-sync (Ed25519, base64).
   public static let releasePublicKey = "p43nEWbe6SB4Fi/vAcdi87m55M3+NQBhVpz+gjXG4L4="
 
