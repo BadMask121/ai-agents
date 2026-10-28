@@ -11,6 +11,13 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.3.3] — 2026-10-28 · friendlier messages
+
+### Changed
+- **Replies read like a person.** "Added 2 songs to "Afrobeat - Wa". Rekordbox is open, so they'll show up in your library once you close it." replaces the "track(s)" / "Rekordbox XML is now v…" wording.
+- **Queued changes land faster after you quit Rekordbox.** The check runs every 3 seconds instead of 10.
+- **The default playlist is now "DJ Sync Downloads"** (was "ChatGPT Downloads"). Existing playlists keep their names.
+
 ## [1.3.2] — 2026-10-28 · quieter installer
 
 ### Changed

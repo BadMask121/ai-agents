@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.3.3] — 2026-10-28 · friendlier messages
+
+### Changed
+- Messages from DJ Sync use plain words, and your library updates a few seconds after you quit Rekordbox.
+- The default download playlist is now "DJ Sync Downloads".
+
 ## [1.3.2] — 2026-10-28 · quieter installer
 
 ### Changed
