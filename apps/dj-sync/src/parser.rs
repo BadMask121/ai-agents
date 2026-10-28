@@ -21,11 +21,15 @@ static SPOTIFY_URL: Lazy<Regex> = Lazy::new(|| {
     .expect("static regex")
 });
 
-static SPOTIFY_URI: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"spotify:(playlist|album|track):([A-Za-z0-9]+)").expect("static regex"));
+static SPOTIFY_URI: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"spotify:(playlist|album|track):([A-Za-z0-9]+)").expect("static regex")
+});
 
 pub fn extract_spotify_ref(text: &str) -> Option<SpotifyRef> {
-    if let Some(caps) = SPOTIFY_URL.captures(text).or_else(|| SPOTIFY_URI.captures(text)) {
+    if let Some(caps) = SPOTIFY_URL
+        .captures(text)
+        .or_else(|| SPOTIFY_URI.captures(text))
+    {
         let kind = match &caps[1] {
             "playlist" => SpotifyKind::Playlist,
             "album" => SpotifyKind::Album,

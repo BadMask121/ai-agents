@@ -374,7 +374,12 @@ pub mod executor {
         let new_idx = LibraryIndex::build(&cfg.library.roots)?;
         let count = new_idx.len();
         *library.lock().await = new_idx;
-        edit(bot, reply_to, &format!("✅ rescanned — {count} tracks indexed")).await;
+        edit(
+            bot,
+            reply_to,
+            &format!("✅ rescanned — {count} tracks indexed"),
+        )
+        .await;
         Ok(None)
     }
 

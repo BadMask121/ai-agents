@@ -59,8 +59,8 @@ impl Config {
         let path = config_path()?;
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        let cfg: Config = toml::from_str(&raw)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let cfg: Config =
+            toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -77,8 +77,7 @@ impl Config {
     }
 
     pub fn telegram_bot_token() -> anyhow::Result<String> {
-        std::env::var("TELEGRAM_BOT_TOKEN")
-            .map_err(|_| anyhow!("TELEGRAM_BOT_TOKEN not set"))
+        std::env::var("TELEGRAM_BOT_TOKEN").map_err(|_| anyhow!("TELEGRAM_BOT_TOKEN not set"))
     }
 
     pub fn allowed_user_ids() -> Vec<i64> {

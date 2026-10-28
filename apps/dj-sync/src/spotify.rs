@@ -159,7 +159,12 @@ impl SpotifyClient {
             .map(|t| SpotifyTrack {
                 spotify_id: t.id.unwrap_or_default(),
                 isrc: None,
-                artist: t.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", "),
+                artist: t
+                    .artists
+                    .into_iter()
+                    .map(|a| a.name)
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 title: t.name,
                 album: album_name.clone(),
                 duration_ms: t.duration_ms.unwrap_or(0),
@@ -235,7 +240,12 @@ impl SpotifyClient {
         Ok(vec![SpotifyTrack {
             spotify_id: t.id.unwrap_or_default(),
             isrc: t.external_ids.and_then(|e| e.isrc),
-            artist: t.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", "),
+            artist: t
+                .artists
+                .into_iter()
+                .map(|a| a.name)
+                .collect::<Vec<_>>()
+                .join(", "),
             title: t.name,
             album: t.album.map(|a| a.name).unwrap_or_default(),
             duration_ms: t.duration_ms.unwrap_or(0),

@@ -6,8 +6,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use dj_sync::{
-    bot, config::Config, library::LibraryIndex, rekordbox_xml::RekordboxLib,
-    spotify::SpotifyClient,
+    bot, config::Config, library::LibraryIndex, rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
 };
 
 #[tokio::main]

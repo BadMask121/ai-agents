@@ -39,7 +39,9 @@ fn isrc_hit_takes_priority_over_fuzzy_decoy() {
         duration_ms: 320_000,
     };
     match match_one(&spotify, &lib, &cfg()) {
-        MatchResult::Hit { local, confidence, .. } => {
+        MatchResult::Hit {
+            local, confidence, ..
+        } => {
             assert_eq!(confidence, Confidence::Isrc);
             assert_eq!(local.path, PathBuf::from("/lib/a.mp3"));
         }

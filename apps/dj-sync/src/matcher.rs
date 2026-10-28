@@ -16,11 +16,7 @@ pub fn match_playlist(
         .collect()
 }
 
-pub fn match_one(
-    spotify: &SpotifyTrack,
-    library: &LibraryIndex,
-    cfg: &MatcherCfg,
-) -> MatchResult {
+pub fn match_one(spotify: &SpotifyTrack, library: &LibraryIndex, cfg: &MatcherCfg) -> MatchResult {
     if let Some(isrc) = &spotify.isrc {
         if let Some(local) = library.lookup_isrc(isrc) {
             return MatchResult::Hit {
