@@ -138,8 +138,8 @@ impl CloudSession {
             base.starts_with("https://") || base.starts_with("http://127.0.0.1"),
             "cloud.base_url must be https (got {base})"
         );
-        let creds =
-            read_json::<Credentials>(&dir.join("cloud.json")).filter(|c| c.base_url == base);
+        let creds = read_json::<Credentials>(&dir.join("cloud.json"))
+            .and_then(|c| adopt_credentials(c, &base, &dir));
         Ok(Arc::new(Self {
             http: reqwest::Client::builder()
                 .user_agent(concat!("dj-sync/", env!("CARGO_PKG_VERSION")))
@@ -407,6 +407,45 @@ impl CloudSession {
             Ok(Err(e)) => Err(CloudError::Transient(e.into())),
         }
     }
+}
+
+/// Hostnames of the same cloud (one Worker, one set of DJs): DJ Sync moved
+/// from mcp.triplejmusic.art to djsync.jeffrey.build, and both still serve.
+const SAME_CLOUD: [&str; 2] = [
+    "https://djsync.jeffrey.build",
+    "https://mcp.triplejmusic.art",
+];
+
+/// Saved credentials for `base`. Ones made on another hostname of the same
+/// cloud are carried over (and the saved link URLs re-pointed) instead of
+/// registering again, which would replace every assistant link.
+fn adopt_credentials(mut c: Credentials, base: &str, dir: &Path) -> Option<Credentials> {
+    if c.base_url == base {
+        return Some(c);
+    }
+    if !(SAME_CLOUD.contains(&c.base_url.as_str()) && SAME_CLOUD.contains(&base)) {
+        return None;
+    }
+    let old = format!("{}/", c.base_url);
+    c.base_url = base.to_string();
+    if let Err(e) = write_private_json(&dir.join("cloud.json"), &c) {
+        warn!(error = %format!("{e:#}"), "couldn't update cloud.json for the new hostname");
+    }
+    let links_path = dir.join("links.json");
+    if let Some(mut links) = read_json::<Vec<Link>>(&links_path) {
+        for l in &mut links {
+            for url in [&mut l.url, &mut l.api_url].into_iter().flatten() {
+                if let Some(rest) = url.strip_prefix(&old) {
+                    *url = format!("{base}/{rest}");
+                }
+            }
+        }
+        if let Err(e) = write_private_json(&links_path, &links) {
+            warn!(error = %format!("{e:#}"), "couldn't update links.json for the new hostname");
+        }
+    }
+    info!(from = %old.trim_end_matches('/'), to = base, "DJ Sync cloud moved hosts; kept this Mac's identity and links");
+    Some(c)
 }
 
 async fn check(res: reqwest::Response) -> Result<reqwest::Response, CloudError> {
@@ -1207,6 +1246,48 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn credentials_follow_the_cloud_to_its_new_hostname() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = Credentials {
+            base_url: "https://mcp.triplejmusic.art".into(),
+            tenant_id: "u2dDy37bIx227JDdDMLBoA".into(),
+            agent_token: "djsa_x".into(),
+        };
+        write_private_json(&tmp.path().join("cloud.json"), &old).unwrap();
+        let link = |url: &str| Link {
+            id: "l1".into(),
+            kind: "chatgpt".into(),
+            label: None,
+            created_at: None,
+            last_used_at: None,
+            url: Some(url.into()),
+            api_url: None,
+            token: None,
+        };
+        write_private_json(
+            &tmp.path().join("links.json"),
+            &vec![link(
+                "https://mcp.triplejmusic.art/u2dDy37bIx227JDdDMLBoA/s3cret/mcp",
+            )],
+        )
+        .unwrap();
+
+        let new =
+            adopt_credentials(old.clone(), "https://djsync.jeffrey.build", tmp.path()).unwrap();
+        assert_eq!(new.tenant_id, old.tenant_id, "same DJ, no re-registration");
+        assert_eq!(new.base_url, "https://djsync.jeffrey.build");
+        let saved: Credentials = read_json(&tmp.path().join("cloud.json")).unwrap();
+        assert_eq!(saved, new);
+        let links: Vec<Link> = read_json(&tmp.path().join("links.json")).unwrap();
+        assert_eq!(
+            links[0].url.as_deref(),
+            Some("https://djsync.jeffrey.build/u2dDy37bIx227JDdDMLBoA/s3cret/mcp")
+        );
+        // A different cloud's credentials are never reused.
+        assert!(adopt_credentials(old, "https://other.example", tmp.path()).is_none());
     }
 
     #[test]

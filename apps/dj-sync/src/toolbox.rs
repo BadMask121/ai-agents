@@ -30,7 +30,7 @@ use tracing::{info, warn};
 
 use crate::signing;
 
-pub const MANIFEST_URL: &str = "https://downloads.triplejmusic.art/djsync/tools-manifest.json";
+pub const MANIFEST_URL: &str = "https://djsync.jeffrey.build/download/tools-manifest.json";
 const EMBEDDED_MANIFEST: &str = include_str!("../toolbox/manifest.json");
 const MAX_DOWNLOAD_BYTES: u64 = 400 * 1024 * 1024;
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(15 * 60);

@@ -28,7 +28,7 @@ ai_budget_per_playlist = 20
 enabled = false
 # Keep this on 127.0.0.1 — Cloudflare Tunnel is the only public way in.
 bind = "127.0.0.1:8000"
-public_base_url = "https://mcp.triplejmusic.art"
+public_base_url = "https://djsync.jeffrey.build"
 
 [download]
 # Every key is optional; these are the defaults (~ is expanded).
@@ -65,5 +65,5 @@ keep_versions = 100
 # ~/.dj-sync/.env (the same value as the Worker's AGENT_TOKEN secret).
 [cloud]
 enabled = false
-base_url = "https://mcp.triplejmusic.art"
+base_url = "https://djsync.jeffrey.build"
 poll_secs = 15

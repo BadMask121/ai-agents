@@ -39,13 +39,14 @@ import { apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
 import { normalizePlaylistName, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
 import { LINK_KINDS, SqlStore, type LinkKind, type LinkRow, type SqlDb } from "./sqlstore";
-import { addSeconds, empty, json, timingSafeEqual } from "./util";
+import { addSeconds, empty, json, publicHosts, timingSafeEqual } from "./util";
 
 export interface TenantEnv {
   REGISTRY?: DurableObjectNamespace;
   DEFAULT_PLAYLIST?: string;
   MAX_URLS?: string;
   PUBLIC_HOST?: string;
+  PUBLIC_HOST_ALIASES?: string;
 }
 
 /** What survives hibernation on the Mac's socket (≤ 16 KB). */
@@ -105,7 +106,7 @@ export class Tenant extends DurableObject<TenantEnv> {
       config: {
         defaultPlaylist: this.env.DEFAULT_PLAYLIST || "ChatGPT Downloads",
         maxUrls: Number.parseInt(this.env.MAX_URLS ?? "", 10) || 25,
-        publicHost: this.env.PUBLIC_HOST || "",
+        publicHost: publicHosts(this.env),
       },
       admit: async () => {
         if ((await store.countQueued()) >= MAX_QUEUED_JOBS) {
@@ -287,12 +288,12 @@ export class Tenant extends DurableObject<TenantEnv> {
   }
 
   private linkUrl(store: SqlStore, secret: string): string {
-    return `https://${this.env.PUBLIC_HOST || "mcp.triplejmusic.art"}/${store.meta("tenant_id")}/${secret}/mcp`;
+    return `https://${this.env.PUBLIC_HOST || "djsync.jeffrey.build"}/${store.meta("tenant_id")}/${secret}/mcp`;
   }
 
   /** A new link's credentials: the URL (and, for the Shortcut, its bearer). Shown once. */
   private secretView(store: SqlStore, link: LinkRow, secret: string) {
-    const host = this.env.PUBLIC_HOST || "mcp.triplejmusic.art";
+    const host = this.env.PUBLIC_HOST || "djsync.jeffrey.build";
     return {
       ...linkView(link),
       url: this.linkUrl(store, secret),

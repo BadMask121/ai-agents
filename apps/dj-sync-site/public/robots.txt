@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://djsync.triplejmusic.art/sitemap.xml
+Sitemap: https://djsync.jeffrey.build/sitemap.xml

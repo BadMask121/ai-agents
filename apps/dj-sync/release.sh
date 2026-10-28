@@ -2,7 +2,8 @@
 # Cut a DJ Sync release (spec §4): build the universal, signed app, package
 # the DMG (first install) and zip (updates), sign the update feed and the
 # tools manifest with the release key, upload everything to R2
-# (downloads.triplejmusic.art/djsync/), and tag the commit.
+# (served as djsync.jeffrey.build/download/, and as the older
+# downloads.triplejmusic.art/djsync/ for apps from before the move), and tag.
 #
 #   ./release.sh            build, package, sign, upload, tag
 #   ./release.sh --dry-run  everything except upload and tag
@@ -18,7 +19,7 @@ DRY=0; [[ "${1:-}" == "--dry-run" ]] && DRY=1
 
 BUCKET="dj-sync-downloads"
 PREFIX="djsync"
-BASE_URL="https://downloads.triplejmusic.art/$PREFIX"
+BASE_URL="https://djsync.jeffrey.build/download"
 WRANGLER="$HERE/../dj-sync-cloud/node_modules/.bin/wrangler"
 
 die() { echo "release: $*" >&2; exit 1; }
@@ -72,7 +73,7 @@ cat > "$STAGE/If macOS blocks DJ Sync.html" <<HTML
 <li>Open <b>System Settings → Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b> next to DJ Sync.</li>
 <li>Confirm with your password or Touch ID. You won't be asked again; updates install themselves.</li>
 </ol>
-<p>Step-by-step pictures: <a href="https://djsync.triplejmusic.art/install/">djsync.triplejmusic.art/install</a></p>
+<p>Step-by-step pictures: <a href="https://djsync.jeffrey.build/install/">djsync.jeffrey.build/install</a></p>
 </body>
 HTML
 DMG="$OUT/DJ-Sync-$VERSION.dmg"

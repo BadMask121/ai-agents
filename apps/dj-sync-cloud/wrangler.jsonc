@@ -54,7 +54,10 @@
   "vars": {
     "DEFAULT_PLAYLIST": "ChatGPT Downloads",
     "MAX_URLS": "25",
-    "PUBLIC_HOST": "mcp.triplejmusic.art",
+    // Canonical host since 2026-10-28 (served through dj-sync-site's service
+    // binding); mcp.triplejmusic.art stays an alias for existing connectors.
+    "PUBLIC_HOST": "djsync.jeffrey.build",
+    "PUBLIC_HOST_ALIASES": "mcp.triplejmusic.art",
     // Migration (spec §3.9), done 2026-10-28: the owner's Mac is on protocol 2
     // as this tenant (an id, not a secret), and the legacy MCP secret path and
     // Shortcut key now reach it.

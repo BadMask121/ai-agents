@@ -11,6 +11,17 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.0.1] — 2026-10-28
+
+### Changed
+- **DJ Sync lives at djsync.jeffrey.build.** It's the cloud default, and the
+  tools manifest is now `https://djsync.jeffrey.build/download/tools-manifest.json`.
+  The release feed and downloads are under `/download/`.
+- **mcp.triplejmusic.art still serves the same cloud.** A Mac whose
+  `cloud.json` names it keeps its identity on the new host: `cloud.json` and
+  the saved link URLs are re-pointed (`adopt_credentials`). It is never
+  re-registered, which would have replaced every assistant link.
+
 ## [1.0.0] — 2026-10-28 · first public release
 
 ### Added

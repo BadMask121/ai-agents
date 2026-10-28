@@ -1,6 +1,6 @@
 {
   "name": "@ai-agents/dj-sync-cloud",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Cloudflare Worker + D1 queue in front of dj-sync: accepts ChatGPT MCP / iOS Shortcut download requests while the DJ laptop is offline; the laptop polls and drains it.",

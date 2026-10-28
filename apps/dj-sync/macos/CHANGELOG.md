@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.0.1] — 2026-10-28
+- **Updates come from djsync.jeffrey.build** (`/download/appcast.json`). The
+  DMG fallback link uses the same host. Older apps still find this release
+  through `downloads.triplejmusic.art`, which serves the same files.
+
 ## [1.0.0] — 2026-10-28 · first public release
 - **Released as DJ Sync 1.0.0.** It's one download at
   djsync.triplejmusic.art, and the app updates itself from now on.

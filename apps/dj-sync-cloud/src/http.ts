@@ -42,7 +42,8 @@ export async function mcpPost(
  * DNS-rebinding guard from the MCP spec: browsers always send Origin, so a
  * present-but-foreign one is refused. ChatGPT's backend normally sends none.
  */
-export function originAllowed(origin: string | null, publicHost: string): boolean {
+/** `publicHosts`: our own hostname(s), comma-separated (canonical first, then aliases). */
+export function originAllowed(origin: string | null, publicHosts: string): boolean {
   if (origin === null) return true;
   let host: string;
   try {
@@ -54,7 +55,12 @@ export function originAllowed(origin: string | null, publicHost: string): boolea
     ["localhost", "127.0.0.1", "[::1]", "chatgpt.com", "chat.openai.com"].includes(host) ||
     host.endsWith(".chatgpt.com") ||
     host.endsWith(".openai.com") ||
-    host === publicHost.toLowerCase()
+    publicHosts
+      .toLowerCase()
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean)
+      .includes(host)
   );
 }
 

@@ -102,7 +102,7 @@ impl Default for CloudCfg {
     fn default() -> Self {
         Self {
             enabled: true,
-            base_url: "https://mcp.triplejmusic.art".to_string(),
+            base_url: "https://djsync.jeffrey.build".to_string(),
             protocol: 2,
             poll_secs: 15,
             ping_secs: 60,
