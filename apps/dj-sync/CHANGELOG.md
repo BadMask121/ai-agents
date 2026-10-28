@@ -11,6 +11,12 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.3.2] — 2026-10-28 · quieter installer
+
+### Changed
+- First-run setup no longer lists each tool (deno, ffmpeg, uv, yt-dlp, spotdl); it
+  shows just the progress bar and the current step.
+
 ## [1.3.1] — 2026-10-28 · app icon
 
 ### Changed

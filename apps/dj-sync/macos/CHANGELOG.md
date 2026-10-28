@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.3.2] — 2026-10-28 · quieter installer
+
+### Changed
+- **The installer shows progress only.** The per-tool checklist (deno, ffmpeg,
+  uv, yt-dlp, spotdl) is gone from first-run setup; you see the progress bar and
+  what's installing now.
+
 ## [1.3.1] — 2026-10-28 · app icon
 
 ### Fixed

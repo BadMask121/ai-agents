@@ -199,20 +199,6 @@ private struct ToolsStep: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        VStack(alignment: .leading, spacing: 3) {
-          ForEach(report.all) { tool in
-            HStack(spacing: 6) {
-              Image(systemName: tool.ready ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(tool.ready ? .green : .secondary)
-              Text(tool.name)
-              Spacer(minLength: 8)
-              Text(tool.displayVersion ?? "…")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            }
-            .font(.callout)
-          }
-        }
         if let error = report.error, !report.installing, !report.allReady {
           Banner(text: error)
           Button("Try Again", action: model.repairTools)
