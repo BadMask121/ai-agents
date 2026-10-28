@@ -55,6 +55,7 @@ final class MenuModel {
   let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
   /// A restore or apply is in progress.
   private(set) var libraryBusy = false
+  private(set) var uninstalling = false
   private let library = LibraryClient()
 
   private let settings = SettingsFile.standard
@@ -362,6 +363,67 @@ final class MenuModel {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
       note("Diagnostics copied, with secrets masked. Paste them into your message to support.")
+    }
+  }
+
+  // MARK: Uninstall
+
+  /// Ask, run `dj-sync uninstall`, then move this app to the Bin and quit
+  /// (uninstaller spec §1.3). On failure the app stays, showing what's left.
+  func uninstall() {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Uninstall DJ Sync?"
+    var info = """
+      This stops DJ Sync, removes its tools and settings, and asks the DJ Sync cloud to forget \
+      this Mac, so ChatGPT, Claude, iPhone and Telegram stop reaching it.
+
+      Your music and Rekordbox library stay as they are.
+      """
+    let waiting = status?.rekordboxDb?.pending.count ?? 0
+    if waiting > 0 {
+      info += "\n\n\(waiting == 1 ? "1 change" : "\(waiting) changes") waiting for Rekordbox to close will be dropped."
+    }
+    alert.informativeText = info
+    let keep = NSButton(
+      checkboxWithTitle: "Keep my library backups (Music › DJ Sync Backups)", target: nil, action: nil)
+    keep.state = .on
+    alert.accessoryView = keep
+    alert.addButton(withTitle: "Uninstall").hasDestructiveAction = true
+    alert.addButton(withTitle: "Cancel")
+    NSApp.activate()
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    guard let helper = Uninstaller.helper() else {
+      actionError = "Couldn't find DJ Sync's background service to run the uninstall."
+      return
+    }
+    let keepBackups = keep.state == .on
+    uninstalling = true
+    actionError = nil
+    Task {
+      let outcome = await Uninstaller.run(helper: helper, keepBackups: keepBackups)
+      guard outcome.ok else {
+        uninstalling = false
+        let failed = NSAlert()
+        failed.alertStyle = .critical
+        failed.messageText = "DJ Sync couldn't remove everything"
+        failed.informativeText = outcome.output
+        NSApp.activate()
+        failed.runModal()
+        return
+      }
+      UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.triplejmusic.dj-sync.menu")
+      let binned = (try? await NSWorkspace.shared.recycle([Bundle.main.bundleURL])) != nil
+      let done = NSAlert()
+      done.messageText = "DJ Sync is removed"
+      done.informativeText = [
+        keepBackups ? "Your library backups are in Music › DJ Sync Backups." : nil,
+        "Your music and Rekordbox library are as they were.",
+        binned ? nil : "Drag DJ Sync from Applications to the Bin to finish.",
+      ].compactMap { $0 }.joined(separator: " ")
+      NSApp.activate()
+      done.runModal()
+      NSApp.terminate(nil)
     }
   }
 

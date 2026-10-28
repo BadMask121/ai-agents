@@ -42,7 +42,7 @@ use crate::rekordbox_db::RekordboxLibrary;
 /// the agent relies on. Must stay in step with the Worker's.
 pub const AGENT_PROTOCOL_V2: &str = "2.0.0";
 
-const TENANT_HEADER: &str = "x-dj-sync-tenant";
+pub(crate) const TENANT_HEADER: &str = "x-dj-sync-tenant";
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;

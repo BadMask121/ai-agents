@@ -19,6 +19,10 @@ use tracing::warn;
 pub struct Settings {
     #[serde(default)]
     pub download_dir: Option<PathBuf>,
+    /// Where the menu app lives, written at every launch. The service stops
+    /// itself once it's been gone a while (`uninstall::watch_app`).
+    #[serde(default)]
+    pub app_path: Option<PathBuf>,
 }
 
 impl Settings {

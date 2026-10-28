@@ -932,10 +932,17 @@ private struct AboutCard: View {
         }
       }
       .controlSize(.small)
-      Button("Copy Diagnostics", action: model.copyDiagnostics)
-        .buttonStyle(.borderless)
-        .font(.caption)
-        .help("Versions, tool states and recent errors, with every secret masked, for support")
+      HStack {
+        Button("Copy Diagnostics", action: model.copyDiagnostics)
+          .help("Versions, tool states and recent errors, with every secret masked, for support")
+        Spacer()
+        Button(model.uninstalling ? "Uninstalling…" : "Uninstall DJ Sync…", role: .destructive, action: model.uninstall)
+          .foregroundStyle(.red)
+          .disabled(model.uninstalling)
+          .help("Remove DJ Sync from this Mac. Your music and Rekordbox library stay.")
+      }
+      .buttonStyle(.borderless)
+      .font(.caption)
     }
   }
 

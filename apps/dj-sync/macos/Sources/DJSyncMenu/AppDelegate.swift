@@ -43,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Install (or update) the background service this app carries, then
   /// show onboarding on a fresh Mac, or the panel when opened by hand.
   private func startUp() async {
+    // Where this app lives: dj-sync stops itself once it's been deleted.
+    do {
+      try SettingsFile.standard.recordAppPath(Bundle.main.bundleURL)
+    } catch {
+      log.error("couldn't record the app's path: \(error.localizedDescription, privacy: .public)")
+    }
     let outcome = await ServiceInstaller().ensureInstalled()
     log.notice("service install: \(String(describing: outcome), privacy: .public)")
     if case .failed(let why) = outcome {

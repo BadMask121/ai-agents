@@ -57,26 +57,26 @@ dj-sync uninstall [--delete-backups]
 
 ### 1.2 Steps, in order
 
-1. **Forget the cloud.**
+1. **Stop the service.** This step comes first because a running service that
+   the cloud forgets re-registers on its next 401, which writes a brand-new
+   `cloud.json` mid-uninstall.
+   - Delete `~/Library/LaunchAgents/com.triplejmusic.dj-sync.plist`.
+   - Run `launchctl bootout gui/<uid>/com.triplejmusic.dj-sync`; "not
+     loaded" is fine.
+2. **Forget the cloud.**
    - If `~/.dj-sync/cloud.json` exists, call `DELETE {base_url}/v2/agent`
      with the agent credentials (§2).
    - 204 and 404 both count as done.
-   - A network error or 5xx gives the warning "the cloud couldn't be reached;
-     it deletes this Mac's data after 90 days" and the uninstall continues.
+   - Any other answer, or a network error, gives a warning ("the cloud deletes
+     this Mac's data after 90 days without use") and the uninstall continues.
    - Timeout: 10 s.
-2. **Library backups.**
+3. **Library backups.**
    - **Kept (the default):** move `~/.dj-sync/rekordbox-backups` to
-     `~/Music/DJ Sync Backups/`, and write `How to restore.txt` there (quit
-     Rekordbox, copy the `.db` over
-     `~/Library/Pioneer/rekordbox/master.db`).
+     `~/Music/DJ Sync Backups/`, and write `How to restore.txt` there.
      - If `DJ Sync Backups` already exists, the move goes into
        `DJ Sync Backups/<YYYY-MM-DD HHMM>/` instead.
      - A move across volumes falls back to copy, then delete.
    - **`--delete-backups`:** delete them.
-3. **Stop the service.**
-   - Delete `~/Library/LaunchAgents/com.triplejmusic.dj-sync.plist`.
-   - Run `launchctl bootout gui/<uid>/com.triplejmusic.dj-sync`; "not
-     loaded" is fine.
 4. **Delete `~/.dj-sync`.** This covers `bin/` (the running binary too: on
    macOS an unlinked binary keeps running), `tools/`, `pyenv/`, `config.toml`,
    `settings.json`, `cloud.json`, `links.json`, `runtime.json`, the pending
@@ -147,7 +147,11 @@ runner, so tests can use fakes, as `RekordboxLibrary`'s `Helper` does today.
 ## 3. Watchdog: the service stops itself if the app is deleted
 
 - **`app_path`.** On every launch the menu app writes its bundle path into
-  `settings.json` as `app_path`, through `SettingsFile`; other keys are kept.
+  `settings.json` as `app_path`, through `SettingsFile.recordAppPath`; other
+  keys are kept.
+  - **Not recorded:** temporary locations that vanish when the app quits, such
+    as the installer disk image (`/Volumes/…`) and macOS App Translocation (an
+    app opened straight from Downloads).
 - **Check.** Once a minute, the service sees whether `app_path` exists.
   - **Stop:** when it has been missing for **10 consecutive minutes**, the
     service:
