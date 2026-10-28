@@ -35,8 +35,9 @@ public_base_url = "https://mcp.triplejmusic.art"
 dir = "~/Music/DJ_Downloads"
 # Leave unset to write to whatever Rekordbox → Preferences → Advanced →
 # Database → rekordbox xml → Imported Library already points at (read from
-# Rekordbox's settings), so Rekordbox needs no setup. A file already there that
-# dj-sync didn't create is copied once to <file>.pre-dj-sync.bak first.
+# Rekordbox's settings), so Rekordbox needs no setup. Every state dj-sync
+# writes — and whatever was there before it — is kept as a semver snapshot in
+# <file>.versions/ (see docs/dj-sync/40-chatgpt-mcp-design.md).
 # If Rekordbox has nothing set, this falls back to ~/Music/rekordbox_import.xml.
 # import_xml = "~/Music/rekordbox_import.xml"
 default_playlist = "ChatGPT Downloads"
@@ -55,3 +56,14 @@ bitrate = "320k"
 spotdl_use_official_api = false
 job_timeout_secs = 1800
 max_urls_per_job = 25
+# Semver snapshots of the import XML to keep (every X.0.0 baseline is kept too).
+keep_versions = 100
+
+# ---- Cloud queue (optional) ----
+# Poll the dj-sync-cloud Worker so ChatGPT requests sent while this Mac was
+# offline or asleep run as soon as it's back. Needs CLOUD_AGENT_TOKEN in
+# ~/.dj-sync/.env (the same value as the Worker's AGENT_TOKEN secret).
+[cloud]
+enabled = false
+base_url = "https://mcp.triplejmusic.art"
+poll_secs = 15

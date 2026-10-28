@@ -1,5 +1,6 @@
 pub mod ai_assist;
 pub mod bot;
+pub mod cloud;
 pub mod config;
 pub mod downloader;
 pub mod http;
@@ -14,6 +15,7 @@ pub mod rekordbox;
 pub mod rekordbox_xml;
 pub mod spotify;
 pub mod usb;
+pub mod xml_versions;
 
 use std::path::{Path, PathBuf};
 

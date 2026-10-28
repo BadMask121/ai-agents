@@ -29,7 +29,6 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::config::Config;
-use crate::downloader::ProcessFetcher;
 use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
 use crate::parser::extract_media_ref;
@@ -92,19 +91,20 @@ pub fn router(state: AppState, secret: &str) -> Router {
         .with_state(state)
 }
 
-/// Run the HTTP lane until `shutdown` flips. Owns the download queue, so
-/// this is the only writer of the import XML; binding the port is what
-/// stops a second dj-sync from starting.
-pub async fn serve(cfg: Config, mut shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
+/// Run the HTTP lane until `shutdown` flips. Jobs go to the shared queue
+/// built in `main` (the only writer of the import XML).
+pub async fn serve(
+    cfg: Config,
+    jobs: JobQueue,
+    mut shutdown: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
     let secret = Config::mcp_secret_path()?;
     let api_key = Config::shortcut_api_key()?;
-    let fetcher = ProcessFetcher::from_config(&cfg.download)?;
-    let (jobs, _worker) = JobQueue::start(cfg.download.clone(), fetcher)?;
 
     let addr: SocketAddr = cfg.mcp.bind;
     let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .with_context(|| format!("binding {addr} — is another dj-sync already running?"))?;
+        .with_context(|| format!("binding {addr}"))?;
     info!(
         %addr,
         downloads = %cfg.download.dir.display(),

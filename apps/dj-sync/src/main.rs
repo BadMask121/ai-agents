@@ -6,8 +6,8 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use dj_sync::{
-    bot, config, config::Config, http, library::LibraryIndex, rekordbox_xml::RekordboxLib,
-    spotify::SpotifyClient,
+    bot, cloud, config, config::Config, downloader::ProcessFetcher, http, jobs::JobQueue,
+    library::LibraryIndex, rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
 };
 
 #[tokio::main]
@@ -34,18 +34,40 @@ async fn main() -> anyhow::Result<()> {
 
     let bot_enabled = Config::telegram_bot_token().is_ok();
     let http_enabled = cfg.mcp.enabled;
-    if !bot_enabled && !http_enabled {
-        bail!("nothing to run: set TELEGRAM_BOT_TOKEN and/or `[mcp] enabled = true`");
+    let cloud_enabled = cfg.cloud.enabled;
+    if !bot_enabled && !http_enabled && !cloud_enabled {
+        bail!("nothing to run: set TELEGRAM_BOT_TOKEN, `[mcp] enabled = true` and/or `[cloud] enabled = true`");
     }
+    // Fail fast on lane config so launchd's log says why.
+    let cloud_token = if cloud_enabled {
+        Some(Config::cloud_agent_token()?)
+    } else {
+        None
+    };
+
+    // One download queue shared by the HTTP and cloud lanes. It is the only
+    // writer of the import XML, so only one dj-sync may run it at a time.
+    let (jobs, _instance_lock) = if http_enabled || cloud_enabled {
+        let lock = acquire_instance_lock()?;
+        let fetcher = ProcessFetcher::from_config(&cfg.download)?;
+        let (jobs, _worker) = JobQueue::start(cfg.download.clone(), fetcher)?;
+        (Some(jobs), Some(lock))
+    } else {
+        (None, None)
+    };
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    tokio::spawn(async move {
-        wait_for_shutdown_signal().await;
-        info!("shutting down");
-        let _ = shutdown_tx.send(true);
-    });
+    let shutdown_tx = Arc::new(shutdown_tx);
+    {
+        let tx = shutdown_tx.clone();
+        tokio::spawn(async move {
+            wait_for_shutdown_signal().await;
+            info!("shutting down");
+            let _ = tx.send(true);
+        });
+    }
 
-    // Lanes are independent: a bot failure must not take the HTTP lane down.
+    // Lanes are independent: a bot failure must not take the others down.
     let bot_lane = {
         let (cfg, shutdown) = (cfg.clone(), shutdown_rx.clone());
         async move {
@@ -58,18 +80,68 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
-    let http_lane = async move {
-        if http_enabled {
-            http::serve(cfg, shutdown_rx).await
-        } else {
-            Ok(())
+    // HTTP or cloud lane failing is fatal: stop everything so launchd sees a
+    // non-zero exit instead of a half-running process.
+    let http_lane = {
+        let (cfg, jobs, shutdown, tx) = (
+            cfg.clone(),
+            jobs.clone(),
+            shutdown_rx.clone(),
+            shutdown_tx.clone(),
+        );
+        async move {
+            let (true, Some(jobs)) = (http_enabled, jobs) else {
+                return Ok(());
+            };
+            let r = http::serve(cfg, jobs, shutdown).await;
+            if r.is_err() {
+                let _ = tx.send(true);
+            }
+            r
+        }
+    };
+    let cloud_lane = {
+        let (cloud_cfg, tx) = (cfg.cloud.clone(), shutdown_tx.clone());
+        async move {
+            let (Some(token), Some(jobs)) = (cloud_token, jobs) else {
+                return Ok(());
+            };
+            let r = cloud::run(cloud_cfg, token, jobs, shutdown_rx).await;
+            if r.is_err() {
+                let _ = tx.send(true);
+            }
+            r
         }
     };
 
-    let ((), http_result) = tokio::join!(bot_lane, http_lane);
-    // The HTTP lane failing (e.g. port already taken) is fatal so launchd
-    // sees a non-zero exit instead of a half-running process.
-    http_result
+    let ((), http_result, cloud_result) = tokio::join!(bot_lane, http_lane, cloud_lane);
+    http_result.context("http lane")?;
+    cloud_result.context("cloud lane")
+}
+
+/// Exclusive lock on ~/.dj-sync/dj-sync.lock for the life of the process,
+/// so a second dj-sync (e.g. `cargo run` while launchd's copy is up) can't
+/// run a competing download worker.
+fn acquire_instance_lock() -> anyhow::Result<std::fs::File> {
+    let path = config::state_dir()?.join("dj-sync.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            bail!(
+                "another dj-sync is already running ({} is locked)",
+                path.display()
+            )
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            Err(e).with_context(|| format!("locking {}", path.display()))
+        }
+    }
 }
 
 async fn run_bot_lane(cfg: Config, shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {

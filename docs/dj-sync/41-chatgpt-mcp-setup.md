@@ -232,9 +232,12 @@ dj-sync reads Rekordbox's own settings
   import_xml` is unset, dj-sync writes to the file this setting points at, so
   Rekordbox picks it up without any changes. The log shows the choice:
   *"import_xml: using Rekordbox's Imported Library path"*.
-  - **Existing file there that dj-sync didn't create:** it's copied once to
-    `<file>.pre-dj-sync.bak` before the first write. dj-sync keeps its tracks
-    and playlists but drops cue/beatgrid data it doesn't model.
+  - **Existing file there that dj-sync didn't create:** it's kept as the
+    baseline snapshot `<file>.versions/<stem>.v1.0.0.xml` before the first
+    write. Every later state gets its own semver snapshot: MINOR for a new
+    playlist, PATCH for added tracks, MAJOR for an outside edit. dj-sync keeps
+    the file's tracks and playlists but drops cue/beatgrid data it doesn't
+    model, and the snapshots still have it.
   - **That file is your bot's `rekordbox.xml_path` export:** dj-sync won't
     adopt it, and falls back to `~/Music/rekordbox_import.xml`.
 - **The rekordbox xml tree** (`showRbXml`) must be visible in the browser.

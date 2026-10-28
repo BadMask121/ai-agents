@@ -6,7 +6,7 @@
 //! existing tracks and playlists, but attributes we don't model are dropped.
 //! Don't point this at Rekordbox's own collection export.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -210,38 +210,10 @@ impl ImportDoc {
         Ok(format!("{XML_DECL}{body}\n"))
     }
 
-    /// If `path` holds a file dj-sync didn't create (e.g. something Rekordbox's
-    /// Imported Library already pointed at), copy it once to
-    /// `<name>.pre-dj-sync.bak` before we ever rewrite it. Returns the backup
-    /// path when one was made. An existing backup is never overwritten, so it
-    /// always holds the true original.
-    pub fn backup_foreign(path: &Path) -> anyhow::Result<Option<PathBuf>> {
-        let raw = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-        };
-        if raw.trim().is_empty() {
-            return Ok(None);
-        }
-        let ours = Self::parse(&raw).is_ok_and(|d| d.doc.product.name == PRODUCT_NAME);
-        let backup = path.with_extension("xml.pre-dj-sync.bak");
-        if ours || backup.exists() {
-            return Ok(None);
-        }
-        std::fs::copy(path, &backup)
-            .with_context(|| format!("backing up {} -> {}", path.display(), backup.display()))?;
-        Ok(Some(backup))
-    }
-
     /// Write via a temp file + rename so Rekordbox never sees a half-written
-    /// file; the previous version is kept as `<name>.bak`.
+    /// file. Earlier versions are kept by `xml_versions`, not here.
     pub fn save_atomic(&self, path: &Path) -> anyhow::Result<()> {
         let xml = self.to_xml()?;
-        if path.exists() {
-            std::fs::copy(path, path.with_extension("xml.bak"))
-                .with_context(|| format!("backing up {}", path.display()))?;
-        }
         let tmp = path.with_extension("xml.tmp");
         std::fs::write(&tmp, xml).with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
@@ -450,7 +422,10 @@ mod tests {
         assert_eq!(doc.upsert_playlist("Thursday", &[b.clone(), c.clone()]), 1);
         doc.upsert_playlist("Friday", std::slice::from_ref(&c));
         doc.save_atomic(&path).unwrap();
-        assert!(dir.path().join("rekordbox_import.xml.bak").exists());
+        assert!(
+            !dir.path().join("rekordbox_import.xml.bak").exists(),
+            "history lives in xml_versions, not a rolling .bak"
+        );
 
         let doc = ImportDoc::load_or_new(&path).unwrap();
         assert_eq!(doc.track_count(), 3);
@@ -503,53 +478,6 @@ mod tests {
             xml.contains(r#"Name="Some Upload (Official Audio)""#),
             "{xml}"
         );
-    }
-
-    #[test]
-    fn foreign_file_is_backed_up_once_and_ours_never() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("rekordbox.xml");
-        let backup = dir.path().join("rekordbox.xml.pre-dj-sync.bak");
-
-        assert_eq!(
-            ImportDoc::backup_foreign(&path).unwrap(),
-            None,
-            "missing file"
-        );
-
-        let original = r#"<?xml version="1.0" encoding="UTF-8"?>
-<DJ_PLAYLISTS Version="1.0.0">
-  <PRODUCT Name="rekordbox" Version="7.2.11" Company="AlphaTheta"/>
-  <COLLECTION Entries="1">
-    <TRACK TrackID="9" Name="Old" Location="file://localhost/m/old.mp3"/>
-  </COLLECTION>
-  <PLAYLISTS><NODE Type="0" Name="ROOT" Count="1">
-    <NODE Name="Mine" Type="1" KeyType="0" Entries="1"><TRACK Key="9"/></NODE>
-  </NODE></PLAYLISTS>
-</DJ_PLAYLISTS>"#;
-        std::fs::write(&path, original).unwrap();
-        assert_eq!(
-            ImportDoc::backup_foreign(&path).unwrap(),
-            Some(backup.clone())
-        );
-        assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
-
-        // Later writes don't replace the original backup.
-        let mut doc = ImportDoc::load_or_new(&path).unwrap();
-        doc.upsert_track(&meta("/m/new.mp3", "New", ""), "d", "");
-        doc.save_atomic(&path).unwrap();
-        assert_eq!(ImportDoc::backup_foreign(&path).unwrap(), None);
-        assert_eq!(std::fs::read_to_string(&backup).unwrap(), original);
-        // And adopting it kept the existing track and playlist.
-        let doc = ImportDoc::load_or_new(&path).unwrap();
-        assert_eq!(doc.track_count(), 2);
-        assert_eq!(doc.playlist_len("Mine"), Some(1));
-
-        // A file dj-sync created is never "foreign".
-        let ours = dir.path().join("ours.xml");
-        ImportDoc::new().save_atomic(&ours).unwrap();
-        assert_eq!(ImportDoc::backup_foreign(&ours).unwrap(), None);
-        assert!(!dir.path().join("ours.xml.pre-dj-sync.bak").exists());
     }
 
     #[test]

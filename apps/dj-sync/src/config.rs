@@ -17,6 +17,28 @@ pub struct Config {
     pub mcp: McpCfg,
     #[serde(default)]
     pub download: DownloadCfg,
+    #[serde(default)]
+    pub cloud: CloudCfg,
+}
+
+/// Cloud lane: poll the Cloudflare Worker queue (apps/dj-sync-cloud) so
+/// ChatGPT requests made while this Mac was offline still get processed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CloudCfg {
+    pub enabled: bool,
+    pub base_url: String,
+    pub poll_secs: u64,
+}
+
+impl Default for CloudCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: "https://mcp.triplejmusic.art".to_string(),
+            poll_secs: 15,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,6 +120,8 @@ pub struct DownloadCfg {
     pub spotdl_use_official_api: bool,
     pub job_timeout_secs: u64,
     pub max_urls_per_job: usize,
+    /// Semver snapshots of the import XML to keep (every X.0.0 is kept too).
+    pub keep_versions: usize,
 }
 
 impl Default for DownloadCfg {
@@ -116,6 +140,7 @@ impl Default for DownloadCfg {
             spotdl_use_official_api: false,
             job_timeout_secs: 1800,
             max_urls_per_job: 25,
+            keep_versions: 100,
         }
     }
 }
@@ -242,6 +267,15 @@ impl Config {
             Ok(k) => Ok(Some(k.trim().to_string())),
             Err(_) => Ok(None),
         }
+    }
+
+    /// Bearer token the cloud lane presents to the Worker's /agent/* routes.
+    pub fn cloud_agent_token() -> anyhow::Result<String> {
+        std::env::var("CLOUD_AGENT_TOKEN")
+            .ok()
+            .filter(|t| t.trim().len() >= 24)
+            .map(|t| t.trim().to_string())
+            .ok_or_else(|| anyhow!("CLOUD_AGENT_TOKEN not set (or shorter than 24 chars)"))
     }
 
     pub fn allowed_user_ids() -> Vec<i64> {

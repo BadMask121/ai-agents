@@ -48,7 +48,7 @@ read-only Rekordbox browser are unchanged. The download lane is opt-in
 | spotdl for Spotify, yt-dlp for YouTube | spotdl treats a plain YouTube URL as a *search string*. yt-dlp is the right tool for YouTube. |
 | lofty, not `id3` | Rekordbox wants `TotalTime`, `BitRate` and `SampleRate`. lofty reads those (and handles m4a/flac/wav), and the crate already used it. |
 | Own Location encoder | Rekordbox escapes only space, `" % & ' [ ]` and non-ASCII (lowercase hex), and leaves `# ? ( ) , + ! $ ; @` raw. Generic URL libraries disagree. The old parser cut paths off at `?` and `#`. All 10,781 Locations of a real 7.2.11 export round-trip byte for byte (`tests/location_roundtrip.rs`). |
-| Write to Rekordbox's own *Imported Library* path | dj-sync reads `bridgeImportedLibraryFile` from Rekordbox's settings, so Rekordbox needs no setup. A file it didn't create is backed up once (`.pre-dj-sync.bak`). It never adopts the bot's collection export, and falls back to `~/Music/rekordbox_import.xml`. It never touches Rekordbox's database. A rewrite keeps every track and playlist but drops attributes we don't model. |
+| Write to Rekordbox's own *Imported Library* path | dj-sync reads `bridgeImportedLibraryFile` from Rekordbox's settings, so Rekordbox needs no setup. Whatever is already there is kept as snapshot `v1.0.0` before the first write. It never adopts the bot's collection export, and falls back to `~/Music/rekordbox_import.xml`. It never touches Rekordbox's database. A rewrite keeps every track and playlist but drops attributes we don't model. |
 | Optional iOS Shortcut + bearer REST | This is a fallback in case custom MCP plugins don't work in the ChatGPT mobile app, and it's quicker when no chat is needed. |
 
 ## Components
@@ -107,8 +107,9 @@ Accepted links are rebuilt in a canonical form (`parser::extract_media_ref`):
    - each track is upserted by its *decoded* Location (so an existing file keeps
      its TrackID);
    - the playlist is upserted under ROOT (only missing IDs are appended);
-   - the file is saved atomically: `.tmp` → rename, with the previous version
-     kept as `.bak`.
+   - the file is saved atomically (`.tmp` → rename) and snapshotted as the
+     next semver version (see *Versioned snapshots*). A job that adds nothing
+     new doesn't write and doesn't create a version.
 6. The staging directory is removed.
 7. The job ends `done` if at least one track landed, otherwise `failed`. A job
    where everything failed leaves the XML untouched.
@@ -116,6 +117,28 @@ Accepted links are rebuilt in a canonical form (`parser::extract_media_ref`):
 Jobs are kept in memory (the last 50). A restart forgets job history, and any
 leftover staging is cleared at startup. Files and XML entries already written
 stay put.
+
+## Versioned snapshots (semver)
+
+Every state of the import XML is kept in `<file>.versions/<stem>.vX.Y.Z.xml`,
+next to the file. For example, `~/Library/rekordbox/rekordbox/rekordbox.xml.versions/rekordbox.v1.2.0.xml`.
+Each snapshot is plain Rekordbox XML, so you can import it or copy it back to
+restore that version.
+
+| Bump | When | Example |
+|---|---|---|
+| **MAJOR** | The library changed underneath dj-sync: the first time a file is seen (an existing original, or the empty file dj-sync creates, becomes `1.0.0`), or the file no longer matches the latest snapshot because something else edited it. That outside version is snapshotted *before* dj-sync writes. | `1.4.2` → edited in another tool → `2.0.0` |
+| **MINOR** | A job created a new playlist. | `1.0.0` → `1.1.0` |
+| **PATCH** | A job only added tracks to existing playlists. | `1.1.0` → `1.1.1` |
+
+- **No-op jobs:** a job that changes nothing creates no version.
+- **Immutable:** snapshots are never overwritten.
+- **Retention:** the newest `download.keep_versions` (default 100) are kept,
+  plus every `X.0.0`.
+- **Where it shows:** job status reports the version (`xml_version`), and the
+  completion message says *"Rekordbox XML is now vX.Y.Z"*.
+
+This replaces the earlier rolling `.bak` and the one-time `.pre-dj-sync.bak`.
 
 ## Security model
 

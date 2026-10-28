@@ -19,6 +19,7 @@ use crate::config::DownloadCfg;
 use crate::downloader::Fetcher;
 use crate::import_xml::ImportDoc;
 use crate::library::{is_audio_file, read_meta};
+use crate::xml_versions::{Bump, Versions};
 use crate::{unique_name, MediaRef};
 
 const KEEP_JOBS: usize = 50;
@@ -69,6 +70,8 @@ pub struct JobStatus {
     pub tracks: Vec<JobTrack>,
     pub errors: Vec<JobError>,
     pub message: String,
+    /// Semver of the import XML after this job (see `xml_versions`).
+    pub xml_version: Option<String>,
 }
 
 struct Entry {
@@ -103,15 +106,7 @@ impl JobQueue {
         cfg.prepare()?;
         // Jobs don't survive a restart, so anything still staged is debris.
         let _ = std::fs::remove_dir_all(cfg.dir.join(".staging"));
-        if cfg.import_xml.exists() {
-            if let Some(backup) = ImportDoc::backup_foreign(&cfg.import_xml)? {
-                info!(
-                    original = %cfg.import_xml.display(),
-                    backup = %backup.display(),
-                    "backed up the existing import xml before dj-sync writes to it"
-                );
-            }
-        } else {
+        if !cfg.import_xml.exists() {
             if let Some(parent) = cfg.import_xml.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -119,6 +114,14 @@ impl JobQueue {
                 .save_atomic(&cfg.import_xml)
                 .context("creating empty import xml")?;
             info!(path = %cfg.import_xml.display(), "created rekordbox import xml");
+        }
+        // Snapshot whatever is there now (an adopted original, or an outside
+        // edit since the last run) before any job writes to it.
+        let version = Versions::for_xml(&cfg.import_xml, cfg.keep_versions)
+            .reconcile(&cfg.import_xml)
+            .context("snapshotting import xml")?;
+        if let Some(v) = version {
+            info!(path = %cfg.import_xml.display(), version = %v, "import xml version");
         }
 
         let (tx, rx) = mpsc::channel(QUEUE_CAPACITY);
@@ -167,6 +170,7 @@ impl JobQueue {
             tracks: Vec::new(),
             errors: Vec::new(),
             message: "Queued.".into(),
+            xml_version: None,
         };
         self.tx
             .try_send(job_id.clone())
@@ -291,15 +295,20 @@ async fn worker<F: Fetcher>(
         update(&store, &job_id, |s| {
             s.finished_at = Some(now_rfc3339());
             match outcome {
-                Ok(JobOutcome { tracks, errors }) => {
+                Ok(JobOutcome {
+                    tracks,
+                    errors,
+                    xml_version,
+                }) => {
                     s.state = if tracks.is_empty() {
                         JobState::Failed
                     } else {
                         JobState::Done
                     };
-                    s.message = summary(&tracks, &errors, &playlist);
+                    s.message = summary(&tracks, &errors, &playlist, xml_version.as_deref());
                     s.tracks = tracks;
                     s.errors = errors;
+                    s.xml_version = xml_version;
                 }
                 Err(e) => {
                     s.state = JobState::Failed;
@@ -311,7 +320,12 @@ async fn worker<F: Fetcher>(
     }
 }
 
-fn summary(tracks: &[JobTrack], errors: &[JobError], playlist: &str) -> String {
+fn summary(
+    tracks: &[JobTrack],
+    errors: &[JobError],
+    playlist: &str,
+    xml_version: Option<&str>,
+) -> String {
     let mut msg = if tracks.is_empty() {
         "No tracks were downloaded.".to_string()
     } else {
@@ -324,12 +338,22 @@ fn summary(tracks: &[JobTrack], errors: &[JobError], playlist: &str) -> String {
     if !errors.is_empty() {
         msg.push_str(&format!(" {} link(s) failed — see errors.", errors.len()));
     }
+    if let (false, Some(v)) = (tracks.is_empty(), xml_version) {
+        msg.push_str(&format!(" Rekordbox XML is now v{v}."));
+    }
     msg
 }
 
 struct JobOutcome {
     tracks: Vec<JobTrack>,
     errors: Vec<JobError>,
+    xml_version: Option<String>,
+}
+
+struct Finalized {
+    tracks: Vec<JobTrack>,
+    errors: Vec<JobError>,
+    xml_version: Option<String>,
 }
 
 /// One link's staging dir, and whether its downloader exited cleanly.
@@ -378,7 +402,7 @@ async fn run_job<F: Fetcher>(
     let cfg = cfg.clone();
     let playlist = playlist.to_string();
     let staging_root = staging.clone();
-    let (tracks, mut file_errors) = tokio::task::spawn_blocking(move || {
+    let finalized = tokio::task::spawn_blocking(move || {
         let result = finalize(&cfg, &staged, &playlist);
         if let Err(e) = std::fs::remove_dir_all(&staging_root) {
             warn!(dir = %staging_root.display(), error = %e, "could not remove staging dir");
@@ -392,16 +416,16 @@ async fn run_job<F: Fetcher>(
     .await
     .context("finalize task panicked")??;
 
-    errors.append(&mut file_errors);
-    Ok(JobOutcome { tracks, errors })
+    errors.extend(finalized.errors);
+    Ok(JobOutcome {
+        tracks: finalized.tracks,
+        errors,
+        xml_version: finalized.xml_version,
+    })
 }
 
 /// Move staged audio into the download dir, read tags, and upsert the XML.
-fn finalize(
-    cfg: &DownloadCfg,
-    staged: &[Staged],
-    playlist: &str,
-) -> anyhow::Result<(Vec<JobTrack>, Vec<JobError>)> {
+fn finalize(cfg: &DownloadCfg, staged: &[Staged], playlist: &str) -> anyhow::Result<Finalized> {
     let mut placed = Vec::new();
     let mut errors = Vec::new();
 
@@ -432,11 +456,20 @@ fn finalize(
     }
 
     if placed.is_empty() {
-        return Ok((Vec::new(), errors));
+        return Ok(Finalized {
+            tracks: Vec::new(),
+            errors,
+            xml_version: None,
+        });
     }
 
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let versions = Versions::for_xml(&cfg.import_xml, cfg.keep_versions);
+    // Catch outside edits since startup before we overwrite them.
+    let base = versions.reconcile(&cfg.import_xml)?;
     let mut doc = ImportDoc::load_or_new(&cfg.import_xml)?;
+    let tracks_before = doc.track_count();
+    let playlist_existed = doc.playlist_len(playlist).is_some();
     let mut ids = Vec::new();
     let mut tracks = Vec::new();
     for (url, meta, reused) in &placed {
@@ -452,10 +485,27 @@ fn finalize(
             already_downloaded: *reused,
         });
     }
-    doc.upsert_playlist(playlist, &ids);
-    doc.save_atomic(&cfg.import_xml)
-        .with_context(|| format!("saving {}", cfg.import_xml.display()))?;
-    Ok((tracks, errors))
+    let appended = doc.upsert_playlist(playlist, &ids);
+    let bump = if !playlist_existed {
+        Some(Bump::Minor)
+    } else if appended > 0 || doc.track_count() > tracks_before {
+        Some(Bump::Patch)
+    } else {
+        None // everything was already there
+    };
+    let xml_version = match bump {
+        Some(bump) => {
+            doc.save_atomic(&cfg.import_xml)
+                .with_context(|| format!("saving {}", cfg.import_xml.display()))?;
+            Some(versions.record(&cfg.import_xml, base, bump)?)
+        }
+        None => base,
+    };
+    Ok(Finalized {
+        tracks,
+        errors,
+        xml_version: xml_version.map(|v| v.to_string()),
+    })
 }
 
 /// Audio files directly in `dir`, sorted by name (spotdl downloads in
@@ -663,6 +713,86 @@ mod tests {
         assert_ne!(a.job.job_id, c2.job.job_id);
         assert_eq!(c2.position, 1);
         assert_eq!(q.recent(5)[0].job_id, c2.job.job_id, "newest first");
+    }
+
+    #[tokio::test]
+    async fn every_write_is_a_semver_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let c = cfg(tmp.path());
+        let versions = crate::xml_versions::Versions::for_xml(&c.import_xml, 100);
+        let (q, _w) = JobQueue::start(c.clone(), FakeFetcher).unwrap();
+        let listed =
+            || -> Vec<String> { versions.list().iter().map(|(v, _)| v.to_string()).collect() };
+        assert_eq!(listed(), ["1.0.0"], "the empty file is the baseline");
+
+        let run = |links: &'static [&'static str], playlist: &'static str| {
+            let q = q.clone();
+            async move {
+                let s = q.submit(media(links), Some(playlist)).unwrap();
+                wait_done(&q, &s.job.job_id).await
+            }
+        };
+
+        // New playlist → MINOR.
+        let a = run(&["https://open.spotify.com/track/one1"], "Fri").await;
+        assert_eq!(a.xml_version.as_deref(), Some("1.1.0"));
+        assert!(
+            a.message.contains("Rekordbox XML is now v1.1.0"),
+            "{}",
+            a.message
+        );
+        // Tracks added to an existing playlist → PATCH.
+        let b = run(&["https://open.spotify.com/track/two2"], "Fri").await;
+        assert_eq!(b.xml_version.as_deref(), Some("1.1.1"));
+        // Nothing new → no write, no version.
+        let c2 = run(&["https://open.spotify.com/track/two2"], "Fri").await;
+        assert_eq!(c2.xml_version.as_deref(), Some("1.1.1"));
+        assert_eq!(listed(), ["1.0.0", "1.1.0", "1.1.1"]);
+
+        // An outside edit is preserved as the next MAJOR before the next write.
+        let mut edited = std::fs::read_to_string(&c.import_xml).unwrap();
+        edited = edited.replace("Name=\"Fri\"", "Name=\"Friday (renamed in Rekordbox)\"");
+        std::fs::write(&c.import_xml, &edited).unwrap();
+        let d = run(&["https://open.spotify.com/track/thr3"], "Sat").await;
+        assert_eq!(d.xml_version.as_deref(), Some("2.1.0"));
+        assert_eq!(listed(), ["1.0.0", "1.1.0", "1.1.1", "2.0.0", "2.1.0"]);
+        let v2 = versions
+            .list()
+            .into_iter()
+            .find(|(v, _)| v.to_string() == "2.0.0")
+            .unwrap()
+            .1;
+        assert_eq!(std::fs::read_to_string(v2).unwrap(), edited);
+        // The renamed playlist survived our write.
+        let lib = RekordboxLib::load(&c.import_xml).unwrap();
+        assert!(lib.lookup("Friday (renamed in Rekordbox)").is_some());
+        assert!(lib.lookup("Sat").is_some());
+    }
+
+    #[tokio::test]
+    async fn existing_file_is_adopted_as_baseline_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let c = cfg(tmp.path());
+        std::fs::create_dir_all(c.import_xml.parent().unwrap()).unwrap();
+        let original = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.11" Company="AlphaTheta"/>
+  <COLLECTION Entries="0"/>
+  <PLAYLISTS><NODE Type="0" Name="ROOT" Count="1">
+    <NODE Name="Mine" Type="1" KeyType="0" Entries="0"/>
+  </NODE></PLAYLISTS>
+</DJ_PLAYLISTS>"#;
+        std::fs::write(&c.import_xml, original).unwrap();
+        let (_q, _w) = JobQueue::start(c.clone(), FakeFetcher).unwrap();
+        let versions = crate::xml_versions::Versions::for_xml(&c.import_xml, 100);
+        let (v, path) = versions.latest().unwrap();
+        assert_eq!(v.to_string(), "1.0.0");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        assert_eq!(
+            std::fs::read_to_string(&c.import_xml).unwrap(),
+            original,
+            "startup doesn't write"
+        );
     }
 
     #[test]
