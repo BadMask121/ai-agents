@@ -57,6 +57,7 @@ Follow these in sequence. Each file is short and focused.
 11. [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md) — step-by-step setup: spotdl / yt-dlp, launchd, Cloudflare Tunnel, Rekordbox, ChatGPT, iOS Shortcut
 12. [42-cloud-queue.md](42-cloud-queue.md) — Cloudflare Worker + D1 queue so ChatGPT requests made while the Mac is offline still run; semver for the Worker, the agent protocol and the XML
 13. [43-rekordbox-library.md](43-rekordbox-library.md) — writing into Rekordbox's own library (master.db) with semver backups and restore; ChatGPT playlist tools (list, search, create, add, remove, rename, delete)
+14. [Distribution spec](../superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md) — how any DJ installs it for free: no accounts, one Durable Object per DJ, a toolbox that installs the downloaders, self-updates, the website
 
 Files marked _(deferred)_ are placeholders — the architecture is locked in `01` / `02` / `03`; the per-component docs land as we build each module.
 

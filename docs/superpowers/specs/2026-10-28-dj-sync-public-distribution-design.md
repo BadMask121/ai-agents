@@ -483,3 +483,26 @@ messages bill at 20:1)?
 - **Support contact** for the site and Terms: an email address, or a form.
 - **Workers Paid.** Turn it on ($5/mo) when `/v2/stats` shows more than about 1,500
   active DJs a day.
+
+## 9. Changes made during the build (2026-10-28)
+
+- **Release key file.** The Ed25519 release key lives in
+  `~/.dj-sync-release/ed25519.key` (0600, owner backs it up) instead of the
+  keychain, which avoids keychain prompts in `release.sh`. It sits next to the
+  "DJ Sync Release" certificate backup (`dj-sync-release.p12` and its password
+  file).
+- **The certificate stays untrusted.** It isn't marked trusted in macOS, so
+  `security find-identity -v` hides it. `codesign -s "DJ Sync Release"` still
+  signs with it, and the designated requirement anchors on its root hash.
+- **Worker tests.** They use a `node:sqlite` Durable Object harness plus a
+  workerd smoke test instead of `@cloudflare/vitest-pool-workers`, which would
+  have meant a vitest major upgrade.
+- **Socket refusals.** The Worker refuses sockets after the upgrade, with an
+  `error` frame plus the close code (§3.4 allowed either). `ack` carries
+  `result`. Shortcut links also return `api_url` and `token`.
+- **Website hosting.** The site is served by Cloudflare Workers static assets on
+  a custom domain rather than Pages. It's equally free and deploys from the CLI.
+- **Library refresh.** After a playlist change is acked, the Mac re-shares the
+  library immediately (skipping the once-a-minute limit), so an assistant can
+  act on a playlist it just created.
+

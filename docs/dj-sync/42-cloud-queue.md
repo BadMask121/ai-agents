@@ -1,5 +1,12 @@
 # 42 — Cloud queue (works while the Mac is offline)
 
+> **Superseded 2026-10-28 by agent protocol 2.0.0 (Worker 1.0.0).** The cloud
+> is now one Durable Object per DJ, and each Mac self-registers and holds a
+> hibernating WebSocket instead of polling. Protocol v1 (this document's
+> `/agent/*` routes) is retired and returns 410; the owner's legacy URL and
+> Shortcut key forward to their tenant. See the [distribution spec](../superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md) §3
+> and `apps/dj-sync-cloud/README.md`. The text below describes v1.
+
 **Status:** live 2026-10-28 (bd epic `ai-agents-jff.3`).
 - **Worker:** [`apps/dj-sync-cloud`](../../apps/dj-sync-cloud/) (0.2.0, agent protocol 1.1.0).
 - **Mac side:** `apps/dj-sync/src/cloud.rs` (dj-sync 0.8.0).

@@ -31,6 +31,14 @@ also turned down tunnels and inbound webhooks. This lane deliberately does both:
   stream. YouTube links go to yt-dlp. Both go against Spotify's and YouTube's
   terms of service. This is a **personal-use** tool for one DJ's own prep.
   Don't share the endpoint, and buy the tracks you actually play out.
+  *Amended 2026-10-28:* DJ Sync is now distributed publicly, with downloads
+  on by default.
+  - Each DJ runs the tools on their own Mac, fetched from the tools' official
+    sources.
+  - The cloud never carries audio.
+  - The Terms make each DJ responsible for their rights to the music.
+
+  See the [distribution spec](../superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md).
 - **It adds an inbound HTTPS endpoint.** ChatGPT can only call remote MCP
   servers over HTTPS, so a Cloudflare Tunnel exposes `127.0.0.1:8000` as
   `https://mcp.triplejmusic.art`.

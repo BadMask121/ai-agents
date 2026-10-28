@@ -49,6 +49,11 @@ Revisit this only if a future feature needs sub-second user→bot reaction time,
 
 ## Single-tenant by design
 
+> **Amended 2026-10-28.** For the public release the **cloud** became
+> multi-tenant, with one Durable Object per DJ and nothing shared between them.
+> Each **Mac** and the Telegram bot stay single-user. See the
+> [distribution spec](../superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md) §3.
+
 - Bot enforces a hardcoded allow-list of Telegram user IDs (typically just yours).
 - No "share this playlist with a friend" feature. If that becomes interesting, fork the binary — don't add multi-tenant code paths to the v1.
 - This keeps the security surface tiny: there is no "permission" concept to get wrong.
