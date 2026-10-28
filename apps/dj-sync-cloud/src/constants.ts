@@ -1,5 +1,5 @@
 /** Semver of this Worker. Keep in sync with package.json (a test checks it). */
-export const WORKER_VERSION = "0.2.0";
+export const WORKER_VERSION = "1.0.0";
 
 /**
  * Semver of the agent API the Mac polls. A Mac is compatible when it has the
@@ -9,6 +9,13 @@ export const WORKER_VERSION = "0.2.0";
 export const AGENT_PROTOCOL = "1.1.0";
 /** Agent protocol MINOR that understands library snapshots and library jobs. */
 export const LIBRARY_PROTOCOL_MINOR = 1;
+
+/**
+ * Agent protocol 2: one WebSocket per Mac to its own Tenant Durable Object
+ * (GET /v2/agent). Same compatibility rule as protocol 1. Protocol 1 above
+ * keeps serving /agent/* until V1_RETIRED.
+ */
+export const AGENT_PROTOCOL_V2 = "2.0.0";
 
 /** Newest first; the first is what we offer when the client asks for something else. */
 export const SUPPORTED_MCP_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
@@ -30,3 +37,40 @@ export const AGENT_ONLINE_SECONDS = 120;
 export const RETENTION_DAYS = 30;
 export const RECENT_JOBS = 5;
 export const MAX_ACTIVE_IDS = 100;
+
+// ---------- protocol 2: per-DJ tenants (spec §3) ----------
+
+/** gzip'd library upload (PUT /v2/agent/library). */
+export const MAX_LIBRARY_GZIP_BYTES = 8 * 1024 * 1024;
+/** Decompressed cap, so a small gzip bomb can't exhaust memory. */
+export const MAX_LIBRARY_JSON_BYTES = 64 * 1024 * 1024;
+/** Library snapshot BLOB rows (SQLite rows max out at 2 MB). */
+export const LIBRARY_CHUNK_BYTES = 1024 * 1024;
+
+export const MAX_QUEUED_JOBS = 50;
+export const MAX_JOBS_PER_DAY = 200;
+export const MAX_MCP_CALLS_PER_HOUR = 600;
+export const MAX_LINKS = 10;
+export const MAX_LINK_LABEL = 60;
+/** Agent reconnects per hour before the socket is refused with 4029. */
+export const MAX_AGENT_CONNECTS_PER_HOUR = 120;
+/** `last_used_at` is rewritten at most this often (rows written are metered). */
+export const LINK_TOUCH_SECONDS = 3600;
+
+export const REGISTRATIONS_PER_IP_PER_DAY = 5;
+export const REGISTRATIONS_PER_DAY = 5000;
+export const INACTIVE_TENANT_DAYS = 90;
+/**
+ * The weekly inactivity sweep's cron (must match wrangler.jsonc); any other
+ * cron is the daily v1 retention. Lives here because every export of the
+ * entry module must be a handler or class.
+ */
+export const SWEEP_CRON = "41 4 * * 1";
+/** Tenants purged per Registry sweep step (DO subrequest budget on Free). */
+export const SWEEP_BATCH = 40;
+
+/** WebSocket close codes (agent protocol 2). */
+export const CLOSE_UNAUTHORIZED = 4001;
+export const CLOSE_INCOMPATIBLE = 4009;
+export const CLOSE_REPLACED = 4010;
+export const CLOSE_OVER_LIMITS = 4029;

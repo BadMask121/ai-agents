@@ -14,7 +14,7 @@
 import { AGENT_PROTOCOL, LEASE_SECONDS, LIBRARY_PROTOCOL_MINOR, MAX_ACTIVE_IDS, WORKER_VERSION } from "./constants";
 import type { Deps } from "./jobs";
 import { parseSemver, protocolCompatible, type SemVer } from "./semver";
-import type { JobError, JobResult, JobTrack, LibPlaylist, LibTrack } from "./store";
+import type { JobError, JobResult, JobRow, JobTrack, LibPlaylist, LibTrack } from "./store";
 import { addSeconds, json, timingSafeEqual } from "./util";
 
 export const PROTOCOL_HEADER = "x-dj-sync-agent-protocol";
@@ -97,28 +97,30 @@ export async function poll(body: unknown, protocol: SemVer, deps: Deps): Promise
   let job = null;
   if (canClaim) {
     const claimed = await deps.store.claimNext(now.toISOString(), leaseUntil, understandsLibrary(protocol));
-    if (claimed) {
-      job =
-        claimed.kind === "library"
-          ? {
-              job_id: claimed.id,
-              kind: claimed.kind,
-              playlist: claimed.playlist,
-              urls: [],
-              attempt: claimed.attempts,
-              ops: claimed.ops ?? [],
-              summary: claimed.summary ?? "",
-            }
-          : {
-              job_id: claimed.id,
-              kind: claimed.kind,
-              playlist: claimed.playlist,
-              urls: claimed.urls,
-              attempt: claimed.attempts,
-            };
-    }
+    if (claimed) job = claimedJobView(claimed);
   }
   return json({ worker_version: WORKER_VERSION, protocol: AGENT_PROTOCOL, library_wanted: libraryWanted, job });
+}
+
+/** A claimed job as the Mac receives it (v1 poll and the v2 `job` frame). */
+export function claimedJobView(claimed: JobRow) {
+  return claimed.kind === "library"
+    ? {
+        job_id: claimed.id,
+        kind: claimed.kind,
+        playlist: claimed.playlist,
+        urls: [] as string[],
+        attempt: claimed.attempts,
+        ops: claimed.ops ?? [],
+        summary: claimed.summary ?? "",
+      }
+    : {
+        job_id: claimed.id,
+        kind: claimed.kind,
+        playlist: claimed.playlist,
+        urls: claimed.urls,
+        attempt: claimed.attempts,
+      };
 }
 
 /** The Mac's Rekordbox library (playlists + tracks), for ChatGPT to browse. */
@@ -147,7 +149,7 @@ export async function uploadLibrary(
   return json({ ok: true, playlists: parsed.playlists.length, tracks: parsed.tracks.length });
 }
 
-interface Snapshot {
+export interface Snapshot {
   hash: string;
   generated_at: string;
   library_version: string | null;
@@ -158,7 +160,7 @@ interface Snapshot {
 const strOrNull = (v: unknown) => (typeof v === "string" ? v : null);
 const numOrNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-function parseLibrary(body: unknown): Snapshot | string {
+export function parseLibrary(body: unknown): Snapshot | string {
   if (!isObj(body)) return "expected a JSON object";
   const { hash, generated_at, library_version = null, playlists, tracks } = body;
   if (typeof hash !== "string" || hash === "") return "hash must be a non-empty string";
@@ -210,13 +212,13 @@ export async function complete(jobId: string, body: unknown, deps: Deps): Promis
   return json({ ok: true });
 }
 
-interface Completion {
+export interface Completion {
   state: "done" | "failed";
   message: string;
   result: JobResult;
 }
 
-function parseCompletion(body: unknown): Completion | string {
+export function parseCompletion(body: unknown): Completion | string {
   if (!isObj(body)) return "expected a JSON object";
   const { state, message, tracks = [], errors = [], xml_version = null, library_version = null } = body;
   if (state !== "done" && state !== "failed") return 'state must be "done" or "failed"';

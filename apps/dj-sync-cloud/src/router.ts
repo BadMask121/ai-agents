@@ -1,61 +1,125 @@
-// Routes (port of apps/dj-sync/src/http.rs plus the agent API):
-//   GET  /health                     — public liveness + Mac online state
-//   POST /<MCP_SECRET_PATH>/mcp      — MCP (Streamable HTTP, JSON responses)
-//   POST /api/downloads              — iOS Shortcut (Bearer SHORTCUT_API_KEY)
-//   GET  /api/downloads/{id}
-//   POST /agent/poll                 — the Mac (Bearer AGENT_TOKEN, see agent.ts)
-//   POST /agent/library              — the Mac's Rekordbox library snapshot (≤16 MB)
-//   POST /agent/jobs/{id}/complete
-//   anything else                    — 404
-// The secret path is the MCP credential, so nothing here logs URLs.
+// Routes. Protocol 2 (spec §3.3) routes to per-DJ Tenant Durable Objects;
+// protocol 1 (D1, one DJ) keeps working until V1_RETIRED="true".
+//
+//   GET  /health                          public liveness (no per-DJ data once v1 is retired)
+//   POST /v2/register                     new DJ (rate-limited in the Registry)
+//   GET  /v2/agent  (WebSocket)           the Mac: Bearer agent_token + X-DJ-Sync-Tenant
+//   PUT  /v2/agent/library                ″  gzip'd library snapshot
+//   GET|POST /v2/agent/links, POST /v2/agent/links/{id}/rotate, DELETE /v2/agent/links/{id}
+//   POST /<tenant_id>/<link_secret>/mcp   MCP for one DJ
+//   POST /api/downloads, GET /api/downloads/{id}   Bearer <tenant_id>.<link_secret> (shortcut link)
+//   GET  /v2/stats                        Bearer ADMIN_TOKEN
+//   — protocol 1 —
+//   POST /<MCP_SECRET_PATH>/mcp, /api/downloads (Bearer SHORTCUT_API_KEY): D1, or the
+//        LEGACY_TENANT_ID DJ once retired
+//   POST /agent/poll | /agent/library | /agent/jobs/{id}/complete: D1, or 410 once retired
+//   anything else                         404
+// URLs hold secrets, so nothing here logs them. Credentials are verified in
+// the Durable Object against stored hashes; the Worker only routes.
 
-import { PROTOCOL_HEADER, complete, gate, poll, uploadLibrary } from "./agent";
+import { PROTOCOL_HEADER, VERSION_HEADER, complete, gate, poll, uploadLibrary } from "./agent";
+import { AGENT_TOKEN, LINK_SECRET, TENANT_ID } from "./bytes";
 import {
   AGENT_PROTOCOL,
+  AGENT_PROTOCOL_V2,
+  CLOSE_UNAUTHORIZED,
   MAX_BODY_BYTES,
   MAX_LIBRARY_BYTES,
-  SUPPORTED_MCP_VERSIONS,
+  MAX_LIBRARY_GZIP_BYTES,
   WORKER_VERSION,
 } from "./constants";
-import { agentStatus, jobView, offlineNote, submit, type Deps } from "./jobs";
-import { extractMediaRef, linkIn, type MediaRef } from "./links";
-import { dispatch, parseError } from "./mcp";
+import { apiStatus, apiSubmit, bearer, mcpPost, readJson, unauthorized } from "./http";
+import { agentStatus, type Deps } from "./jobs";
+import { parseSemver, protocolCompatible } from "./semver";
 import { empty, json, timingSafeEqual, validSecretPath } from "./util";
 
 export interface Secrets {
   MCP_SECRET_PATH?: string;
   AGENT_TOKEN?: string;
   SHORTCUT_API_KEY?: string;
+  /** Bearer for GET /v2/stats. */
+  ADMIN_TOKEN?: string;
+  /** "true" once the owner's Mac is on protocol 2 (spec §3.9). */
+  V1_RETIRED?: string;
+  /** The tenant the legacy secret path and Shortcut key reach after retirement. */
+  LEGACY_TENANT_ID?: string;
+}
+
+export interface Namespaces {
+  TENANT: DurableObjectNamespace;
+  REGISTRY: DurableObjectNamespace;
 }
 
 const MCP_PATH = /^\/([^/]+)\/mcp$/;
+const V2_MCP_PATH = /^\/([A-Za-z0-9_-]{22})\/([A-Za-z0-9_-]{43})\/mcp$/;
+const V2_SHORTCUT_BEARER = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
 const API_JOB_PATH = /^\/api\/downloads\/([^/]+)$/;
 const AGENT_COMPLETE_PATH = /^\/agent\/jobs\/([^/]+)\/complete$/;
+const V2_LINK_PATH = /^\/v2\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate)?$/;
+const TENANT_HEADER = "x-dj-sync-tenant";
+const WORKER_PROTOCOL_V2 = parseSemver(AGENT_PROTOCOL_V2)!;
 
-export async function route(req: Request, secrets: Secrets, deps: Deps): Promise<Response> {
-  const url = new URL(req.url);
-  const path = url.pathname;
+/** Headers a Tenant may see; everything else (including any x-djs-*) is dropped. */
+const FORWARDED = [
+  "content-type",
+  "content-encoding",
+  "origin",
+  "mcp-protocol-version",
+  "upgrade",
+  "connection",
+  "sec-websocket-key",
+  "sec-websocket-version",
+  "sec-websocket-protocol",
+  "sec-websocket-extensions",
+  PROTOCOL_HEADER,
+  VERSION_HEADER,
+];
 
-  if (path === "/health" && req.method === "GET") return health(deps);
+export async function route(req: Request, secrets: Secrets, deps: Deps, ns?: Namespaces): Promise<Response> {
+  const path = new URL(req.url).pathname;
+  const retired = secrets.V1_RETIRED === "true";
+
+  if (path === "/health" && req.method === "GET") return health(deps, retired);
+
+  if (ns) {
+    const v2 = await routeV2(req, path, secrets, ns);
+    if (v2) return v2;
+  }
+
+  // ---------- protocol 1 ----------
+  const legacyTenant = retired && ns && TENANT_ID.test(secrets.LEGACY_TENANT_ID ?? "") ? secrets.LEGACY_TENANT_ID! : null;
 
   const mcp = MCP_PATH.exec(path);
   if (mcp && validSecretPath(secrets.MCP_SECRET_PATH) && timingSafeEqual(mcp[1]!, secrets.MCP_SECRET_PATH)) {
+    if (retired) return legacyTenant ? forward(ns!, legacyTenant, "/__/mcp", req, { "x-djs-legacy": "1" }) : empty(404);
     if (req.method !== "POST") return empty(405, { allow: "POST" });
     return mcpPost(req, deps);
   }
 
   const apiKey = nonEmpty(secrets.SHORTCUT_API_KEY);
   if (apiKey) {
-    if (path === "/api/downloads" && req.method === "POST") return apiSubmit(req, apiKey, deps);
     const m = API_JOB_PATH.exec(path);
-    if (m && req.method === "GET") return apiStatus(req, apiKey, decodeURIComponent(m[1]!), deps);
+    if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET")) {
+      if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized();
+      if (retired) {
+        if (!legacyTenant) return empty(404);
+        return forward(ns!, legacyTenant, m ? `/__/shortcut/${m[1]}` : "/__/shortcut", req, { "x-djs-legacy": "1" });
+      }
+      return m ? apiStatus(decodeURIComponent(m[1]!), deps) : apiSubmit(req, deps);
+    }
   }
 
   const agentToken = nonEmpty(secrets.AGENT_TOKEN);
-  if (agentToken && req.method === "POST") {
-    const done = AGENT_COMPLETE_PATH.exec(path);
-    const library = path === "/agent/library";
-    if (path === "/agent/poll" || library || done) {
+  if (req.method === "POST" && (path === "/agent/poll" || path === "/agent/library" || AGENT_COMPLETE_PATH.test(path))) {
+    if (retired) {
+      return json(
+        { error: "upgrade_required", detail: `Agent protocol 1 is retired; update DJ Sync (protocol ${AGENT_PROTOCOL_V2}).` },
+        410,
+      );
+    }
+    if (agentToken) {
+      const done = AGENT_COMPLETE_PATH.exec(path);
+      const library = path === "/agent/library";
       const body = await readJson(req, library ? MAX_LIBRARY_BYTES : MAX_BODY_BYTES);
       if (body.kind === "too_large") return empty(413);
       const g = await gate(req, agentToken, deps);
@@ -70,132 +134,131 @@ export async function route(req: Request, secrets: Secrets, deps: Deps): Promise
   return empty(404);
 }
 
-async function health(deps: Deps): Promise<Response> {
+async function health(deps: Deps, retired: boolean): Promise<Response> {
+  if (retired) return json({ status: "ok", version: WORKER_VERSION, protocol: AGENT_PROTOCOL_V2 });
+  // Until retirement /health keeps describing the v1 Mac (menu app 0.7 reads it).
   const agent = await agentStatus(deps);
   return json({
     status: "ok",
     version: WORKER_VERSION,
     protocol: AGENT_PROTOCOL,
+    protocol_v2: AGENT_PROTOCOL_V2,
     agent,
     queued: await deps.store.countQueued(),
   });
 }
 
-async function mcpPost(req: Request, deps: Deps): Promise<Response> {
-  const body = await readJson(req);
-  if (body.kind === "too_large") return empty(413);
-
-  if (!originAllowed(req.headers.get("origin"), deps.config.publicHost)) {
-    return json({ jsonrpc: "2.0", error: { code: -32600, message: "Origin not allowed" } }, 403);
-  }
-  // A version we don't speak — including 2026-07-28's per-request probe — gets
-  // a bare 400, which tells newer clients to fall back to `initialize`.
-  const version = req.headers.get("mcp-protocol-version");
-  if (version !== null && !(SUPPORTED_MCP_VERSIONS as readonly string[]).includes(version)) {
-    return empty(400);
-  }
-  if (body.kind === "invalid") return json(parseError(), 400);
-
-  const reply = await dispatch(body.value, deps);
-  return reply === null ? empty(202) : json(reply);
-}
-
-/**
- * DNS-rebinding guard from the MCP spec: browsers always send Origin, so a
- * present-but-foreign one is refused. ChatGPT's backend normally sends none.
- */
-export function originAllowed(origin: string | null, publicHost: string): boolean {
-  if (origin === null) return true;
-  let host: string;
-  try {
-    host = new URL(origin).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return (
-    ["localhost", "127.0.0.1", "[::1]", "chatgpt.com", "chat.openai.com"].includes(host) ||
-    host.endsWith(".chatgpt.com") ||
-    host.endsWith(".openai.com") ||
-    host === publicHost.toLowerCase()
-  );
-}
-
-// ---------- REST for the iOS Shortcut ----------
-
-function shortcutAuthorized(req: Request, key: string): boolean {
-  const auth = req.headers.get("authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return false;
-  return timingSafeEqual(auth.slice("Bearer ".length).trim(), key);
-}
-
-function unauthorized(): Response {
-  return json({ error: "missing or wrong bearer token" }, 401, { "www-authenticate": "Bearer" });
-}
-
-async function apiSubmit(req: Request, key: string, deps: Deps): Promise<Response> {
-  if (!shortcutAuthorized(req, key)) return unauthorized();
-  const body = await readJson(req);
-  if (body.kind === "too_large") return empty(413);
-  if (body.kind === "invalid" || typeof body.value !== "object" || body.value === null || Array.isArray(body.value)) {
-    return json({ error: 'expected JSON {"url": …}' }, 400);
-  }
-  const b = body.value as Record<string, unknown>;
-  const inputs: unknown[] = [...(b.url !== undefined && b.url !== null ? [b.url] : []), ...(Array.isArray(b.urls) ? b.urls : [])];
-  if (inputs.length === 0) return json({ error: "send `url` (or `urls`)" }, 400);
-  if (inputs.length > deps.config.maxUrls) {
-    return json({ error: `at most ${deps.config.maxUrls} links per request` }, 400);
-  }
-  if (b.playlist_name !== undefined && b.playlist_name !== null && typeof b.playlist_name !== "string") {
-    return json({ error: "playlist_name must be a string" }, 400);
+/** Protocol 2 routes, or null when the path isn't one. */
+async function routeV2(req: Request, path: string, secrets: Secrets, ns: Namespaces): Promise<Response | null> {
+  if (path === "/v2/register") {
+    if (req.method !== "POST") return empty(405, { allow: "POST" });
+    return register(req, ns);
   }
 
-  const media: MediaRef[] = [];
-  const rejected: { url: unknown; reason: string }[] = [];
-  for (const raw of inputs) {
-    if (typeof raw !== "string") {
-      rejected.push({ url: raw, reason: "not a string" });
-      continue;
+  if (path === "/v2/stats") {
+    const admin = nonEmpty(secrets.ADMIN_TOKEN);
+    if (!admin) return empty(404);
+    if (req.method !== "GET") return empty(405, { allow: "GET" });
+    if (!timingSafeEqual(bearer(req), admin)) return unauthorized();
+    return ns.REGISTRY.get(ns.REGISTRY.idFromName("registry")).fetch("https://registry/__/stats");
+  }
+
+  if (path === "/v2/agent" || path.startsWith("/v2/agent/")) {
+    const tenant = req.headers.get(TENANT_HEADER)?.trim() ?? "";
+    const token = bearer(req);
+    const socket = path === "/v2/agent";
+    if (!TENANT_ID.test(tenant) || !AGENT_TOKEN.test(token)) {
+      return socket
+        ? refuseSocket(CLOSE_UNAUTHORIZED, "unauthorized", "Unknown DJ or wrong token; register again.")
+        : json({ error: "unauthorized" }, 401, { "www-authenticate": "Bearer" });
     }
-    const r = extractMediaRef(linkIn(raw));
-    if (!r.ok) rejected.push({ url: raw, reason: r.reason });
-    else if (!media.some((m) => m.url === r.media.url)) media.push(r.media);
+    if (socket) return req.method === "GET" ? forward(ns, tenant, "/__/agent", req, { "x-djs-token": token }) : empty(405, { allow: "GET" });
+    if (path === "/v2/agent/library") {
+      if (req.method !== "PUT") return empty(405, { allow: "PUT" });
+      return forward(ns, tenant, "/__/agent/library", req, { "x-djs-token": token }, MAX_LIBRARY_GZIP_BYTES);
+    }
+    if (path === "/v2/agent/links" || V2_LINK_PATH.test(path)) {
+      return forward(ns, tenant, path.replace(/^\/v2\//, "/__/"), req, { "x-djs-token": token });
+    }
+    return empty(404);
   }
-  if (media.length === 0) return json({ error: "no supported Spotify or YouTube links", rejected }, 400);
 
-  const sub = await submit(deps, media, (b.playlist_name as string | undefined) ?? null, "shortcut");
-  if (!sub.ok) return json({ error: sub.error }, 400);
-  const { job, position, deduplicated } = sub.value;
-  const agent = await agentStatus(deps);
-  // The Shortcut shows `message` in a notification, so make it self-explanatory.
-  const message = job.message + (agent.online ? "" : offlineNote(agent, deps.now()));
-  return json(
-    { ...jobView(job), message, position, deduplicated, rejected, mac_online: agent.online },
-    202,
-  );
+  const mcp = V2_MCP_PATH.exec(path);
+  if (mcp) return forward(ns, mcp[1]!, "/__/mcp", req, { "x-djs-link": mcp[2]! });
+
+  const m = API_JOB_PATH.exec(path);
+  if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET")) {
+    const b = V2_SHORTCUT_BEARER.exec(bearer(req));
+    if (b && LINK_SECRET.test(b[2]!)) {
+      return forward(ns, b[1]!, m ? `/__/shortcut/${m[1]}` : "/__/shortcut", req, { "x-djs-link": b[2]! });
+    }
+  }
+  return null;
 }
 
-async function apiStatus(req: Request, key: string, jobId: string, deps: Deps): Promise<Response> {
-  if (!shortcutAuthorized(req, key)) return unauthorized();
-  const job = await deps.store.getJob(jobId);
-  if (!job) return json({ error: "no such job" }, 404);
-  const agent = await agentStatus(deps);
-  return json({ ...jobView(job), mac_online: agent.online });
+async function register(req: Request, ns: Namespaces): Promise<Response> {
+  const body = await readJson(req);
+  if (body.kind === "too_large") return empty(413);
+  const b = body.kind === "ok" && typeof body.value === "object" && body.value !== null ? (body.value as Record<string, unknown>) : null;
+  if (!b) return json({ error: "invalid_body", detail: "expected a JSON object" }, 400);
+  const protocol = parseSemver(typeof b.protocol === "string" ? b.protocol : req.headers.get(PROTOCOL_HEADER));
+  if (!protocol) return json({ error: "missing_or_invalid_protocol", detail: "send protocol (semver)" }, 400);
+  if (!protocolCompatible(WORKER_PROTOCOL_V2, protocol)) {
+    return json(
+      {
+        error: "incompatible_protocol",
+        worker_protocol: AGENT_PROTOCOL_V2,
+        agent_protocol: String(b.protocol ?? ""),
+        worker_version: WORKER_VERSION,
+      },
+      409,
+    );
+  }
+  if (b.platform !== "macos") return json({ error: "invalid_body", detail: 'platform must be "macos"' }, 400);
+  return ns.REGISTRY.get(ns.REGISTRY.idFromName("registry")).fetch("https://registry/__/register", {
+    method: "POST",
+    body: JSON.stringify({
+      ip: req.headers.get("cf-connecting-ip") ?? "",
+      platform: b.platform,
+      arch: typeof b.arch === "string" ? b.arch : "",
+      agent_version: typeof b.agent_version === "string" ? b.agent_version : "",
+    }),
+  });
 }
 
-// ---------- helpers ----------
-
-type Body = { kind: "ok"; value: unknown } | { kind: "invalid" } | { kind: "too_large" };
-
-async function readJson(req: Request, limit = MAX_BODY_BYTES): Promise<Body> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) return { kind: "too_large" };
-  const buf = await req.arrayBuffer();
-  if (buf.byteLength > limit) return { kind: "too_large" };
-  try {
-    return { kind: "ok", value: JSON.parse(new TextDecoder().decode(buf)) };
-  } catch {
-    return { kind: "invalid" };
+/** Forward to one DJ's Tenant with only the allowed headers plus internal auth ones. */
+async function forward(
+  ns: Namespaces,
+  tenantId: string,
+  path: string,
+  req: Request,
+  internal: Record<string, string>,
+  maxBody = MAX_BODY_BYTES,
+): Promise<Response> {
+  const headers = new Headers();
+  for (const h of FORWARDED) {
+    const v = req.headers.get(h);
+    if (v !== null) headers.set(h, v);
   }
+  for (const [k, v] of Object.entries(internal)) headers.set(k, v);
+  const init: RequestInit = { method: req.method, headers };
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    if (Number(req.headers.get("content-length") ?? "0") > maxBody) return empty(413);
+    const body = await req.arrayBuffer();
+    if (body.byteLength > maxBody) return empty(413);
+    init.body = body;
+  }
+  return ns.TENANT.get(ns.TENANT.idFromName(tenantId)).fetch(new Request(`https://tenant${path}`, init));
+}
+
+/** Upgrade, then close with `code`, so the Mac sees the same signal a Tenant would send. */
+function refuseSocket(code: number, error: string, message: string): Response {
+  if (typeof WebSocketPair === "undefined") return json({ error, message }, 401); // not in workerd (tests)
+  const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+  server.accept();
+  server.send(JSON.stringify({ type: "error", code: error, message }));
+  server.close(code, error);
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 function nonEmpty(s: string | undefined): string | null {

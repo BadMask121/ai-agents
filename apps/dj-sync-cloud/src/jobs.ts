@@ -16,6 +16,11 @@ export interface Deps {
   store: Store;
   now: () => Date;
   config: Config;
+  /**
+   * Checked before a new job is stored (not for a deduplicated retry).
+   * Returns why it's refused, or null. Per-DJ limits (spec §3.7); v1 has none.
+   */
+  admit?: () => Promise<string | null>;
 }
 
 export interface AgentStatus {
@@ -65,6 +70,8 @@ export async function submit(
     return { ok: true, value: { job: existing, position, deduplicated: true } };
   }
 
+  const refused = await deps.admit?.();
+  if (refused) return { ok: false, error: refused };
   return { ok: true, value: await insert(deps, newJob(deps, "download", playlist.value, urls, dedupeKey, source)) };
 }
 
@@ -77,17 +84,19 @@ export async function submitLibrary(
   playlist: string,
   ops: LibraryOp[],
   summary: string,
-): Promise<Submitted> {
+): Promise<Result<Submitted>> {
   const dedupeKey = JSON.stringify(["library", ops]);
   const existing = await deps.store.findActiveByDedupe(dedupeKey);
   if (existing) {
     const position = await deps.store.countActiveBefore(existing.created_at, existing.id);
-    return { job: existing, position, deduplicated: true };
+    return { ok: true, value: { job: existing, position, deduplicated: true } };
   }
+  const refused = await deps.admit?.();
+  if (refused) return { ok: false, error: refused };
   const job = newJob(deps, "library", playlist, [], dedupeKey, "mcp");
   job.ops = ops;
   job.summary = summary;
-  return insert(deps, job);
+  return { ok: true, value: await insert(deps, job) };
 }
 
 function newJob(

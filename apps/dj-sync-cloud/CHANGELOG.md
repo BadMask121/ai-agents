@@ -13,6 +13,59 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.0.0] — 2026-10-28 · agent protocol 2.0.0 (1.1.0 kept until retirement)
+
+The public, multi-DJ cloud from the distribution spec
+(`docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` §3).
+
+### Added
+- **One SQLite Durable Object per DJ (`Tenant`)**, holding that DJ's jobs,
+  assistant links, agent state and library snapshot. It runs the same 10 MCP
+  tools over `SqlStore`, which implements the existing `Store` interface.
+- **`Registry` Durable Object**, a single instance:
+  - Handles `POST /v2/register`, with 5 sign-ups per IP per UTC day and a
+    global kill switch at 5,000 a day. IPs are only kept as salted per-day
+    hashes.
+  - Keeps the tenant list with each DJ's last-seen day.
+  - Serves `GET /v2/stats` (Bearer `ADMIN_TOKEN`).
+  - Runs a weekly sweep (cron `41 4 * * 1`) that purges DJs inactive for 90
+    days, in batches that continue from an alarm.
+- **Links:** per-assistant secret URLs `/<tenant_id>/<link_secret>/mcp`.
+  - `GET`/`POST /v2/agent/links`, `POST /v2/agent/links/{id}/rotate` and
+    `DELETE /v2/agent/links/{id}`, with at most 10 links.
+  - Only hashes are stored, and they're compared in constant time.
+  - `last_used_at` is written on first use, then at most hourly.
+  - `shortcut` links also work as `Bearer <tenant_id>.<secret>` on
+    `/api/downloads`.
+- **Agent protocol 2.0.0:** one WebSocket at `GET /v2/agent` (hibernation API).
+  - Frames: `hello`, `ready`, `extend`, `complete` and `library_hash` from the
+    Mac; `welcome`, `job`, `ack`, `library_wanted` and `error` from the cloud.
+  - Close codes: 4001, 4009, 4010 and 4029.
+  - `ping`→`pong` is an auto-response that never wakes the object.
+  - Jobs are pushed the moment they're queued if the Mac is idle, one at a
+    time.
+  - A lease alarm exists only while a job is leased.
+- **`PUT /v2/agent/library`:** a gzip'd (or plain) snapshot of up to 8 MB,
+  stored gzip'd in rows of at most 1 MB and cached decompressed per instance.
+- **Per-DJ limits:** 50 queued jobs, 200 jobs a day, 600 tool calls an hour
+  and 120 agent reconnects an hour. Over a limit, MCP tools return `isError`
+  with a plain message.
+- **Retention:** lazy 30-day retention for each DJ.
+
+### Changed
+- `/health` adds `protocol_v2`. Once `V1_RETIRED="true"` it's just `{status,
+  version, protocol: "2.0.0"}`.
+- `submitLibrary` returns a `Result`, like `submit`. Both check the optional
+  `Deps.admit` hook.
+- The MCP and Shortcut HTTP handlers moved to `src/http.ts` and are shared by
+  v1 and the Tenant.
+
+### Migration (spec §3.9)
+- **v1 is unchanged until `V1_RETIRED="true"`:** D1, KV, `/agent/*`, the
+  legacy secret path and the Shortcut key all keep working.
+- **After that:** `/agent/*` returns `410 upgrade_required`, and the legacy
+  secrets are forwarded to the DJ named by `LEGACY_TENANT_ID`.
+
 ## [0.2.0] — 2026-10-28 · agent protocol 1.1.0
 
 ### Added

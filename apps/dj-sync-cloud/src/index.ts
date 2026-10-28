@@ -1,19 +1,30 @@
-import { RETENTION_DAYS } from "./constants";
+import { RETENTION_DAYS, SWEEP_CRON } from "./constants";
 import { D1Store } from "./d1store";
 import type { Deps } from "./jobs";
 import { route } from "./router";
 import { addSeconds, validSecretPath } from "./util";
 
+export { Registry } from "./registry";
+export { Tenant } from "./tenant";
+
 export interface Env {
+  /** Protocol 1 queue (one DJ); kept until V1_RETIRED, then dropped (spec §3.9). */
   DB: D1Database;
-  /** The Mac's Rekordbox library snapshot (see d1store.ts). */
+  /** Protocol 1 library snapshot (see d1store.ts). */
   LIBRARY?: KVNamespace;
+  /** One Durable Object per DJ (protocol 2). */
+  TENANT: DurableObjectNamespace;
+  /** The single registration / stats / sweep Durable Object. */
+  REGISTRY: DurableObjectNamespace;
   DEFAULT_PLAYLIST: string;
   MAX_URLS: string;
   PUBLIC_HOST: string;
   MCP_SECRET_PATH?: string;
   AGENT_TOKEN?: string;
   SHORTCUT_API_KEY?: string;
+  ADMIN_TOKEN?: string;
+  V1_RETIRED?: string;
+  LEGACY_TENANT_ID?: string;
 }
 
 function deps(env: Env): Deps {
@@ -30,14 +41,22 @@ function deps(env: Env): Deps {
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    if (!validSecretPath(env.MCP_SECRET_PATH)) {
+    if (env.V1_RETIRED !== "true" && !validSecretPath(env.MCP_SECRET_PATH)) {
       // Never logs the value — only that it's unusable.
       console.error("MCP_SECRET_PATH is missing or invalid (≥32 chars of [A-Za-z0-9_-]); /mcp is disabled");
     }
-    return route(req, env, deps(env));
+    return route(req, env, deps(env), { TENANT: env.TENANT, REGISTRY: env.REGISTRY });
   },
 
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
+    if (event.cron === SWEEP_CRON) {
+      const res = await env.REGISTRY.get(env.REGISTRY.idFromName("registry")).fetch("https://registry/__/sweep", {
+        method: "POST",
+      });
+      console.log(`inactivity sweep: ${await res.text()}`);
+      return;
+    }
+    if (env.V1_RETIRED === "true") return;
     const before = addSeconds(new Date(), -RETENTION_DAYS * 24 * 3600).toISOString();
     const removed = await new D1Store(env.DB).purgeFinishedBefore(before);
     console.log(`retention: removed ${removed} finished job(s) older than ${RETENTION_DAYS} days`);

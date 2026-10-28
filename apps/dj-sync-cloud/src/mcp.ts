@@ -598,7 +598,9 @@ async function queueLibrary(
   summary: string,
   extra: { before?: string; after?: string } = {},
 ): Promise<Json> {
-  const { job, position, deduplicated } = await submitLibrary(deps, playlist, ops, summary);
+  const sub = await submitLibrary(deps, playlist, ops, summary);
+  if (!sub.ok) return toolError(sub.error);
+  const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
   let text =
     (extra.before ?? "") +

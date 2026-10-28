@@ -16,6 +16,20 @@
     { "pattern": "mcp.triplejmusic.art/*", "zone_name": "triplejmusic.art" }
   ],
 
+  // Protocol 2 (spec §3): one SQLite Durable Object per DJ, plus the single
+  // Registry (sign-up limits, tenant list, /v2/stats, inactivity sweep).
+  // SQLite-backed classes are what the Workers Free plan allows.
+  "durable_objects": {
+    "bindings": [
+      { "name": "TENANT", "class_name": "Tenant" },
+      { "name": "REGISTRY", "class_name": "Registry" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1-tenants", "new_sqlite_classes": ["Tenant", "Registry"] }
+  ],
+
+  // Protocol 1 storage (one DJ): kept until V1_RETIRED, then removed (spec §3.9).
   "d1_databases": [
     {
       "binding": "DB",
@@ -33,18 +47,23 @@
     { "binding": "LIBRARY", "id": "9ff56c62057649839c68af7e57527f09" }
   ],
 
-  // Daily retention: drop finished jobs older than 30 days.
-  "triggers": { "crons": ["17 3 * * *"] },
+  // Daily: v1 retention (finished jobs older than 30 days). Weekly (Mon, must
+  // match SWEEP_CRON in src/constants.ts): purge DJs inactive for 90 days.
+  "triggers": { "crons": ["17 3 * * *", "41 4 * * 1"] },
 
   "vars": {
     "DEFAULT_PLAYLIST": "ChatGPT Downloads",
     "MAX_URLS": "25",
     "PUBLIC_HOST": "mcp.triplejmusic.art"
+    // Migration switches (spec §3.9), set when the owner's Mac is on protocol 2:
+    //   "LEGACY_TENANT_ID": "<the owner's tenant_id>",
+    //   "V1_RETIRED": "true"
   },
   // Secrets (wrangler secret put …), never in this file:
   //   MCP_SECRET_PATH   — same value as ~/.dj-sync/.env, so the ChatGPT plugin URL is unchanged
   //   AGENT_TOKEN       — shared with the Mac (CLOUD_AGENT_TOKEN in ~/.dj-sync/.env)
   //   SHORTCUT_API_KEY  — optional; enables /api/downloads for the iOS Shortcut
+  //   ADMIN_TOKEN       — optional; enables GET /v2/stats (Bearer)
 
   "observability": {
     "enabled": true,
