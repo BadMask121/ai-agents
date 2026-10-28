@@ -77,7 +77,7 @@ impl Default for RekordboxDbCfg {
             uv_bin: tools().bin("uv", "uv"),
             pyrekordbox_version: "0.5.0".to_string(),
             keep_backups: 12,
-            check_secs: 10,
+            check_secs: 3,
         }
     }
 }
@@ -211,7 +211,7 @@ impl Default for DownloadCfg {
                 music.join("DJ Sync")
             },
             import_xml: PathBuf::new(),
-            default_playlist: "ChatGPT Downloads".to_string(),
+            default_playlist: "DJ Sync Downloads".to_string(),
             spotdl_bin: tools().venv("spotdl").join("bin/spotdl"),
             ytdlp_bin: tools().bin("yt-dlp", "yt-dlp"),
             ffmpeg_bin: tools().bin("ffmpeg", "ffmpeg"),

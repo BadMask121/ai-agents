@@ -112,7 +112,7 @@ describe("download_to_rekordbox", () => {
     await store.touchAgent({ last_seen: deps.now().toISOString(), version: "0.2.0", protocol: "1.0.0" });
     const r = await call(deps, "download_to_rekordbox", { urls: ["https://open.spotify.com/track/abc123"] });
     expect(r.structuredContent.mac_online).toBe(true);
-    expect(r.structuredContent.playlist).toBe("ChatGPT Downloads");
+    expect(r.structuredContent.playlist).toBe("DJ Sync Downloads");
     expect(r.content[0].text).not.toContain("offline");
   });
 

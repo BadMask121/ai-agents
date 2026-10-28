@@ -473,27 +473,24 @@ fn summary(
     library: Option<LibraryNote>,
 ) -> String {
     let n = tracks.len();
+    let songs = if n == 1 { "1 song".to_string() } else { format!("{n} songs") };
+    let _ = xml_version; // internal detail; not worth telling the DJ
     let mut msg = match (n, library) {
-        (0, _) => "No tracks were downloaded.".to_string(),
+        (0, _) => "Nothing was downloaded.".to_string(),
         (_, Some(LibraryNote::Soon)) => format!(
-            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\": they're going into \
-             your Rekordbox Collection and Playlists now (Rekordbox is closed)."
+            "Added {songs} to \"{playlist}\". They're on their way into your Rekordbox library."
         ),
         (_, Some(LibraryNote::WhenRekordboxQuits)) => format!(
-            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\". Rekordbox is open, so \
-             they're under \"rekordbox xml\" (refresh it) for now, and go into your Collection \
-             and Playlists as soon as you quit Rekordbox."
+            "Added {songs} to \"{playlist}\". Rekordbox is open, so they'll show up in your \
+             library once you close it."
         ),
         _ => format!(
-            "Added {n} track(s) to the Rekordbox playlist \"{playlist}\". In Rekordbox, refresh \
-             the \"rekordbox xml\" tree and import the playlist into your collection."
+            "Added {songs} to \"{playlist}\". Open Rekordbox and import the playlist to see them."
         ),
     };
     if !errors.is_empty() {
-        msg.push_str(&format!(" {} link(s) failed — see errors.", errors.len()));
-    }
-    if let (false, Some(v)) = (tracks.is_empty(), xml_version) {
-        msg.push_str(&format!(" Rekordbox XML is now v{v}."));
+        let links = if errors.len() == 1 { "1 link".to_string() } else { format!("{} links", errors.len()) };
+        msg.push_str(&format!(" Sorry, {links} didn't work."));
     }
     msg
 }
@@ -1020,12 +1017,12 @@ mod tests {
             .unwrap();
         let done = wait_done(&q, &sub.job.job_id).await;
         assert_eq!(done.state, JobState::Done);
-        assert_eq!(done.playlist, "ChatGPT Downloads");
+        assert_eq!(done.playlist, "DJ Sync Downloads");
         assert_eq!(done.tracks.len(), 1);
         assert_eq!(done.errors.len(), 1);
         assert!(done.errors[0].url.ends_with("fail1"));
         assert!(done.errors[0].error.contains("ERROR: unavailable"));
-        assert!(done.message.contains("1 link(s) failed"));
+        assert!(done.message.contains("1 link didn't work"));
     }
 
     #[tokio::test]
@@ -1113,11 +1110,7 @@ mod tests {
         // New playlist → MINOR.
         let a = run(&["https://open.spotify.com/track/one1"], "Fri").await;
         assert_eq!(a.xml_version.as_deref(), Some("1.1.0"));
-        assert!(
-            a.message.contains("Rekordbox XML is now v1.1.0"),
-            "{}",
-            a.message
-        );
+        assert!(a.message.contains("Added 1 song to"), "{}", a.message);
         // Tracks added to an existing playlist → PATCH.
         let b = run(&["https://open.spotify.com/track/two2"], "Fri").await;
         assert_eq!(b.xml_version.as_deref(), Some("1.1.1"));

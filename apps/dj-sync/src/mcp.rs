@@ -359,7 +359,7 @@ mod tests {
             &McpContext {
                 jobs: q,
                 max_urls: 3,
-                default_playlist: "ChatGPT Downloads",
+                default_playlist: "DJ Sync Downloads",
             },
         )
     }

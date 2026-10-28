@@ -15,6 +15,7 @@
 //   GET  /__/shortcut_playlists      shortcut link auth (GET /api/playlists)
 //   POST /__/telegram/bind|unbind|update   from the Worker's Telegram webhook
 
+import { fireworksRunner } from "./fireworks";
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
 import { LINK_SECRET, gunzip, isGzip, newLinkSecret, randomBase64url, sha256Hex, utcDay } from "./bytes";
@@ -57,8 +58,10 @@ export interface TenantEnv extends TelegramEnv {
   REGISTRY?: DurableObjectNamespace;
   /** Workers AI, for the Telegram assistant (spec §1c); without it the bot is rule-based. */
   AI?: AiRunner;
-  /** Overrides AGENT_MODEL. */
+  /** Overrides AGENT_MODEL (with FIREWORKS_API_KEY: the Fireworks model id). */
   AI_MODEL?: string;
+  /** When set, the assistant runs on Fireworks AI instead of Workers AI. */
+  FIREWORKS_API_KEY?: string;
   DEFAULT_PLAYLIST?: string;
   MAX_URLS?: string;
   PUBLIC_HOST?: string;
@@ -100,6 +103,11 @@ export class Tenant extends DurableObject<TenantEnv> {
   telegramApi: TelegramApi | null = null;
   /** Workers AI; tests set a fake (otherwise env.AI). */
   aiRunner: AiRunner | null = null;
+  /** The assistant's model runner: a test fake, else Fireworks when keyed, else Workers AI. */
+  private agent(): { ai: AiRunner; model?: string } | null {
+    const ai = this.aiRunner ?? (this.env.FIREWORKS_API_KEY ? fireworksRunner(this.env.FIREWORKS_API_KEY) : this.env.AI);
+    return ai ? { ai, model: this.env.AI_MODEL } : null;
+  }
   /** Telegram messages per chat in the last hour (in memory). */
   private tgRate = new Map<string, { times: number[]; warned: boolean }>();
 
@@ -133,7 +141,7 @@ export class Tenant extends DurableObject<TenantEnv> {
       store,
       now: () => this.clock(),
       config: {
-        defaultPlaylist: this.env.DEFAULT_PLAYLIST || "ChatGPT Downloads",
+        defaultPlaylist: this.env.DEFAULT_PLAYLIST || "DJ Sync Downloads",
         maxUrls: Number.parseInt(this.env.MAX_URLS ?? "", 10) || 25,
         publicHost: publicHosts(this.env),
       },
@@ -554,7 +562,7 @@ export class Tenant extends DurableObject<TenantEnv> {
             store.deleteLink(id);
           },
           rateLimit: (chatId) => this.telegramRate(chatId),
-          agent: (this.aiRunner ?? this.env.AI) ? { ai: (this.aiRunner ?? this.env.AI)!, model: this.env.AI_MODEL } : null,
+          agent: this.agent(),
         },
         b.update as TgUpdate,
         link.id,

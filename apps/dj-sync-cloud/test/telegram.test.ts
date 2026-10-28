@@ -131,7 +131,7 @@ describe("Telegram bot", () => {
     expect(ask.text).toBe("Which playlist should 1 link go into?");
     const rows = ask.reply_markup.inline_keyboard.map((r: Any) => r[0]);
     expect(rows[0].text).toBe("DJ Sync/Friday (1)");
-    expect(rows.at(-1).text).toBe("Default (ChatGPT Downloads)");
+    expect(rows.at(-1).text).toBe("Default (DJ Sync Downloads)");
     expect(rows.some((b: Any) => b.text.startsWith("New playlist"))).toBe(false);
     for (const b of rows) expect(new TextEncoder().encode(b.callback_data).length).toBeLessThanOrEqual(64);
 
@@ -150,7 +150,7 @@ describe("Telegram bot", () => {
     const unclear = tg.last(CHAT);
     expect(unclear.text).toContain("couldn't find a playlist called “amapino”");
     const choices = unclear.reply_markup.inline_keyboard.map((r: Any) => r[0].text);
-    expect(choices).toEqual(expect.arrayContaining(["AMAPIANO/Amapiano Chill (0)", "Default (ChatGPT Downloads)", "New playlist: amapino"]));
+    expect(choices).toEqual(expect.arrayContaining(["AMAPIANO/Amapiano Chill (0)", "Default (DJ Sync Downloads)", "New playlist: amapino"]));
     const fresh = unclear.reply_markup.inline_keyboard.at(-1)[0].callback_data;
     await hook(c, tap(CHAT, fresh));
     expect(tg.of("editMessageText").at(-1).text).toContain("→ amapino");
@@ -158,7 +158,7 @@ describe("Telegram bot", () => {
     await hook(c, msg(CHAT, YT(5)));
     const def = tg.last(CHAT).reply_markup.inline_keyboard.at(-1)[0].callback_data;
     await hook(c, tap(CHAT, def));
-    expect(tg.of("editMessageText").at(-1).text).toContain("→ ChatGPT Downloads");
+    expect(tg.of("editMessageText").at(-1).text).toContain("→ DJ Sync Downloads");
 
     // Duplicate names: ask which, no "New".
     await hook(c, msg(CHAT, `${YT(6)} gqom`));
@@ -167,7 +167,7 @@ describe("Telegram bot", () => {
     expect(dup.reply_markup.inline_keyboard.map((r: Any) => r[0].text)).toEqual([
       "GQOM/Gqom (2)",
       "3 STEP/Gqom (0)",
-      "Default (ChatGPT Downloads)",
+      "Default (DJ Sync Downloads)",
     ]);
 
     // Pending choices expire after a day.

@@ -35,6 +35,7 @@ export interface Env {
   /** Workers AI (the Telegram assistant, connect-anywhere spec §1c) and an optional model override. */
   AI?: Ai;
   AI_MODEL?: string;
+  FIREWORKS_API_KEY?: string;
 }
 
 function deps(env: Env): Deps {
@@ -42,7 +43,7 @@ function deps(env: Env): Deps {
     store: new D1Store(env.DB, env.LIBRARY),
     now: () => new Date(),
     config: {
-      defaultPlaylist: env.DEFAULT_PLAYLIST || "ChatGPT Downloads",
+      defaultPlaylist: env.DEFAULT_PLAYLIST || "DJ Sync Downloads",
       maxUrls: Number.parseInt(env.MAX_URLS, 10) || 25,
       publicHost: publicHosts(env),
     },
