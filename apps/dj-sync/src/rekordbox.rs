@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
 use tracing::{info, warn};
 
-use crate::{LocalTrack, MatchResult};
+use crate::{unique_name, LocalTrack, MatchResult};
 
 pub struct ImportSummary {
     pub copied: usize,
@@ -69,21 +69,4 @@ fn copy_one(local: &LocalTrack, dest_dir: &Path) -> anyhow::Result<CopyOutcome> 
     std::fs::copy(src, &dest)
         .with_context(|| format!("copy {} -> {}", src.display(), dest.display()))?;
     Ok(CopyOutcome::Copied)
-}
-
-fn unique_name(target: &Path) -> PathBuf {
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
-    let stem = target.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
-    let ext = target.extension().and_then(|s| s.to_str()).unwrap_or("");
-    for n in 1..1000 {
-        let candidate = if ext.is_empty() {
-            parent.join(format!("{stem} ({n})"))
-        } else {
-            parent.join(format!("{stem} ({n}).{ext}"))
-        };
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    parent.join(format!("{stem}-{}.{}", std::process::id(), ext))
 }

@@ -49,16 +49,17 @@ pub struct FlatEntry {
 
 impl RekordboxLib {
     pub fn load(xml_path: &Path) -> anyhow::Result<Self> {
-        let bytes = std::fs::read(xml_path)
-            .with_context(|| format!("reading {}", xml_path.display()))?;
+        let bytes =
+            std::fs::read(xml_path).with_context(|| format!("reading {}", xml_path.display()))?;
         let mtime = std::fs::metadata(xml_path)?.modified()?;
 
         let doc: DjPlaylists = quick_xml::de::from_reader(&bytes[..])
             .with_context(|| format!("parsing {}", xml_path.display()))?;
 
-        let mut tracks: HashMap<String, Track> = HashMap::with_capacity(doc.collection.tracks.len());
+        let mut tracks: HashMap<String, Track> =
+            HashMap::with_capacity(doc.collection.tracks.len());
         for t in doc.collection.tracks {
-            let path = decode_location(&t.location);
+            let path = crate::location_path(&t.location);
             let file_name = path
                 .file_name()
                 .and_then(|f| f.to_str())
@@ -78,8 +79,8 @@ impl RekordboxLib {
             );
         }
 
-        let root = build_node(doc.playlists.root)
-            .ok_or_else(|| anyhow!("playlists root missing"))?;
+        let root =
+            build_node(doc.playlists.root).ok_or_else(|| anyhow!("playlists root missing"))?;
 
         let mut flat_index = Vec::new();
         let mut counter = 0usize;
@@ -161,15 +162,6 @@ fn non_empty(s: String) -> Option<String> {
     } else {
         Some(s)
     }
-}
-
-fn decode_location(loc: &str) -> PathBuf {
-    if let Ok(url) = url::Url::parse(loc) {
-        if let Ok(p) = url.to_file_path() {
-            return p;
-        }
-    }
-    PathBuf::from(loc)
 }
 
 fn build_node(n: NodeXml) -> Option<PlaylistNode> {
@@ -457,6 +449,27 @@ mod tests {
         assert_eq!(lib.flat()[0].path_segments, vec!["House"]);
         assert_eq!(lib.flat()[1].name, "Wedding");
         assert!(lib.flat()[1].path_segments.is_empty());
+    }
+
+    #[test]
+    fn location_with_question_mark_and_hash_is_not_truncated() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <COLLECTION Entries="1">
+    <TRACK TrackID="7" Name="Q" Artist="A"
+           Location="file://localhost/tmp/Who%20Is%20Your%20Guy?%20-%20%231%20Remix.mp3"/>
+  </COLLECTION>
+  <PLAYLISTS><NODE Type="0" Name="ROOT" Count="0"/></PLAYLISTS>
+</DJ_PLAYLISTS>"#;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(xml.as_bytes()).unwrap();
+        let lib = RekordboxLib::load(f.path()).unwrap();
+        let t = lib.tracks.get("7").unwrap();
+        assert_eq!(
+            t.path,
+            PathBuf::from("/tmp/Who Is Your Guy? - #1 Remix.mp3")
+        );
+        assert_eq!(t.file_name, "Who Is Your Guy? - #1 Remix.mp3");
     }
 
     #[test]
