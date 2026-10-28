@@ -4,7 +4,31 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.2] — 2026-10-28
+### Release
+- **The site follows the app's version.**
+  - **Version:** `tools/seo.py` reads `apps/dj-sync/macos/VERSION` instead of
+    a hard-coded string, so `softwareVersion` is now 1.2.1. It had been stuck
+    at 1.2.0.
+  - **`deploy.sh`:** stamps the pages, runs the tests, deploys, and checks
+    that the live home page advertises the version.
+  - **`apps/dj-sync/release.sh`:** runs it, so one release ships the app and
+    the website together.
+### Downloads
+- **Download links name the release.** They point at `DJ-Sync-1.2.1.dmg`
+  instead of `DJ-Sync-latest.dmg`, so the file you save carries its version.
+  - **Where:** every Download button, the structured data's `downloadUrl` and
+    `llms.txt`.
+  - **Restamped every release** by `tools/seo.py`.
+- **`/download/DJ-Sync-latest.dmg` redirects** (302) to the released version's
+  file, so old links and the app's link save it versioned too.
+  - **Version source:** the update feed (`djsync/appcast.json`).
+  - **If the feed can't be read,** the old copy is served as before.
+  - **Kept in R2:** apps that use the old downloads host fetch it there
+    directly.
+- **`deploy.sh` checks the version is released.** It refuses to deploy until
+  `DJ-Sync-<version>.dmg` exists, since the pages link to it. Afterwards it
+  checks the live download link and the redirect.
 ### Pages
 - **Each connect guide has an illustration** (hand-drawn inline SVG, light/dark
   aware, same style as the install guide): Telegram shows QR pairing and the

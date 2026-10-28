@@ -17,6 +17,10 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
   - **Downloads:** `/download/<file>` comes from the R2 bucket
     `dj-sync-downloads` (key `djsync/<file>`, uploaded by
     `apps/dj-sync/release.sh`), with HEAD and byte ranges.
+    - **Page links** point at the released version's file
+      (`DJ-Sync-1.2.1.dmg`).
+    - **`DJ-Sync-latest.dmg`** redirects there, using the version in
+      `djsync/appcast.json`.
   - **Cloud endpoints:** `/health`, `/v2/*`, `/api/downloads*`,
     `/api/playlists`, `/agent/*`, `/telegram/*`, `/i/*` (the one-scan iPhone
     install) and any path ending in `/mcp` go to the `dj-sync-cloud` Worker
@@ -92,11 +96,20 @@ diagnostics**.
 ## Deploy
 
 ```bash
-cd apps/dj-sync-site
-npx wrangler@4.154.0 deploy      # or ../dj-sync-cloud/node_modules/.bin/wrangler deploy
+apps/dj-sync-site/deploy.sh
 ```
 
-The first deploy also creates the custom domain (DNS record and certificate).
+`deploy.sh` does four things:
+1. Stamps every page with the app's version. `tools/seo.py` reads
+   `apps/dj-sync/macos/VERSION`.
+2. Runs the tests.
+3. Deploys with `../dj-sync-cloud/node_modules/.bin/wrangler`.
+4. Checks that the live home page advertises that version.
+
+`apps/dj-sync/release.sh` runs it after every release. It stamps and commits
+the pages before the build, so the release tag has them. A bare
+`wrangler deploy` works too, but skips the stamping and the check. The first
+deploy also creates the custom domain (DNS record and certificate).
 
 ## Check
 

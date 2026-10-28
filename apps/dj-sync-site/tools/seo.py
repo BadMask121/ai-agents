@@ -4,8 +4,12 @@ from html.parser import HTMLParser
 
 P = pathlib.Path(sys.argv[1])
 BASE = "https://djsync.jeffrey.build"
-VERSION = "1.2.0"
-DMG = f"{BASE}/download/DJ-Sync-latest.dmg"
+# The app's version, so a release (apps/dj-sync/release.sh) restamps the pages.
+VERSION = (pathlib.Path(__file__).resolve().parents[2] / "dj-sync/macos/VERSION").read_text().strip()
+DMG = f"{BASE}/download/DJ-Sync-{VERSION}.dmg"
+# Download links name the release (DJ-Sync-1.2.1.dmg), not DJ-Sync-latest.dmg.
+DMG_LINK = re.compile(r"/download/DJ-Sync-(?:latest|\d+\.\d+\.\d+)\.dmg")
+def stamp(text): return DMG_LINK.sub(f"/download/DJ-Sync-{VERSION}.dmg", text)
 SUPPORT = "jeff.emakpor@gmail.com"
 
 PAGES = {
@@ -188,7 +192,7 @@ for name, meta in PAGES.items():
     if url:
         head.append(f'<script type="application/ld+json">{ldjson(structured(name, meta, root, url))}</script>')
     head.append(KEEP[5])
-    new = src[:m.start(1)] + "\n".join(head) + src[m.end(1):]
+    new = stamp(src[:m.start(1)] + "\n".join(head) + src[m.end(1):])
     f.write_text(new)
     report.append((name, len(title), len(desc)))
 
@@ -225,5 +229,8 @@ for path, og in urls:
               f"<image:image><image:loc>{BASE}/og/{og}.png</image:loc></image:image></url>")
 sm.append("</urlset>")
 (P / "sitemap.xml").write_text("\n".join(sm) + "\n")
+
+llms = P / "llms.txt"
+llms.write_text(stamp(llms.read_text()))
 
 for r in report: print(*r)

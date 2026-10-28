@@ -3,12 +3,14 @@
 # the DMG (first install) and zip (updates), sign the update feed and the
 # tools manifest with the release key, upload everything to R2
 # (served as djsync.jeffrey.build/download/, and as the older
-# downloads.triplejmusic.art/djsync/ for apps from before the move), and tag.
+# downloads.triplejmusic.art/djsync/ for apps from before the move), tag, and
+# deploy the website advertising the new version (../dj-sync-site/deploy.sh;
+# its pages are stamped and committed before the build, so the tag has them).
 #
-#   ./release.sh            build, package, sign, upload, tag
-#   ./release.sh --dry-run  everything except upload and tag
+#   ./release.sh            build, package, sign, upload, tag, deploy the site
+#   ./release.sh --dry-run  everything except the site commit, upload, tag and deploy
 #
-# Needs: a clean apps/dj-sync tree, matching versions in Cargo.toml and
+# Needs: clean apps/dj-sync and apps/dj-sync-site trees, matching versions in Cargo.toml and
 # macos/VERSION, a CHANGELOG entry for that version, the "DJ Sync Release"
 # signing identity (scripts/make-signing-cert.sh) and the Ed25519 release key
 # (~/.dj-sync-release/ed25519.key, `dj-sync-sign keygen`).
@@ -21,6 +23,7 @@ BUCKET="dj-sync-downloads"
 PREFIX="djsync"
 BASE_URL="https://djsync.jeffrey.build/download"
 WRANGLER="$HERE/../dj-sync-cloud/node_modules/.bin/wrangler"
+SITE=$(cd "$HERE/../dj-sync-site" && pwd)
 
 die() { echo "release: $*" >&2; exit 1; }
 
@@ -32,10 +35,20 @@ grep -q "^## \[$VERSION\]" CHANGELOG.md || die "CHANGELOG.md has no [$VERSION] e
 grep -q "^## \[$VERSION\]" macos/CHANGELOG.md || die "macos/CHANGELOG.md has no [$VERSION] entry"
 if [[ $DRY -eq 0 ]]; then
   git diff --quiet -- . && git diff --cached --quiet -- . || die "apps/dj-sync has uncommitted changes"
+  git diff --quiet -- "$SITE" && git diff --cached --quiet -- "$SITE" || die "apps/dj-sync-site has uncommitted changes"
   ! git rev-parse -q --verify "refs/tags/djsync-v$VERSION" >/dev/null || die "tag djsync-v$VERSION exists"
 fi
 [[ "$(security find-identity -p codesigning)" == *'"DJ Sync Release"'* ]] || die "no \"DJ Sync Release\" identity (scripts/make-signing-cert.sh)"
 [[ -x "$WRANGLER" ]] || die "wrangler not found at $WRANGLER (pnpm install in apps/dj-sync-cloud)"
+
+# ---- website: stamp the new version now, so the tag includes it ----
+if [[ $DRY -eq 0 ]]; then
+  python3 -I "$SITE/tools/seo.py" "$SITE/public" >/dev/null
+  if ! git diff --quiet -- "$SITE/public"; then
+    git commit -q -m "dj-sync-site: advertise DJ Sync $VERSION" -- "$SITE/public"
+    echo "== committed the website stamped with $VERSION"
+  fi
+fi
 
 OUT="$HOME/Library/Caches/dj-sync-release/$VERSION"
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -106,7 +119,7 @@ cp toolbox/manifest.json "$OUT/tools-manifest.json"
 echo "== packaged: $(du -h "$DMG" | cut -f1) DMG, $(du -h "$ZIP" | cut -f1) zip"
 
 if [[ $DRY -eq 1 ]]; then
-  echo "== dry run: not uploading or tagging"; ls -la "$OUT"; exit 0
+  echo "== dry run: not uploading, tagging or deploying the website"; ls -la "$OUT"; exit 0
 fi
 
 # ---- upload (versioned files first, then the pointers) ----
@@ -119,9 +132,14 @@ put "$DMG" "DJ-Sync-$VERSION.dmg" application/x-apple-diskimage "$IMMUTABLE"
 put "$ZIP" "DJ-Sync-$VERSION.zip" application/zip "$IMMUTABLE"
 put "$OUT/tools-manifest.json.sig" tools-manifest.json.sig text/plain "$SHORT"
 put "$OUT/tools-manifest.json" tools-manifest.json application/json "$SHORT"
+# For apps that fetch it from the old downloads host; djsync.jeffrey.build
+# redirects this name to the versioned file.
 put "$DMG" DJ-Sync-latest.dmg application/x-apple-diskimage "$SHORT"
 put "$OUT/appcast.json.sig" appcast.json.sig text/plain "$SHORT"
 put "$OUT/appcast.json" appcast.json application/json "$SHORT"
 
 git tag -a "djsync-v$VERSION" -m "DJ Sync $VERSION"
-echo "== released DJ Sync $VERSION: $BASE_URL/DJ-Sync-latest.dmg (tag djsync-v$VERSION; push it with git push --tags)"
+echo "== released DJ Sync $VERSION: $BASE_URL/DJ-Sync-$VERSION.dmg (tag djsync-v$VERSION; push it with git push --tags)"
+
+# ---- website ----
+WRANGLER="$WRANGLER" "$SITE/deploy.sh" || die "the app is released, but the website didn't deploy: fix it and run apps/dj-sync-site/deploy.sh"
