@@ -11,6 +11,15 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.3.1] — 2026-10-28 · app icon
+
+### Changed
+- **Released with the app's new icon.** The service itself hasn't changed;
+  the version only moves so it matches the app.
+- **New: `scripts/make-icon.py`** draws `macos/AppIcon.icns` from the site's
+  logo (`favicon.svg`): an 824 px body on Apple's 1024 grid, with a soft
+  shadow. It needs Pillow and `iconutil`.
+
 ## [1.3.0] — 2026-10-28 · uninstall
 
 ### Added
