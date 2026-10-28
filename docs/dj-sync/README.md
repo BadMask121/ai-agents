@@ -18,7 +18,7 @@ A personal DJ-prep agent. You paste a Spotify playlist URL into a Telegram chat 
 
 **The Telegram matching lane does not download audio.** The Web API only exposes metadata (titles, artists, ISRCs, durations). The matching engine assumes you already own, or are willing to buy, the audio files. The output of a `/sync` is "matched against your library + a shopping list for the rest."
 
-**The opt-in ChatGPT download lane (added 2026-10-28) does download audio, and that deliberately reverses this doc's original "no audio extraction" rule.** You give ChatGPT (or an iOS Shortcut) a Spotify or YouTube link, and dj-sync runs spotdl / yt-dlp, which fetch the audio **from YouTube**. Nothing is pulled from Spotify's own stream. The files land in `~/Music/DJ_Downloads` and are added to the XML file Rekordbox's *rekordbox xml* pane reads. dj-sync detects the *Imported Library* path from Rekordbox's settings. This goes against Spotify's and YouTube's terms of service. It's for personal prep only: buy what you play out. See [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md).
+**The opt-in ChatGPT download lane (added 2026-10-28) does download audio, and that deliberately reverses this doc's original "no audio extraction" rule.** You give ChatGPT (or an iOS Shortcut) a Spotify or YouTube link, and dj-sync runs spotdl / yt-dlp, which fetch the audio **from YouTube**. Nothing is pulled from Spotify's own stream. The files land in `~/Music/DJ_Downloads` and are added to the XML file Rekordbox's *rekordbox xml* pane reads. dj-sync detects the *Imported Library* path from Rekordbox's settings. It also writes them into Rekordbox's own library (Collection, plus a **DJ Sync** playlist folder), after a backup, once Rekordbox is closed ([43](43-rekordbox-library.md)). This goes against Spotify's and YouTube's terms of service. It's for personal prep only: buy what you play out. See [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md).
 
 **Rekordbox is the analysis layer.** dj-sync does not compute BPM, key, or beatgrids. It drops files into Rekordbox's configured AutoImport folder; Rekordbox handles analysis on its own schedule the next time it runs. You still own the performance-side workflow (cue points, hot cues, memory cues) inside Rekordbox itself.
 
@@ -56,6 +56,7 @@ Follow these in sequence. Each file is short and focused.
 10. [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md) — ChatGPT MCP download lane: decisions, tools, job flow, security
 11. [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md) — step-by-step setup: spotdl / yt-dlp, launchd, Cloudflare Tunnel, Rekordbox, ChatGPT, iOS Shortcut
 12. [42-cloud-queue.md](42-cloud-queue.md) — Cloudflare Worker + D1 queue so ChatGPT requests made while the Mac is offline still run; semver for the Worker, the agent protocol and the XML
+13. [43-rekordbox-library.md](43-rekordbox-library.md) — writing into Rekordbox's own library (master.db) with semver backups and restore; ChatGPT playlist tools (list, search, create, add, remove, rename, delete)
 
 Files marked _(deferred)_ are placeholders — the architecture is locked in `01` / `02` / `03`; the per-component docs land as we build each module.
 

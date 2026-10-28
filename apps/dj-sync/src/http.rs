@@ -97,6 +97,8 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
         .route("/local/status", get(local_status))
         .route("/local/rekordbox/apply", post(local_apply))
         .route("/local/rekordbox/restore", post(local_restore))
+        .route("/local/rekordbox/retry", post(local_retry))
+        .route("/local/rekordbox/dismiss", post(local_dismiss))
         .route(
             &format!("/{secret}/mcp"),
             post(mcp_post)
@@ -247,6 +249,34 @@ async fn local_apply(State(state): State<AppState>, headers: HeaderMap) -> Respo
     };
     match tokio::task::spawn_blocking(move || lib.apply_pending()).await {
         Ok(Ok(applied)) => Json(json!({ "ok": true, "applied": applied })).into_response(),
+        Ok(Err(e)) => conflict(e),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Requeue changes that were set aside after failing.
+async fn local_retry(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    library_call(state, headers, |lib| lib.retry_failed()).await
+}
+
+/// Forget changes that were set aside after failing.
+async fn local_dismiss(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    library_call(state, headers, |lib| lib.dismiss_failed()).await
+}
+
+async fn library_call(
+    state: AppState,
+    headers: HeaderMap,
+    f: impl FnOnce(&RekordboxLibrary) -> anyhow::Result<usize> + Send + 'static,
+) -> Response {
+    if !local_only(&headers, true) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(lib) = state.library.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || f(&lib)).await {
+        Ok(Ok(n)) => Json(json!({ "ok": true, "count": n })).into_response(),
         Ok(Err(e)) => conflict(e),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }

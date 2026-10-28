@@ -53,7 +53,7 @@ read-only Rekordbox browser are unchanged. The download lane is opt-in
 | spotdl for Spotify, yt-dlp for YouTube | spotdl treats a plain YouTube URL as a *search string*. yt-dlp is the right tool for YouTube. |
 | lofty, not `id3` | Rekordbox wants `TotalTime`, `BitRate` and `SampleRate`. lofty reads those (and handles m4a/flac/wav), and the crate already used it. |
 | Own Location encoder | Rekordbox escapes only space, `" % & ' [ ]` and non-ASCII (lowercase hex), and leaves `# ? ( ) , + ! $ ; @` raw. Generic URL libraries disagree. The old parser cut paths off at `?` and `#`. All 10,781 Locations of a real 7.2.11 export round-trip byte for byte (`tests/location_roundtrip.rs`). |
-| Write to Rekordbox's own *Imported Library* path | dj-sync reads `bridgeImportedLibraryFile` from Rekordbox's settings, so Rekordbox needs no setup. Whatever is already there is kept as snapshot `v1.0.0` before the first write. It never adopts the bot's collection export, and falls back to `~/Music/rekordbox_import.xml`. It never touches Rekordbox's database. A rewrite keeps every track and playlist but drops attributes we don't model. |
+| Write to Rekordbox's own *Imported Library* path | dj-sync reads `bridgeImportedLibraryFile` from Rekordbox's settings, so Rekordbox needs no setup. Whatever is already there is kept as snapshot `v1.0.0` before the first write. It never adopts the bot's collection export, and falls back to `~/Music/rekordbox_import.xml`. A rewrite keeps every track and playlist but drops attributes we don't model. Since 0.6.0 the same tracks also go into Rekordbox's own library (master.db), with backups; see [doc 43](43-rekordbox-library.md). |
 | Optional iOS Shortcut + bearer REST | This is a fallback in case custom MCP plugins don't work in the ChatGPT mobile app, and it's quicker when no chat is needed. |
 
 ## Components
@@ -83,7 +83,8 @@ ChatGPT (web / iOS)            iOS Share Sheet Shortcut
 | Tool | Input | Result |
 |---|---|---|
 | `download_to_rekordbox` | `urls: string[1..25]`, `playlist_name?: string ≤ 100` | Returns immediately: `{job_id, state, playlist, urls, position, deduplicated, rejected}`. Unsupported links are skipped and listed in `rejected`. If none are usable, it returns `isError`. If an identical request is still queued or running, it returns the existing job, because ChatGPT retries calls. |
-| `get_download_status` | `job_id?` | That job (`state`: queued / running / done / failed, `tracks`, `errors`, `message`), or the last 5 jobs. Errors are summarised to the downloader's last `ERROR:` line. |
+| `get_download_status` | `job_id?` | That job (`state`: queued / running / done / failed, `tracks`, `errors`, `message`), or the last 5 jobs. Errors are summarised to the downloader's last `ERROR:` line. It also reports playlist (library) jobs. |
+| `list_playlists`, `search_tracks`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_tracks_from_playlist`, `rename_playlist`, `delete_playlist` | see [doc 43](43-rekordbox-library.md#playlist-tools-chatgpt) | Served by the cloud Worker (0.2.0+) from a snapshot of the Rekordbox library. Writes are queued for the Mac. |
 
 Accepted links are rebuilt in a canonical form (`parser::extract_media_ref`):
 

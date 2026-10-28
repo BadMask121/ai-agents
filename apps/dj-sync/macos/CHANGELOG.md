@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.7.0] — 2026-10-28
+### Added
+- **Retry** and **Dismiss** for library changes that were set aside after
+  failing. For example, after a fix, retry the change instead of losing it.
+
 ## [0.6.0] — 2026-10-28
 ### Added
 - The **Rekordbox** card shows your **library** (master.db):

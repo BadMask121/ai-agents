@@ -11,6 +11,24 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.8.0] — 2026-10-28
+
+### Added
+- `POST /local/rekordbox/retry` and `POST /local/rekordbox/dismiss` (local
+  only, like restore and apply). They requeue or forget library changes that
+  were set aside after failing, and back the menu app's **Retry** and
+  **Dismiss** buttons.
+
+### Fixed
+- **Playlist changes from ChatGPT failed with `'DjmdContent' object has no
+  attribute 'first'`.** Looking a track up by its Rekordbox ID returns the
+  row itself, not a query; `rbdb.py` now handles both.
+- The finished-change message no longer repeats the summary and version,
+  which the Worker already shows.
+- **The untouched original master.db backup (v1.0.0) is never pruned.**
+  Before, only the newest 12 backups were kept, so the pristine library would
+  have been deleted after 12 changes.
+
 ## [0.7.0] — 2026-10-28 · agent protocol 1.1.0
 
 ### Added

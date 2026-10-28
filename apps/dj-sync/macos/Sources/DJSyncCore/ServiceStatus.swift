@@ -145,6 +145,16 @@ public struct LibraryClient: Sendable {
     await post("local/rekordbox/apply", body: [:])
   }
 
+  /// Requeue changes that were set aside after failing.
+  public func retryFailed() async -> Reply {
+    await post("local/rekordbox/retry", body: [:])
+  }
+
+  /// Forget changes that were set aside after failing.
+  public func dismissFailed() async -> Reply {
+    await post("local/rekordbox/dismiss", body: [:])
+  }
+
   private func post(_ path: String, body: [String: String]) async -> Reply {
     var request = URLRequest(url: baseURL.appending(path: path), timeoutInterval: 120)
     request.httpMethod = "POST"

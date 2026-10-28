@@ -396,22 +396,12 @@ impl CloudAgent {
                         match sync.lib.batch_outcome(batch) {
                             BatchOutcome::Pending => continue,
                             BatchOutcome::Applied { version } => {
-                                let msg = format!(
-                                    "{} — applied to your Rekordbox library{}.",
-                                    s.message
-                                        .split(". ")
-                                        .next()
-                                        .unwrap_or(&s.message)
-                                        .trim_end_matches('.'),
-                                    version
-                                        .as_ref()
-                                        .map(|v| format!(" (v{v})"))
-                                        .unwrap_or_default()
-                                );
+                                // The Worker shows the summary and version itself.
+                                let msg = "Applied to your Rekordbox library.";
                                 let done = Completion {
                                     xml_version: s.xml_version.as_deref(),
                                     library_version: version.as_deref(),
-                                    ..Completion::new("done", &msg)
+                                    ..Completion::new("done", msg)
                                 };
                                 self.complete(&cloud_id, done).await?;
                                 self.active.remove(&cloud_id);
@@ -843,7 +833,7 @@ mod tests {
         assert!(body["message"]
             .as_str()
             .unwrap()
-            .contains("applied to your Rekordbox library"));
+            .starts_with("Applied to your Rekordbox library"));
     }
 
     #[tokio::test]

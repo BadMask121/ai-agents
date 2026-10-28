@@ -332,6 +332,29 @@ impl RekordboxLibrary {
         }
     }
 
+    /// Put set-aside batches back in the queue (e.g. after a fix).
+    pub fn retry_failed(&self) -> anyhow::Result<usize> {
+        let _guard = self.lock.lock().expect("library lock");
+        let mut pending = self.read_pending();
+        let n = pending.failed.len();
+        for mut f in pending.failed.drain(..) {
+            f.batch.attempts = 0;
+            pending.batches.push(f.batch);
+        }
+        self.write_pending(&pending)?;
+        Ok(n)
+    }
+
+    /// Forget set-aside batches.
+    pub fn dismiss_failed(&self) -> anyhow::Result<usize> {
+        let _guard = self.lock.lock().expect("library lock");
+        let mut pending = self.read_pending();
+        let n = pending.failed.len();
+        pending.failed.clear();
+        self.write_pending(&pending)?;
+        Ok(n)
+    }
+
     // ---------- restore ----------
 
     pub fn restore(&self, version: &str) -> anyhow::Result<String> {
@@ -750,6 +773,27 @@ mod tests {
         assert_eq!(s.failed.len(), 1);
         assert!(s.failed[0].error.contains("file not found"));
         assert!(s.last_error.is_some());
+    }
+
+    #[test]
+    fn failed_batches_can_be_retried_or_dismissed() {
+        let r = rig("", true);
+        r.lib
+            .enqueue("bad".into(), vec![json!({"op": "x"})])
+            .unwrap();
+        for _ in 0..MAX_ATTEMPTS {
+            let _ = r.lib.apply_pending();
+        }
+        assert_eq!(r.lib.status().failed.len(), 1);
+        assert_eq!(r.lib.retry_failed().unwrap(), 1);
+        let s = r.lib.status();
+        assert_eq!((s.pending.len(), s.failed.len()), (1, 0));
+        for _ in 0..MAX_ATTEMPTS {
+            let _ = r.lib.apply_pending();
+        }
+        assert_eq!(r.lib.dismiss_failed().unwrap(), 1);
+        let s = r.lib.status();
+        assert_eq!((s.pending.len(), s.failed.len()), (0, 0));
     }
 
     #[test]

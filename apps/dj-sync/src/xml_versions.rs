@@ -108,7 +108,7 @@ impl Versions {
     }
 
     /// Snapshots named `<stem>.vX.Y.Z.<ext>` in `dir`; only the newest
-    /// `keep` survive pruning.
+    /// `keep` survive pruning, plus `1.0.0` (the untouched original).
     pub fn in_dir(dir: &Path, stem: &str, ext: &str, keep: usize) -> Self {
         Self {
             dir: dir.to_path_buf(),
@@ -224,7 +224,8 @@ impl Versions {
         let all = self.list();
         let excess = all.len().saturating_sub(self.keep);
         for (v, path) in all.into_iter().take(excess) {
-            if self.keep_majors && v.minor == 0 && v.patch == 0 {
+            let original = v.major == 1 && v.minor == 0 && v.patch == 0;
+            if original || (self.keep_majors && v.minor == 0 && v.patch == 0) {
                 continue;
             }
             if let Err(e) = std::fs::remove_file(&path) {
@@ -349,9 +350,9 @@ mod tests {
             s.record(&db, Some(v("2.0.0")), Bump::Minor).unwrap(),
             v("2.1.0")
         );
-        // keep = 2 and majors aren't special here.
+        // keep = 2; majors aren't special here, but the original 1.0.0 is.
         let kept: Vec<String> = s.list().iter().map(|(v, _)| v.to_string()).collect();
-        assert_eq!(kept, ["2.0.0", "2.1.0"]);
+        assert_eq!(kept, ["1.0.0", "2.0.0", "2.1.0"]);
         assert_eq!(
             s.path_for(v("2.1.0")).file_name().unwrap(),
             "master.v2.1.0.db"
@@ -387,6 +388,28 @@ mod tests {
             s.record(&xml, None, Bump::Patch).is_err(),
             "1.0.0 already taken"
         );
+    }
+
+    #[test]
+    fn in_dir_prunes_old_backups_but_keeps_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("master.db");
+        let v = Versions::in_dir(&dir.path().join("backups"), "master", "db", 2);
+        std::fs::write(&db, "0").unwrap();
+        let mut cur = v.reconcile(&db).unwrap();
+        for i in 1..=4 {
+            std::fs::write(&db, i.to_string()).unwrap();
+            cur = Some(v.record(&db, cur, Bump::Patch).unwrap());
+        }
+        // An outside change (a Rekordbox session) is a MAJOR that may be pruned.
+        std::fs::write(&db, "rekordbox").unwrap();
+        cur = v.reconcile(&db).unwrap();
+        for i in 5..=6 {
+            std::fs::write(&db, i.to_string()).unwrap();
+            cur = Some(v.record(&db, cur, Bump::Patch).unwrap());
+        }
+        let kept: Vec<String> = v.list().iter().map(|(v, _)| v.to_string()).collect();
+        assert_eq!(kept, ["1.0.0", "2.0.1", "2.0.2"], "original + newest 2");
     }
 
     #[test]

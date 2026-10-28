@@ -235,8 +235,16 @@ private struct RekordboxCard: View {
     } content: {
       if let library = model.status?.rekordboxDb {
         LibraryState(library: library)
-        ForEach(library.failed) { failed in
-          Banner(text: "Couldn't apply “\(failed.summary)”: \(failed.error)")
+        if !library.failed.isEmpty {
+          ForEach(library.failed) { failed in
+            Banner(text: "Couldn't apply “\(failed.summary)”: \(failed.error)")
+          }
+          HStack(spacing: 8) {
+            Button("Retry", action: model.retryFailedChanges)
+            Button("Dismiss", action: model.dismissFailedChanges)
+          }
+          .controlSize(.small)
+          .disabled(model.libraryBusy)
         }
         if !library.pending.isEmpty, !library.rekordboxRunning {
           Button(model.libraryBusy ? "Applying…" : "Apply Now", action: model.applyLibraryNow)

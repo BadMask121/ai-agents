@@ -1,8 +1,10 @@
 # 42 — Cloud queue (works while the Mac is offline)
 
 **Status:** live 2026-10-28 (bd epic `ai-agents-jff.3`).
-- **Worker:** [`apps/dj-sync-cloud`](../../apps/dj-sync-cloud/) (0.1.0, agent protocol 1.0.0).
-- **Mac side:** `apps/dj-sync/src/cloud.rs` (dj-sync 0.2.0).
+- **Worker:** [`apps/dj-sync-cloud`](../../apps/dj-sync-cloud/) (0.2.0, agent protocol 1.1.0).
+- **Mac side:** `apps/dj-sync/src/cloud.rs` (dj-sync 0.8.0).
+- **Playlist tools:** protocol 1.1 adds a library snapshot and library jobs.
+  See [doc 43](43-rekordbox-library.md).
 
 ## Why
 
@@ -50,13 +52,14 @@ tunnel.
 | dj-sync-cloud (Worker) | `package.json` = `WORKER_VERSION` (test-enforced), `CHANGELOG.md`, `wrangler deploy --tag vX.Y.Z` | Normal semver. |
 | Agent protocol | `AGENT_PROTOCOL` in both `cloud.rs` and `src/constants.ts` | The Worker accepts an agent with the **same MAJOR** whose **MINOR is no newer** than its own. Anything else gets `409 incompatible_protocol`, and the Mac logs an error and stops claiming until one side is updated. Bump MINOR for additive changes and MAJOR for breaking ones. Deploy the Worker first. |
 | Rekordbox import XML | `<file>.versions/<stem>.vX.Y.Z.xml` | MAJOR is a baseline or outside edit, MINOR a new playlist, PATCH added tracks (see [doc 40](40-chatgpt-mcp-design.md#versioned-snapshots-semver)). Reported per job as `xml_version`. |
+| Rekordbox library (master.db) | `~/.dj-sync/rekordbox-backups/master.vX.Y.Z.db` | Same rules. The newest 12 are kept, plus the original `1.0.0`. Reported per library job as `library_version` ([doc 43](43-rekordbox-library.md)). |
 
 ## Operations
 
 ```bash
 # Is the Mac polling? Queue depth?
 curl -s https://mcp.triplejmusic.art/health
-# → {"status":"ok","version":"0.1.0","protocol":"1.0.0","agent":{"online":true,"last_seen":"…","version":"0.2.0"},"queued":0}
+# → {"status":"ok","version":"0.2.0","protocol":"1.1.0","agent":{"online":true,"last_seen":"…","version":"0.8.0"},"queued":0}
 
 # Mac side
 grep cloud ~/Library/Logs/dj-sync.log | tail
@@ -95,10 +98,13 @@ To rotate one, put a new value in both places and restart dj-sync with
 | DNS for the hostname is stale on the Mac | Same as offline, until the cache expires. To clear it now: `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`. |
 | Protocol mismatch after an upgrade | `409` on every poll and an error in `dj-sync.log`. No jobs are claimed until the Worker and Mac agree. |
 | Worker or D1 incident | ChatGPT gets an error. Nothing is lost, because jobs already in D1 stay queued. |
+| Rekordbox open when a playlist change arrives | It's mirrored into the XML at once, and the job stays `running` until Rekordbox quits and master.db is updated. |
+| Mac hasn't shared its library yet | The playlist tools answer *"Your Mac hasn't shared its Rekordbox library yet"*. The Mac uploads the snapshot on its next poll. |
 
 ## Cost (free plan)
 
 Polling every 15 s comes to about 5.8k Worker requests and 5.8k D1 writes a day
 while the Mac is online. That's well inside the free limits of 100k requests
-and 100k D1 writes a day. Finished jobs are deleted after 30 days by a daily
+and 100k D1 writes a day. The library snapshot is a KV write, and it only
+happens when the library changes. Finished jobs are deleted after 30 days by a daily
 cron.

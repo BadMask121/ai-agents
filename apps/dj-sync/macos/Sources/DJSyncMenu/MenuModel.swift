@@ -110,6 +110,14 @@ final class MenuModel {
     runLibraryAction { await $0.applyNow() }
   }
 
+  func retryFailedChanges() {
+    runLibraryAction { await $0.retryFailed() }
+  }
+
+  func dismissFailedChanges() {
+    runLibraryAction { await $0.dismissFailed() }
+  }
+
   private func runLibraryAction(_ action: @escaping (LibraryClient) async -> LibraryClient.Reply) {
     libraryBusy = true
     actionError = nil

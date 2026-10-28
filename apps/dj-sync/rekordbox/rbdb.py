@@ -44,9 +44,15 @@ def open_db(path: str | None) -> MasterDatabase:
 # ---------- lookups ----------
 
 
+def first(result):
+    """pyrekordbox returns the row itself for primary-key lookups (ID=...)
+    and a query otherwise."""
+    return result.first() if hasattr(result, "first") else result
+
+
 def find_content(db: MasterDatabase, op: dict[str, Any]):
     if op.get("content_id"):
-        return db.get_content(ID=str(op["content_id"])).first()
+        return first(db.get_content(ID=str(op["content_id"])))
     if op.get("path"):
         return db.get_content(FolderPath=str(Path(op["path"]))).first()
     raise ValueError("op needs `path` or `content_id`")
