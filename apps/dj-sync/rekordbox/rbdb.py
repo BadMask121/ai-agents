@@ -3,7 +3,7 @@
 dj-sync (Rust) runs this with JSON in and JSON out:
 
     rbdb.py [--db PATH] status
-    rbdb.py [--db PATH] apply            < {"ops": [...]}
+    rbdb.py [--db PATH] apply            < {"ops": [...], "own_dirs": [...]}
     rbdb.py [--db PATH] playlists
     rbdb.py [--db PATH] search QUERY [--limit N]
     rbdb.py [--db PATH] snapshot         (read-only: playlists + track index)
@@ -13,7 +13,9 @@ failure rolls everything back, so the library never ends up half-changed.
 Ops are idempotent (re-applying them never duplicates tracks or entries).
 Playlist ops may carry `playlist_id` (Rekordbox's id, from the snapshot) to
 pin the exact playlist when names repeat; without it they match by name.
-Writing is refused while Rekordbox is running — dj-sync queues changes and
+`own_dirs` are dj-sync's download folders: the tracks there are its own, so
+they're left out when copying the library's ContentLink, and
+`repair_tracks` fixes theirs. Writing is refused while Rekordbox is running — dj-sync queues changes and
 applies them after Rekordbox quits, and snapshots master.db first.
 
 Exit codes: 0 ok, 1 error (nothing written), 3 Rekordbox is running.
@@ -28,10 +30,15 @@ from pathlib import Path
 from typing import Any
 
 from pyrekordbox import MasterDatabase
+from pyrekordbox.masterdb.models import DjmdContent
 from pyrekordbox.utils import get_rekordbox_pid
+from sqlalchemy import and_, func, or_, true
 
 FOLDER, PLAYLIST = 1, 0
 DEFAULT_FOLDER = "DJ Sync"
+# ContentLink of a track Rekordbox 7 imported itself (used when the library
+# has no tracks to copy it from).
+NATIVE_CONTENT_LINK = 0x2D060E
 
 
 def out(payload: dict[str, Any], code: int = 0) -> None:
@@ -103,6 +110,33 @@ def named(db: MasterDatabase, getter: str, adder: str, name: str | None, **extra
     return hit if hit is not None else getattr(db, adder)(name, **extra)
 
 
+def outside(dirs: list[str]):
+    """SQL filter: tracks that aren't under any of `dirs`."""
+    return and_(true(), *[~under(d) for d in dirs])
+
+
+def under(d: str):
+    """SQL filter: tracks under folder `d`."""
+    return DjmdContent.FolderPath.startswith(d.rstrip("/") + "/", autoescape=True)
+
+
+def native_content_link(db: MasterDatabase, own_dirs: list[str] = ()) -> int:
+    """The ContentLink Rekordbox gives this library's tracks (the most common
+    one outside dj-sync's folders).
+
+    pyrekordbox seeds new tracks with the TRACK menu item's usn instead, and
+    Rekordbox keeps the stray bits: those tracks preview but never load to a
+    deck."""
+    row = (
+        db.session.query(DjmdContent.ContentLink)
+        .filter(DjmdContent.ContentLink.isnot(None), outside(list(own_dirs)))
+        .group_by(DjmdContent.ContentLink)
+        .order_by(func.count().desc())
+        .first()
+    )
+    return row[0] if row else NATIVE_CONTENT_LINK
+
+
 # ---------- ops ----------
 
 
@@ -128,8 +162,29 @@ def op_add_track(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
         "SampleRate": op.get("sample_rate"),
         "Commnt": op.get("comment"),
     }
+    link = op.get("content_link") or native_content_link(db, op.get("own_dirs", []))
     content = db.add_content(path, **{k: v for k, v in fields.items() if v is not None})
+    content.ContentLink = link
     return {"content_id": str(content.ID), "created": True}
+
+
+def op_repair_tracks(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
+    """Give dj-sync's tracks the library's ContentLink where theirs is one no
+    other track uses (added before dj-sync 1.2.1: they never load to a deck)."""
+    dirs = op.get("own_dirs") or []
+    if not dirs:
+        return {"repaired": 0}
+    link = op.get("content_link") or native_content_link(db, dirs)
+    used = {
+        row[0]
+        for row in db.session.query(DjmdContent.ContentLink).filter(outside(dirs)).distinct()
+    }
+    repaired = 0
+    for content in db.get_content().filter(or_(*[under(d) for d in dirs])):
+        if content.ContentLink != link and content.ContentLink not in used:
+            content.ContentLink = link
+            repaired += 1
+    return {"repaired": repaired}
 
 
 def op_ensure_playlist(db: MasterDatabase, op: dict[str, Any]) -> dict[str, Any]:
@@ -192,6 +247,7 @@ OPS = {
     "remove_from_playlist": op_remove_from_playlist,
     "rename_playlist": op_rename_playlist,
     "delete_playlist": op_delete_playlist,
+    "repair_tracks": op_repair_tracks,
 }
 
 
@@ -213,14 +269,17 @@ def cmd_apply(db: MasterDatabase) -> None:
     ops = request.get("ops", [])
     if get_rekordbox_pid():
         out({"ok": False, "rekordbox_running": True, "error": "Rekordbox is running"}, 3)
+    own_dirs = [str(Path(d)) for d in request.get("own_dirs", [])]
     results = []
     try:
+        # Worked out once, before dj-sync's own changes can tip the count.
+        link = native_content_link(db, own_dirs)
         for i, op in enumerate(ops):
             handler = OPS.get(op.get("op"))
             if handler is None:
                 raise ValueError(f"unknown op {op.get('op')!r}")
             try:
-                results.append(handler(db, op))
+                results.append(handler(db, {**op, "own_dirs": own_dirs, "content_link": link}))
             except Exception as e:  # name the op that failed
                 raise RuntimeError(f"op {i} ({op.get('op')}): {e}") from e
         if ops:

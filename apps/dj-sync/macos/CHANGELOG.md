@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.2.1] — 2026-10-28 · songs load to the deck
+
+### Fixed
+- **Downloaded songs load to a deck in Rekordbox again.**
+  - **Before:** dj-sync's songs previewed but did nothing when loaded.
+  - **New songs:** they now load.
+  - **Older songs:** they're repaired the next time Rekordbox is closed. The
+    library is backed up first and can be restored from Backups.
+
 ## [1.2.0] — 2026-10-28 · one-scan iPhone setup
 
 ### Changed

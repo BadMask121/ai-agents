@@ -107,12 +107,18 @@ pub struct Helper {
 }
 
 type RunningCheck = Arc<dyn Fn() -> bool + Send + Sync>;
+/// dj-sync's download folders (read fresh: the menu bar app can change them).
+type OwnDirs = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
+
+/// Marks the one-time repair of tracks added before 1.2.1 as queued.
+const REPAIR_MARKER: &str = "rekordbox-repair-content-link";
 
 pub struct RekordboxLibrary {
     cfg: RekordboxDbCfg,
     state_dir: PathBuf,
     helper: Helper,
     running: RunningCheck,
+    own_dirs: OwnDirs,
     /// Serialises pending-file edits, applies and restores.
     lock: Mutex<Memory>,
 }
@@ -161,8 +167,43 @@ impl RekordboxLibrary {
             state_dir,
             helper,
             running,
+            own_dirs: Arc::new(Vec::new),
             lock: Mutex::new(Memory::default()),
         }
+    }
+
+    /// Where dj-sync downloads to. Every apply repairs the tracks there that
+    /// Rekordbox can't load (see `repair_tracks` in rbdb.py).
+    pub fn with_own_dirs(
+        mut self,
+        dirs: impl Fn() -> Vec<PathBuf> + Send + Sync + 'static,
+    ) -> Self {
+        self.own_dirs = Arc::new(dirs);
+        self
+    }
+
+    /// Queue the repair once for libraries that already have dj-sync's tracks
+    /// (added before 1.2.1, they preview but never load to a deck).
+    pub fn queue_repair_once(&self) -> anyhow::Result<()> {
+        let marker = self.state_dir.join(REPAIR_MARKER);
+        if marker.exists() {
+            return Ok(());
+        }
+        let has_tracks = (self.own_dirs)().iter().any(|d| {
+            std::fs::read_dir(d)
+                .map(|mut rd| rd.any(|e| e.map(|e| e.path().is_file()).unwrap_or(false)))
+                .unwrap_or(false)
+        });
+        if has_tracks {
+            self.enqueue(
+                "Repair songs that wouldn't load to a deck".into(),
+                vec![json!({"op": "repair_tracks"})],
+            )?;
+            info!("queued the one-time repair of dj-sync's tracks in Rekordbox");
+        }
+        std::fs::create_dir_all(&self.state_dir)?;
+        std::fs::write(&marker, now())?;
+        Ok(())
     }
 
     fn pending_path(&self) -> PathBuf {
@@ -273,16 +314,34 @@ impl RekordboxLibrary {
             .context("backing up master.db")?;
         self.note_backup(before, "Library before dj-sync's changes");
 
-        let ops: Vec<Value> = pending.batches.iter().flat_map(|b| b.ops.clone()).collect();
-        let summary = pending
+        let own_dirs = (self.own_dirs)();
+        let mut ops: Vec<Value> = Vec::new();
+        if !own_dirs.is_empty() {
+            ops.push(json!({"op": "repair_tracks"}));
+        }
+        ops.extend(pending.batches.iter().flat_map(|b| b.ops.clone()));
+        let mut summary = pending
             .batches
             .iter()
             .map(|b| b.summary.as_str())
             .collect::<Vec<_>>()
             .join("; ");
 
-        match self.run_helper(&["apply"], Some(&json!({ "ops": ops }))) {
+        match self.run_helper(
+            &["apply"],
+            Some(&json!({ "ops": ops, "own_dirs": own_dirs })),
+        ) {
             Ok(HelperOutcome::Done(result)) => {
+                let repaired = repaired_in(&result);
+                if repaired > 0 {
+                    warn!(
+                        repaired,
+                        "repaired dj-sync tracks Rekordbox couldn't load to a deck"
+                    );
+                    summary.push_str(&format!(
+                        "; fixed {repaired} song(s) that wouldn't load to a deck"
+                    ));
+                }
                 let bump = bump_for(&result);
                 let version = match bump {
                     Some(bump) => {
@@ -587,11 +646,21 @@ fn bump_for(result: &Value) -> Option<Bump> {
         || flag("removed")
         || flag("renamed")
         || flag("deleted")
+        || repaired_in(result) > 0
     {
         Some(Bump::Patch)
     } else {
         None
     }
+}
+
+/// Tracks `repair_tracks` fixed in this apply.
+fn repaired_in(result: &Value) -> u64 {
+    result
+        .get("results")
+        .and_then(Value::as_array)
+        .map(|rs| rs.iter().filter_map(|r| r.get("repaired")?.as_u64()).sum())
+        .unwrap_or(0)
 }
 
 fn run_checked(command: &mut Command) -> anyhow::Result<()> {
@@ -626,6 +695,9 @@ pub async fn run(library: Arc<RekordboxLibrary>, mut shutdown: watch::Receiver<b
             error!(error = %format!("{e:#}"), "rekordbox helper setup failed; will retry")
         }
         Err(e) => error!(error = %e, "rekordbox helper setup panicked"),
+    }
+    if let Err(e) = library.queue_repair_once() {
+        warn!(error = %format!("{e:#}"), "couldn't queue the rekordbox track repair");
     }
     loop {
         tokio::select! {
@@ -897,5 +969,87 @@ mod tests {
             Some(Bump::Patch)
         );
         assert_eq!(bump_for(&json!({"results": [{"added": false}]})), None);
+        assert_eq!(
+            bump_for(&json!({"results": [{"repaired": 3}]})),
+            Some(Bump::Patch)
+        );
+        assert_eq!(bump_for(&json!({"results": [{"repaired": 0}]})), None);
+    }
+
+    #[test]
+    fn every_apply_repairs_tracks_in_the_download_folders() {
+        let r = rig(
+            r#"{"ok": true, "results": [{"repaired": 2}, {"added": false}]}"#,
+            false,
+        );
+        let downloads = r._tmp.path().join("DJ_Downloads");
+        let dir = downloads.clone();
+        let lib = RekordboxLibrary::with_parts(
+            r.lib.cfg.clone(),
+            r.lib.state_dir.clone(),
+            r.lib.helper.clone(),
+            Arc::new(|| false),
+        )
+        .with_own_dirs(move || vec![dir.clone()]);
+        lib.enqueue("Add 1 track to “Friday”".into(), vec![json!({"op": "x"})])
+            .unwrap();
+        let applied = lib.apply_pending().unwrap().unwrap();
+
+        let input = std::fs::read_to_string(r.db.with_file_name("master.db.last-input")).unwrap();
+        let sent: Value = serde_json::from_str(&input).unwrap();
+        assert_eq!(
+            sent["ops"][0],
+            json!({"op": "repair_tracks"}),
+            "repair first"
+        );
+        assert_eq!(sent["ops"].as_array().unwrap().len(), 2);
+        assert_eq!(sent["own_dirs"], json!([downloads]));
+        assert_eq!(
+            applied.version.as_deref(),
+            Some("1.0.1"),
+            "a repair is a change"
+        );
+        assert_eq!(
+            applied.summary,
+            "Add 1 track to “Friday”; fixed 2 song(s) that wouldn't load to a deck"
+        );
+    }
+
+    #[test]
+    fn the_track_repair_is_queued_once_and_only_with_downloads() {
+        let r = rig(CREATED_PLAYLIST, false);
+        let empty = r._tmp.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let fresh = RekordboxLibrary::with_parts(
+            r.lib.cfg.clone(),
+            r._tmp.path().join("fresh-state"),
+            r.lib.helper.clone(),
+            Arc::new(|| false),
+        )
+        .with_own_dirs(move || vec![empty.clone()]);
+        fresh.queue_repair_once().unwrap();
+        assert!(
+            fresh.status().pending.is_empty(),
+            "nothing downloaded: nothing to repair"
+        );
+
+        let downloads = r._tmp.path().join("DJ_Downloads");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(downloads.join("a.mp3"), "x").unwrap();
+        let lib = RekordboxLibrary::with_parts(
+            r.lib.cfg.clone(),
+            r.lib.state_dir.clone(),
+            r.lib.helper.clone(),
+            Arc::new(|| false),
+        )
+        .with_own_dirs(move || vec![downloads.clone()]);
+        lib.queue_repair_once().unwrap();
+        lib.queue_repair_once().unwrap();
+        let pending = lib.status().pending;
+        assert_eq!(pending.len(), 1, "queued once");
+        assert_eq!(
+            pending[0].summary,
+            "Repair songs that wouldn't load to a deck"
+        );
     }
 }
