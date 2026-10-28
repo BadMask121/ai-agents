@@ -16,7 +16,7 @@ This project uses **bd (beads)** for ALL task tracking. No exceptions.
 - Do NOT use TodoWrite, TaskCreate, or markdown TODO lists for project work — bd is the single source of truth.
 - Do NOT skip bd "just for a small change." Every change gets an issue.
 
-**End of session:** follow the session completion workflow in `AGENTS.md` (file issues, run quality gates, `bd dolt push`, `git push`).
+**End of session:** follow the session completion workflow in `AGENTS.md` (file issues, run quality gates, `git push`). bd is local-only (no Dolt remote, by choice): skip `bd dolt push`.
 
 ## Brainstorming — check docs first
 

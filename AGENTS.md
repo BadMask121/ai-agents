@@ -9,8 +9,10 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
 ```
+
+bd is **local-only**: this database has no Dolt remote, by the owner's choice.
+Don't run `bd dolt push` or `bd dolt pull`.
 
 ## Non-Interactive Shell Commands
 
@@ -68,7 +70,6 @@ bd close <id>         # Complete work
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
