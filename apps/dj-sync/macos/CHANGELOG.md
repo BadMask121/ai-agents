@@ -4,6 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.3.0] — 2026-10-28 · uninstall
+
+### Added
+- **About → Uninstall DJ Sync…**
+  - **What it removes:** DJ Sync's background service, tools and settings,
+    plus this Mac's data in the DJ Sync cloud. ChatGPT, Claude, iPhone and
+    Telegram stop reaching it. The app goes to the Bin.
+  - **What stays:** your music and Rekordbox library. Library backups are kept
+    in Music › DJ Sync Backups unless you untick the box.
+- **Deleting the app stops DJ Sync.** If you drag DJ Sync to the Bin instead,
+  its background service stops within about 10 minutes rather than running on.
+
 ## [1.2.1] — 2026-10-28 · songs load to the deck
 
 ### Fixed

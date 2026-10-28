@@ -11,7 +11,29 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
-## [Unreleased]
+## [1.3.0] — 2026-10-28 · uninstall
+
+### Added
+- **`dj-sync uninstall [--delete-backups]`** (`uninstall.rs`) removes DJ Sync
+  from the Mac. The menu app's Uninstall button and the FAQ's Terminal command
+  both run it. Spec: `docs/superpowers/specs/2026-10-28-dj-sync-uninstaller-design.md`.
+  1. **Stops the service first.** Otherwise a service the cloud just forgot
+     would re-register on its next 401.
+  2. **Forgets the cloud:** `DELETE /v2/agent` on Worker ≥ 1.5.0. Offline only
+     warns.
+  3. **Library backups:** moves them to `~/Music/DJ Sync Backups`, with a
+     `How to restore.txt` (a dated subfolder if earlier backups are there), or
+     deletes them with `--delete-backups`.
+  4. **Deletes `~/.dj-sync`.**
+  5. **Menu app leftovers:** removes its preferences, caches, logs and
+     permissions.
+  - **Safe:** running it again is harmless. It never touches music,
+    `master.db` or `rekordbox.xml`.
+- **A watchdog stops the service when the app is gone.** Once
+  `settings.json`'s new `app_path` has been missing for 10 minutes, the
+  service removes its LaunchAgent and stops, keeping its data. Opening the app
+  again reinstalls it.
+
 
 ### Release tooling
 - **`release.sh` ships the website too.**
