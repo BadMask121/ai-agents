@@ -48,7 +48,7 @@
     <link rel="stylesheet" href="/styles.css" />
 
     <!-- Structured data: helps Google rich results and AI assistants understand the app -->
-    <script type="application/ld+json">
+    <script type="application/ld+json" id="app-ld">
       {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
@@ -56,8 +56,8 @@
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "macOS 12.0 or later",
         "url": "https://prole.jeffrey.build/",
-        "downloadUrl": "https://prole.jeffrey.build/download/Prole.dmg",
-        "softwareVersion": "0.1.0",
+        "downloadUrl": "https://prole.jeffrey.build/download/Prole-0.2.0.dmg",
+        "softwareVersion": "0.2.0",
         "image": "https://prole.jeffrey.build/assets/og.png",
         "screenshot": "https://prole.jeffrey.build/assets/og.png",
         "description": "Prole is a free macOS menu bar app for snipping anything on your screen, marking it up, and pasting it wherever you want. Draw a box around anything, add arrows, a pen, or text right on the image, then copy it and paste it into Claude or any app that accepts an image.",
@@ -114,7 +114,7 @@
         <a href="#how">How it works</a>
         <a href="#install">Install</a>
         <a href="https://github.com/BadMask121/prole">GitHub</a>
-        <a class="nav-cta" href="/download/Prole.dmg">Download</a>
+        <a class="nav-cta" href="/download/Prole-0.2.0.dmg" data-download>Download</a>
       </nav>
     </header>
 
@@ -127,9 +127,9 @@
           or text right on the image, then paste it into Claude or any app that takes an image.
         </p>
         <div class="cta-row">
-          <a class="btn-primary" href="/download/Prole.dmg">
+          <a class="btn-primary" href="/download/Prole-0.2.0.dmg" data-download>
             Download for macOS
-            <span class="btn-sub">Universal · .dmg</span>
+            <span class="btn-sub"><span data-version>v0.2.0</span> · Universal · .dmg</span>
           </a>
           <a class="btn-ghost" href="#install">Install guide</a>
         </div>
@@ -165,7 +165,7 @@
         </p>
         <ol class="install-steps">
           <li>
-            <strong>Open the download.</strong> Double-click <code>Prole.dmg</code>, then drag
+            <strong>Open the download.</strong> Double-click <code data-file-name>Prole-0.2.0.dmg</code>, then drag
             <strong>Prole</strong> into your <strong>Applications</strong> folder.
           </li>
           <li>
@@ -192,7 +192,7 @@
             <em>System Settings → Privacy &amp; Security → Screen Recording</em>, then reopen Prole if it asks.
           </li>
         </ol>
-        <a class="btn-primary install-dl" href="/download/Prole.dmg">Download Prole.dmg</a>
+        <a class="btn-primary install-dl" href="/download/Prole-0.2.0.dmg" data-download>Download <span data-file-name>Prole-0.2.0.dmg</span></a>
       </section>
     </main>
 
@@ -202,6 +202,26 @@
     </footer>
 
     <script>
+      // Point the download links at the newest release. The HTML ships with the
+      // version current at deploy time; latest.json is rewritten by every release
+      // (scripts/release.sh in github.com/BadMask121/prole), so new versions show
+      // up without redeploying this page.
+      fetch("/download/latest.json", { cache: "no-cache" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((latest) => {
+          if (!latest || !/^\d+\.\d+\.\d+$/.test(latest.version) || !/^Prole-[\d.]+\.dmg$/.test(latest.file)) return;
+          const href = "/download/" + latest.file;
+          document.querySelectorAll("[data-download]").forEach((a) => (a.href = href));
+          document.querySelectorAll("[data-file-name]").forEach((el) => (el.textContent = latest.file));
+          document.querySelectorAll("[data-version]").forEach((el) => (el.textContent = "v" + latest.version));
+          const ld = document.getElementById("app-ld");
+          const data = JSON.parse(ld.textContent);
+          data.softwareVersion = latest.version;
+          data.downloadUrl = location.origin + href;
+          ld.textContent = JSON.stringify(data);
+        })
+        .catch(() => {}); // keep the shipped links
+
       document.querySelectorAll(".copy-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const code = btn.closest(".code-block").querySelector("code");

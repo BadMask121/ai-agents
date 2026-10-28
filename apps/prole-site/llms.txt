@@ -2,7 +2,7 @@
 
 > Prole is a free macOS menu bar app. Snip anything on your screen, mark it up (arrows, a pen, and a text tool that writes right on the image), then copy it and paste it into Claude or any app that takes an image. It is a visual "ask about my screen" tool. It captures pixels and your notes only, with no DOM or code extraction. Claude is the main use case, but the copied image is a normal screenshot that works anywhere.
 
-Prole runs on macOS 12 or later (universal, Apple Silicon and Intel). It isn't notarized yet, so the first launch needs a right-click then Open. Download: https://prole.jeffrey.build/download/Prole.dmg
+Prole runs on macOS 12 or later (universal, Apple Silicon and Intel). It isn't notarized yet, so the first launch needs a right-click then Open. Download: https://prole.jeffrey.build/download/Prole.dmg (always the newest version; the current version and its versioned URL are in https://prole.jeffrey.build/download/latest.json)
 
 ## How it works
 
@@ -22,5 +22,6 @@ Prole runs on macOS 12 or later (universal, Apple Silicon and Intel). It isn't n
 ## Links
 
 - Home: https://prole.jeffrey.build/
-- Download (macOS .dmg): https://prole.jeffrey.build/download/Prole.dmg
+- Download (macOS .dmg, newest): https://prole.jeffrey.build/download/Prole.dmg
+- Release manifest (version, versioned URL, sha256): https://prole.jeffrey.build/download/latest.json
 - Source (open source, MIT): https://github.com/BadMask121/prole

@@ -13,14 +13,20 @@ nginx.conf      # static serving + /download artifact location
 Dockerfile      # nginx:alpine — what Coolify builds
 ```
 
-The download button links to the **relative** path `/download/Prole.dmg`, so it works under
-Coolify's generated URL today and unchanged once a real domain is attached.
+Download links use **relative**, versioned paths (`/download/Prole-<version>.dmg`). The HTML
+ships with the version current at deploy time; a small script in `index.html` reads
+`/download/latest.json` and points every `[data-download]` link at the newest release, so a new
+release shows up without redeploying the site.
 
 ## How the DMG gets served
 
 The `.dmg` is a rebuilt binary and is **never committed to git**. nginx serves `/download/` from
 `/srv/prole-releases/` inside the container, which Coolify bind-mounts from the host directory
-`/data/prole-releases`. The release script uploads the DMG there:
+`/data/prole-releases`. The release script publishes there:
+
+- `Prole-<version>.dmg` — the release; never overwritten
+- `Prole.dmg` — symlink to the newest release (old links keep working)
+- `latest.json` — `{version, file, url, sha256, size, commit, released}`
 
 ```sh
 # from the Prole app repo (github.com/BadMask121/prole) — builds locally (ad-hoc) and uploads
