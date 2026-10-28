@@ -284,6 +284,25 @@ To rotate the secret:
 2. Run `launchctl kickstart -k gui/$(id -u)/com.triplejmusic.dj-sync`.
 3. Update the plugin URL in ChatGPT.
 
+## 6b. Cloud queue, so the Mac can be offline
+
+Once steps 1–6 work, put the always-on Worker in front. After that, ChatGPT
+requests made while the Mac is asleep or offline wait in Cloudflare and run
+when it's back. See [42-cloud-queue.md](42-cloud-queue.md). In short:
+
+1. Deploy the Worker: `cd apps/dj-sync-cloud`, then `npx wrangler login`,
+   `npx wrangler d1 create dj-sync-queue` (put the ID in `wrangler.jsonc`),
+   `pnpm db:migrate:remote` and `npx wrangler deploy --tag v0.1.0`.
+2. Add `CLOUD_AGENT_TOKEN=$(openssl rand -hex 32)` to `~/.dj-sync/.env`. Then
+   pipe `MCP_SECRET_PATH`, `SHORTCUT_API_KEY` and that token (as `AGENT_TOKEN`)
+   into `npx wrangler secret put`.
+3. Add `[cloud] enabled = true` to `~/.dj-sync/config.toml` and restart
+   dj-sync. Check that `curl https://mcp.triplejmusic.art/health` shows
+   `"online": true`.
+
+The ChatGPT plugin URL stays the same. The tunnel from step 4 is then only a
+rollback path.
+
 ## 7. Optional: iOS Share Sheet Shortcut
 
 With `SHORTCUT_API_KEY` set, follow

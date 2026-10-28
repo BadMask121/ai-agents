@@ -1,0 +1,48 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dj-sync-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+
+  // Served only on the route below: no *.workers.dev / preview URLs, so the
+  // MCP endpoint and agent API have exactly one public address.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // A route in front of the existing proxied CNAME (which points at the old
+  // Cloudflare Tunnel) — not a custom domain, so no DNS change is needed and
+  // the ChatGPT plugin URL stays the same. The Worker never forwards to it.
+  "routes": [
+    { "pattern": "mcp.triplejmusic.art/*", "zone_name": "triplejmusic.art" }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dj-sync-queue",
+      // Created with `wrangler d1 create dj-sync-queue` (region WEUR).
+      "database_id": "17a65bc7-4a07-4284-a2c9-70cdecc285ea",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Daily retention: drop finished jobs older than 30 days.
+  "triggers": { "crons": ["17 3 * * *"] },
+
+  "vars": {
+    "DEFAULT_PLAYLIST": "ChatGPT Downloads",
+    "MAX_URLS": "25",
+    "PUBLIC_HOST": "mcp.triplejmusic.art"
+  },
+  // Secrets (wrangler secret put …), never in this file:
+  //   MCP_SECRET_PATH   — same value as ~/.dj-sync/.env, so the ChatGPT plugin URL is unchanged
+  //   AGENT_TOKEN       — shared with the Mac (CLOUD_AGENT_TOKEN in ~/.dj-sync/.env)
+  //   SHORTCUT_API_KEY  — optional; enables /api/downloads for the iOS Shortcut
+
+  "observability": {
+    "enabled": true,
+    // Invocation logs record the request URL, which contains MCP_SECRET_PATH.
+    // Keep console logs (which never print the path) but drop those.
+    "logs": { "enabled": true, "invocation_logs": false }
+  }
+}

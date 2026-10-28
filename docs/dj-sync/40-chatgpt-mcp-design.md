@@ -4,6 +4,11 @@
 (`http.rs`, `mcp.rs`, `jobs.rs`, `downloader.rs`, `import_xml.rs`). Setup is in
 [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md).
 
+> **Update (2026-10-28):** ChatGPT now reaches an always-on Cloudflare Worker
+> queue instead of the Mac directly, and the Mac polls it. See
+> [42-cloud-queue.md](42-cloud-queue.md). The tools and job lifecycle below are
+> unchanged. The tunnel is only a rollback path.
+
 ## Goal
 
 From the ChatGPT app on my phone: paste a Spotify or YouTube link, say

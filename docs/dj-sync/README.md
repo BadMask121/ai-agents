@@ -55,6 +55,7 @@ Follow these in sequence. Each file is short and focused.
 9. [30-rekordbox-browser-design.md](30-rekordbox-browser-design.md) — browse your Rekordbox playlists from Telegram
 10. [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md) — ChatGPT MCP download lane: decisions, tools, job flow, security
 11. [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md) — step-by-step setup: spotdl / yt-dlp, launchd, Cloudflare Tunnel, Rekordbox, ChatGPT, iOS Shortcut
+12. [42-cloud-queue.md](42-cloud-queue.md) — Cloudflare Worker + D1 queue so ChatGPT requests made while the Mac is offline still run; semver for the Worker, the agent protocol and the XML
 
 Files marked _(deferred)_ are placeholders — the architecture is locked in `01` / `02` / `03`; the per-component docs land as we build each module.
 

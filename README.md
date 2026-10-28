@@ -13,6 +13,7 @@ ai-agents/
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
 │   ├── mail-mcp/        # Node MCP server — ChatGPT ⇄ privateemail mailbox (IMAP/SMTP)
 │   ├── dj-sync/         # Rust — Spotify/YouTube → Rekordbox prep via Telegram + ChatGPT MCP
+│   ├── dj-sync-cloud/   # Cloudflare Worker + D1 — always-on queue in front of dj-sync
 │   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
 │   ├── prole-promo/     # Remotion promo video for Prole
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
@@ -38,8 +39,8 @@ ai-agents/
 - **Shared TS config:** every TS member extends `tsconfig.base.json`
   (ES2022, NodeNext, strict).
 
-> **TS vs Rust members.** `career-ops-ui`, `booking-ops`, `shared`, and
-> `sample-agent` are pnpm workspace members (have `package.json`).
+> **TS vs Rust members.** `career-ops-ui`, `booking-ops`, `shared`,
+> `sample-agent` and `dj-sync-cloud` are pnpm workspace members (have `package.json`).
 > `dj-sync` is a **standalone Cargo project** (no `package.json`) — it is not
 > part of the pnpm/turbo graph and is run directly with `cargo`.
 
@@ -167,7 +168,28 @@ One binary with two optional lanes:
 - **Deploy:** a LaunchAgent plus Cloudflare Tunnel on the DJ laptop. See
   [`docs/dj-sync/41-chatgpt-mcp-setup.md`](docs/dj-sync/41-chatgpt-mcp-setup.md).
 - **Docs:** [`docs/dj-sync/`](docs/dj-sync/) (architecture, flow, stack
-  decisions, Rekordbox browser, ChatGPT MCP design + setup).
+  decisions, Rekordbox browser, ChatGPT MCP design + setup, cloud queue).
+
+### `apps/dj-sync-cloud` — always-on download queue (Cloudflare Worker)
+
+This Worker sits in front of `dj-sync`, on the `mcp.triplejmusic.art/*` route.
+ChatGPT (MCP) and the iOS Shortcut send download requests to it, and it stores
+them in D1 even while the DJ laptop is asleep or offline. The laptop's
+`dj-sync` polls it over outbound HTTPS, claims jobs on a lease, runs them, and
+reports back. The agent protocol has its own semver (1.0.0).
+
+- **Stack:** plain TypeScript Worker (no framework), D1, Wrangler 4. Tested
+  with Vitest against an in-memory store.
+- **Package:** `@ai-agents/dj-sync-cloud`
+- **Run:**
+  ```bash
+  pnpm --filter @ai-agents/dj-sync-cloud test
+  cd apps/dj-sync-cloud && npx wrangler dev --local     # needs .dev.vars
+  npx wrangler deploy --tag v0.1.0
+  ```
+- **Live:** `https://mcp.triplejmusic.art/health`
+- **Docs:** [`apps/dj-sync-cloud/README.md`](apps/dj-sync-cloud/README.md),
+  [`docs/dj-sync/42-cloud-queue.md`](docs/dj-sync/42-cloud-queue.md).
 
 ### Prole — "snip → paste anywhere" (moved to its own repo)
 
@@ -215,5 +237,6 @@ template for new TS agents.
 | career-ops-ui | [`docs/career-ops-vps/`](docs/career-ops-vps/) |
 | booking-ops | [`docs/booking-ops/`](docs/booking-ops/) |
 | dj-sync | [`docs/dj-sync/`](docs/dj-sync/) |
+| dj-sync-cloud | [`apps/dj-sync-cloud/README.md`](apps/dj-sync-cloud/README.md), [`docs/dj-sync/42-cloud-queue.md`](docs/dj-sync/42-cloud-queue.md) |
 | prole | [github.com/BadMask121/prole](https://github.com/BadMask121/prole) (own repo) |
 | shared / sample-agent | (documented inline above) |

@@ -1,0 +1,21 @@
+{
+  "name": "@ai-agents/dj-sync-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + D1 queue in front of dj-sync: accepts ChatGPT MCP / iOS Shortcut download requests while the DJ laptop is offline; the laptop polls and drains it.",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply dj-sync-queue --local",
+    "db:migrate:remote": "wrangler d1 migrations apply dj-sync-queue --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261028.1",
+    "typescript": "~5.8.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.154.0"
+  }
+}
