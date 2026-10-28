@@ -505,4 +505,9 @@ messages bill at 20:1)?
 - **Library refresh.** After a playlist change is acked, the Mac re-shares the
   library immediately (skipping the once-a-minute limit), so an assistant can
   act on a playlist it just created.
-
+- **Owner decisions:**
+  - Support contact: **jeff.emakpor@gmail.com**, on the website footer,
+    Privacy and Terms.
+  - The closed beta (§6 step 3) is **dropped**. The public page went live
+    directly after the owner migration, a fresh-home E2E run, and a live
+    updater test (rc.1 → 1.0.0).

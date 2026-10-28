@@ -1,7 +1,6 @@
 // The only script on the site: renders the support contact, set in ONE
-// place. Leave it null until the owner picks one (spec §8); the contact
-// line then stays hidden and DJs see the "Copy diagnostics" steps only.
-const SUPPORT_CONTACT = null; // e.g. { label: "help@example.com", href: "mailto:help@example.com" }
+// place (spec §8). Set to null to hide the contact line again.
+const SUPPORT_CONTACT = { label: "jeff.emakpor@gmail.com", href: "mailto:jeff.emakpor@gmail.com?subject=DJ%20Sync%20support" };
 
 if (SUPPORT_CONTACT) {
   for (const el of document.querySelectorAll("[data-support-contact]")) {

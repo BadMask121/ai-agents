@@ -4,6 +4,12 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-10-28
+### Added
+- **Support contact jeff.emakpor@gmail.com** (spec §8). It appears in every
+  page's "Need help?" line and as plain text in the Privacy (Questions) and
+  Terms (Contact) pages.
+
 ## [1.0.0] — 2026-10-28
 
 ### Added
