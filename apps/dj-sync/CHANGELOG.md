@@ -11,6 +11,16 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [Unreleased]
+
+### Release tooling
+- **`release.sh` ships the website too.**
+  - **Before the build:** it stamps `apps/dj-sync-site`'s pages with the new
+    version and commits them, so the tag has them. It now also requires a
+    clean site tree.
+  - **After the tag:** it runs `apps/dj-sync-site/deploy.sh`.
+  - **`--dry-run`:** skips the site commit and the deploy.
+
 ## [1.2.1] — 2026-10-28 · songs load to the deck
 
 ### Fixed

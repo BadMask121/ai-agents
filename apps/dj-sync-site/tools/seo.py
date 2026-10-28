@@ -4,7 +4,8 @@ from html.parser import HTMLParser
 
 P = pathlib.Path(sys.argv[1])
 BASE = "https://djsync.jeffrey.build"
-VERSION = "1.2.0"
+# The app's version, so a release (apps/dj-sync/release.sh) restamps the pages.
+VERSION = (pathlib.Path(__file__).resolve().parents[2] / "dj-sync/macos/VERSION").read_text().strip()
 DMG = f"{BASE}/download/DJ-Sync-latest.dmg"
 SUPPORT = "jeff.emakpor@gmail.com"
 

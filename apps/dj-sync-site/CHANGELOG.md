@@ -4,7 +4,16 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.2] — 2026-10-28
+### Release
+- **The site follows the app's version.**
+  - **Version:** `tools/seo.py` reads `apps/dj-sync/macos/VERSION` instead of
+    a hard-coded string, so `softwareVersion` is now 1.2.1. It had been stuck
+    at 1.2.0.
+  - **`deploy.sh`:** stamps the pages, runs the tests, deploys, and checks
+    that the live home page advertises the version.
+  - **`apps/dj-sync/release.sh`:** runs it, so one release ships the app and
+    the website together.
 ### Pages
 - **Each connect guide has an illustration** (hand-drawn inline SVG, light/dark
   aware, same style as the install guide): Telegram shows QR pairing and the
