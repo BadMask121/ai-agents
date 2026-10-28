@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.8.0] — 2026-10-28
+### Changed
+- **The app finds dj-sync through `~/.dj-sync/runtime.json`** instead of
+  assuming port 8000. It's read on every request, so a service restart on a new
+  port is picked up. Needs dj-sync ≥ 0.9.0; older services still answer on 8000.
+
 ## [0.7.0] — 2026-10-28
 ### Added
 - **Retry** and **Dismiss** for library changes that were set aside after

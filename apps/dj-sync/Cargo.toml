@@ -1,6 +1,6 @@
 [package]
 name = "dj-sync"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 description = "Telegram-driven Spotify -> Rekordbox prep pipeline"
 
@@ -38,11 +38,15 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["limit", "trace"] }
 subtle = "2"
 sha2 = "0.10"
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+flate2 = "1"
 regex = "1"
 once_cell = "1"
 bincode = "1"
 
 [dev-dependencies]
+axum = { version = "0.8", features = ["ws"] }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

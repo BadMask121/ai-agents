@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use dj_sync::{
-    bot, cloud, config, config::Config, downloader::ProcessFetcher, http, jobs::JobQueue,
+    bot, cloud, cloud_v2, config, config::Config, downloader::ProcessFetcher, http, jobs::JobQueue,
     library::LibraryIndex, rekordbox_db, rekordbox_db::RekordboxLibrary,
     rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
 };
@@ -40,8 +40,18 @@ async fn main() -> anyhow::Result<()> {
         bail!("nothing to run: set TELEGRAM_BOT_TOKEN, `[mcp] enabled = true` and/or `[cloud] enabled = true`");
     }
     // Fail fast on lane config so launchd's log says why.
-    let cloud_token = if cloud_enabled {
+    // v2 (default): this Mac registers itself; v1: the CLOUD_AGENT_TOKEN poll.
+    let cloud_v1 = cloud_enabled && cfg.cloud.protocol == 1;
+    let cloud_token = if cloud_v1 {
         Some(Config::cloud_agent_token()?)
+    } else {
+        None
+    };
+    let cloud_session = if cloud_enabled && !cloud_v1 {
+        Some(cloud_v2::CloudSession::new(
+            &cfg.cloud.base_url,
+            config::state_dir()?,
+        )?)
     } else {
         None
     };
@@ -105,11 +115,12 @@ async fn main() -> anyhow::Result<()> {
             shutdown_tx.clone(),
         );
         let library = library.clone();
+        let session = cloud_session.clone();
         async move {
             let (true, Some(jobs)) = (http_enabled, jobs) else {
                 return Ok(());
             };
-            let r = http::serve(cfg, jobs, library, shutdown).await;
+            let r = http::serve(cfg, jobs, library, session, shutdown).await;
             if r.is_err() {
                 let _ = tx.send(true);
             }
@@ -120,10 +131,16 @@ async fn main() -> anyhow::Result<()> {
         let (cloud_cfg, tx) = (cfg.cloud.clone(), shutdown_tx.clone());
         let library = library.clone();
         async move {
-            let (Some(token), Some(jobs)) = (cloud_token, jobs) else {
+            let Some(jobs) = jobs else {
                 return Ok(());
             };
-            let r = cloud::run(cloud_cfg, token, jobs, library, shutdown_rx).await;
+            let r = match (cloud_token, cloud_session) {
+                (Some(token), _) => cloud::run(cloud_cfg, token, jobs, library, shutdown_rx).await,
+                (None, Some(session)) => {
+                    cloud_v2::run(cloud_cfg, session, jobs, library, shutdown_rx).await
+                }
+                (None, None) => return Ok(()),
+            };
             if r.is_err() {
                 let _ = tx.send(true);
             }

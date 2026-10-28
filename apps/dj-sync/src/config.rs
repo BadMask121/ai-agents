@@ -62,7 +62,13 @@ impl Default for RekordboxDbCfg {
 pub struct CloudCfg {
     pub enabled: bool,
     pub base_url: String,
+    /// Agent protocol MAJOR: 2 = WebSocket + registration (default), 1 = the
+    /// legacy HTTP poll with CLOUD_AGENT_TOKEN (rollback only).
+    pub protocol: u8,
+    /// v1 only: seconds between polls.
     pub poll_secs: u64,
+    /// v2 only: seconds between keep-alive pings on the agent socket.
+    pub ping_secs: u64,
 }
 
 impl Default for CloudCfg {
@@ -70,7 +76,9 @@ impl Default for CloudCfg {
         Self {
             enabled: false,
             base_url: "https://mcp.triplejmusic.art".to_string(),
+            protocol: 2,
             poll_secs: 15,
+            ping_secs: 60,
         }
     }
 }

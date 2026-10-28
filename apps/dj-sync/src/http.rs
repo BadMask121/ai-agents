@@ -6,7 +6,9 @@
 //! - `POST /api/downloads`       — iOS Shortcut fallback (Bearer `SHORTCUT_API_KEY`)
 //! - `GET  /api/downloads/{id}`  — job status for the Shortcut
 //! - `GET  /local/status`        — for the menu bar app on this Mac only
-//! - `POST /local/rekordbox/{apply,restore}` — library actions from the app
+//! - `POST /local/rekordbox/{apply,restore,retry,dismiss}` — library actions from the app
+//! - `GET|POST /local/links`, `POST /local/links/{id}/rotate`,
+//!   `DELETE /local/links/{id}` — assistant links (cloud v2), from the app
 //! - anything else               — 404 (including `/api/*` when no key is set)
 //!
 //! The secret path is the credential (ChatGPT connects with "No
@@ -20,7 +22,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -30,6 +32,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use crate::cloud_v2::{CloudError, CloudSession};
 use crate::config::{CloudCfg, Config, DownloadCfg};
 use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
@@ -55,6 +58,8 @@ pub struct AppState {
     /// Set by `router`; only reported to the menu bar app on this Mac.
     mcp_secret: Arc<str>,
     library: Option<Arc<RekordboxLibrary>>,
+    /// This Mac's cloud v2 identity, for `/local/links`.
+    session: Option<Arc<CloudSession>>,
 }
 
 impl AppState {
@@ -76,7 +81,13 @@ impl AppState {
             public_base_url: cfg.mcp.public_base_url.clone(),
             mcp_secret: Arc::from(""),
             library: None,
+            session: None,
         }
+    }
+
+    pub fn with_session(mut self, session: Option<Arc<CloudSession>>) -> Self {
+        self.session = session;
+        self
     }
 
     pub fn with_library(mut self, library: Option<Arc<RekordboxLibrary>>) -> Self {
@@ -98,6 +109,9 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
         .route("/local/rekordbox/apply", post(local_apply))
         .route("/local/rekordbox/restore", post(local_restore))
         .route("/local/rekordbox/retry", post(local_retry))
+        .route("/local/links", get(local_links).post(local_create_link))
+        .route("/local/links/{id}/rotate", post(local_rotate_link))
+        .route("/local/links/{id}", delete(local_delete_link))
         .route("/local/rekordbox/dismiss", post(local_dismiss))
         .route(
             &format!("/{secret}/mcp"),
@@ -127,15 +141,15 @@ pub async fn serve(
     cfg: Config,
     jobs: JobQueue,
     library: Option<Arc<RekordboxLibrary>>,
+    session: Option<Arc<CloudSession>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let secret = Config::mcp_secret_path()?;
     let api_key = Config::shortcut_api_key()?;
 
-    let addr: SocketAddr = cfg.mcp.bind;
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("binding {addr}"))?;
+    let listener = bind(cfg.mcp.bind).await?;
+    let addr = listener.local_addr().context("local address")?;
+    write_runtime_file(addr);
     info!(
         %addr,
         downloads = %cfg.download.dir.display(),
@@ -146,9 +160,11 @@ pub async fn serve(
     if api_key.is_some() {
         info!("SHORTCUT_API_KEY set; /api/downloads enabled");
     }
-    let state = AppState::new(jobs, &cfg)
+    let mut state = AppState::new(jobs, &cfg)
         .with_api_key(api_key)
-        .with_library(library);
+        .with_library(library)
+        .with_session(session);
+    state.mcp_bind = addr;
     axum::serve(listener, router(state, &secret))
         .with_graceful_shutdown(async move {
             let _ = shutdown.wait_for(|stop| *stop).await;
@@ -232,7 +248,16 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         "download_dir_error": dir_error,
         "import_xml": state.download.import_xml,
         "xml_version": xml_version,
-        "cloud": { "enabled": state.cloud.enabled, "base_url": state.cloud.base_url },
+        "cloud": {
+            "enabled": state.cloud.enabled,
+            "base_url": state.cloud.base_url,
+            "protocol": state.cloud.protocol,
+            "registered": match &state.session {
+                Some(s) => s.tenant_id().await.is_some(),
+                None => false,
+            },
+            "connected": state.session.as_ref().is_some_and(|s| s.is_connected()),
+        },
         "rekordbox_db": state.library.as_ref().map(|lib| lib.status()),
         "recent_jobs": recent,
     }))
@@ -487,5 +512,144 @@ async fn api_status(
             Json(json!({ "error": "no such job" })),
         )
             .into_response(),
+    }
+}
+
+/// Bind the configured address; on this Mac's loopback, fall back to any
+/// free port when another app already holds it (8000 is a common dev port).
+async fn bind(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListener> {
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => Ok(l),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && addr.ip().is_loopback() => {
+            tracing::warn!(%addr, "port in use; using a free one (see ~/.dj-sync/runtime.json)");
+            let any = SocketAddr::new(addr.ip(), 0);
+            tokio::net::TcpListener::bind(any)
+                .await
+                .with_context(|| format!("binding {any}"))
+        }
+        Err(e) => Err(e).with_context(|| format!("binding {addr}")),
+    }
+}
+
+/// `~/.dj-sync/runtime.json`: where the menu bar app finds this service.
+fn write_runtime_file(addr: SocketAddr) {
+    let body = json!({
+        "port": addr.port(),
+        "pid": std::process::id(),
+        "version": env!("CARGO_PKG_VERSION"),
+    });
+    let written = crate::config::state_dir().and_then(|dir| {
+        let path = dir.join("runtime.json");
+        let tmp = dir.join("runtime.json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&body)?)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(path)
+    });
+    if let Err(e) = written {
+        tracing::warn!(error = %format!("{e:#}"), "couldn't write runtime.json");
+    }
+}
+
+// ---------- assistant links (cloud v2) ----------
+
+const LINK_KINDS: [&str; 4] = ["chatgpt", "claude", "shortcut", "other"];
+
+fn cloud_error(e: CloudError) -> Response {
+    let status = match e {
+        CloudError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
+        CloudError::Incompatible(_) => StatusCode::CONFLICT,
+        CloudError::Unauthorized => StatusCode::SERVICE_UNAVAILABLE,
+        CloudError::Replaced | CloudError::Transient(_) => StatusCode::BAD_GATEWAY,
+    };
+    (status, Json(json!({ "ok": false, "error": e.to_string() }))).into_response()
+}
+
+fn session_for(
+    state: &AppState,
+    headers: &HeaderMap,
+    action: bool,
+) -> Result<Arc<CloudSession>, StatusCode> {
+    if !local_only(headers, action) {
+        return Err(if action {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::NOT_FOUND
+        });
+    }
+    state.session.clone().ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn local_links(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let session = match session_for(&state, &headers, false) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
+    match session.list_links().await {
+        Ok(links) => Json(json!({ "links": links })).into_response(),
+        Err(e) => cloud_error(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct NewLink {
+    kind: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+async fn local_create_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<NewLink>,
+) -> Response {
+    let session = match session_for(&state, &headers, true) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
+    if !LINK_KINDS.contains(&body.kind.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": format!("kind must be one of {LINK_KINDS:?}") })),
+        )
+            .into_response();
+    }
+    let label = body
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    match session.create_link(&body.kind, label).await {
+        Ok(link) => (StatusCode::CREATED, Json(json!(link))).into_response(),
+        Err(e) => cloud_error(e),
+    }
+}
+
+async fn local_rotate_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let session = match session_for(&state, &headers, true) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
+    match session.rotate_link(&id).await {
+        Ok(link) => Json(json!(link)).into_response(),
+        Err(e) => cloud_error(e),
+    }
+}
+
+async fn local_delete_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let session = match session_for(&state, &headers, true) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
+    match session.delete_link(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => cloud_error(e),
     }
 }

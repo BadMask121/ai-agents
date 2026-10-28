@@ -136,6 +136,66 @@ async fn library_actions_refuse_browsers_and_need_the_feature() {
 }
 
 #[tokio::test]
+async fn link_routes_refuse_browsers_check_kinds_and_need_cloud_v2() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = format!(
+        r#"
+[library]
+roots = ["/tmp"]
+[rekordbox]
+autoimport_dir = "/tmp"
+[download]
+dir = "{d}/dl"
+import_xml = "{d}/import.xml"
+"#,
+        d = tmp.path().display()
+    );
+    let cfg: Config = toml::from_str(&raw).unwrap();
+    let (jobs, _) = JobQueue::start(cfg.download.clone(), Idle).unwrap();
+    // Nothing listens on this port, so the session never reaches a cloud.
+    let session =
+        dj_sync::cloud_v2::CloudSession::new("http://127.0.0.1:9", tmp.path().into()).unwrap();
+    let with_cloud = || {
+        router(
+            AppState::new(jobs.clone(), &cfg).with_session(Some(session.clone())),
+            SECRET,
+        )
+    };
+
+    let mut req = post("/local/links", json!({"kind": "chatgpt"}));
+    req.headers_mut()
+        .insert("origin", "https://evil.example".parse().unwrap());
+    assert_eq!(send(with_cloud(), req).await.0, StatusCode::FORBIDDEN);
+    let (s, b) = send(
+        with_cloud(),
+        post("/local/links", json!({"kind": "myspace"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    // A valid request reaches the cloud, which is unreachable here.
+    let (s, b) = send(
+        with_cloud(),
+        post("/local/links", json!({"kind": "claude"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY, "{b}");
+    assert_eq!(serde_json::from_str::<Value>(&b).unwrap()["ok"], false);
+
+    // Without a cloud v2 session the routes don't exist.
+    let req = Request::get("/local/links").body(Body::empty()).unwrap();
+    assert_eq!(send(app(tmp.path()), req).await.0, StatusCode::NOT_FOUND);
+    let (_, b) = send(
+        with_cloud(),
+        Request::get("/local/status").body(Body::empty()).unwrap(),
+    )
+    .await;
+    let cloud = &serde_json::from_str::<Value>(&b).unwrap()["cloud"];
+    assert_eq!(cloud["protocol"], 2);
+    assert_eq!(cloud["registered"], false);
+    assert_eq!(cloud["connected"], false);
+}
+
+#[tokio::test]
 async fn health_is_public() {
     let tmp = tempfile::tempdir().unwrap();
     let (s, b) = send(

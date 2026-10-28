@@ -104,14 +104,16 @@ public func parseTimestamp(_ string: String?) -> Date? {
 
 /// Talks to the dj-sync service on this Mac.
 public struct StatusClient: Sendable {
-  public var url: URL
+  /// A fixed URL (tests); `nil` follows `ServiceEndpoint`.
+  public var url: URL?
 
-  public init(url: URL = URL(string: "http://127.0.0.1:8000/local/status")!) {
+  public init(url: URL? = nil) {
     self.url = url
   }
 
   /// `nil` means dj-sync isn't running (or its HTTP lane is off).
   public func fetch() async -> ServiceStatus? {
+    let url = url ?? ServiceEndpoint.base().appending(path: "local/status")
     var request = URLRequest(url: url, timeoutInterval: 2)
     request.cachePolicy = .reloadIgnoringLocalCacheData
     guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -123,9 +125,10 @@ public struct StatusClient: Sendable {
 
 /// The library actions dj-sync exposes to this app (localhost only).
 public struct LibraryClient: Sendable {
-  public var baseURL: URL
+  /// A fixed base (tests); `nil` follows `ServiceEndpoint`.
+  public var baseURL: URL?
 
-  public init(baseURL: URL = URL(string: "http://127.0.0.1:8000")!) {
+  public init(baseURL: URL? = nil) {
     self.baseURL = baseURL
   }
 
@@ -156,7 +159,8 @@ public struct LibraryClient: Sendable {
   }
 
   private func post(_ path: String, body: [String: String]) async -> Reply {
-    var request = URLRequest(url: baseURL.appending(path: path), timeoutInterval: 120)
+    let base = baseURL ?? ServiceEndpoint.base()
+    var request = URLRequest(url: base.appending(path: path), timeoutInterval: 120)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try? JSONSerialization.data(withJSONObject: body)

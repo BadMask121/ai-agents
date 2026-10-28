@@ -1,6 +1,8 @@
+pub mod agent_core;
 pub mod ai_assist;
 pub mod bot;
 pub mod cloud;
+pub mod cloud_v2;
 pub mod config;
 pub mod downloader;
 pub mod http;

@@ -11,6 +11,40 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.9.0] — 2026-10-28 · agent protocol 2.0.0 (cloud v2)
+
+### Added
+- **Cloud lane v2** (`cloud_v2.rs`; spec
+  `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` §3).
+  It needs dj-sync-cloud 1.0.0.
+  - **No account.** The Mac registers itself and keeps
+    `{tenant_id, agent_token}` in `~/.dj-sync/cloud.json` (0600).
+  - **One WebSocket** to the DJ's Durable Object replaces 15-second polling, so
+    jobs are pushed instantly.
+  - **Results are resent** after a dropped socket until the Worker acks them.
+  - **Keep-alive** pings, `extend` for leases, and `library_hash` →
+    `library_wanted` → a gzip `PUT` of the snapshot.
+  - **Close codes:** 4001 means re-register, but only after 3 in a row, since
+    re-registering changes every link. 4009 and 4029 wait 10 min; 4010 waits
+    1 min.
+- **Assistant links:** `GET/POST /local/links`, `POST /local/links/{id}/rotate`
+  and `DELETE /local/links/{id}`, local only. Link URLs live only in
+  `~/.dj-sync/links.json` (0600); the cloud keeps hashes.
+- **`~/.dj-sync/runtime.json` `{port, pid, version}`.** If 127.0.0.1:8000 is
+  taken, the HTTP lane falls back to a free port. `/local/status` reports
+  `cloud.protocol`, `cloud.registered` and `cloud.connected`.
+- **`[cloud] protocol`** (default 2; 1 is the v1 poll, kept for rollback) and
+  **`ping_secs`** (default 60).
+
+### Changed
+- **`agent_core.rs`:** the job handling both lanes share, with results kept
+  pending until the transport confirms them. The v1 lane is now a thin HTTP
+  transport over it.
+
+### Fixed
+- **Flaky test.** The cloud library-job test could report before the local job
+  was marked done.
+
 ## [0.8.0] — 2026-10-28
 
 ### Added

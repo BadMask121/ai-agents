@@ -267,3 +267,22 @@ struct LibraryTests {
     #expect(w.update(a) == a)
   }
 }
+
+@Suite struct ServiceEndpointTests {
+  @Test func readsThePortTheServiceWrote() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appending(path: "runtime.json")
+    try Data(#"{"port": 51234, "pid": 1, "version": "0.9.0"}"#.utf8).write(to: file)
+    #expect(ServiceEndpoint.base(runtimeFile: file).absoluteString == "http://127.0.0.1:51234")
+  }
+
+  @Test func fallsBackWhenMissingOrNonsense() throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appending(path: "runtime.json")
+    #expect(ServiceEndpoint.base(runtimeFile: file) == ServiceEndpoint.defaultBase)
+    try Data(#"{"port": 99999}"#.utf8).write(to: file)
+    #expect(ServiceEndpoint.base(runtimeFile: file) == ServiceEndpoint.defaultBase)
+  }
+}
