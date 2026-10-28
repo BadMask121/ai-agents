@@ -33,9 +33,12 @@ public_base_url = "https://mcp.triplejmusic.art"
 [download]
 # Every key is optional; these are the defaults (~ is expanded).
 dir = "~/Music/DJ_Downloads"
-# Point Rekordbox → Preferences → Advanced → Database → rekordbox xml →
-# Imported Library at this file. dj-sync owns it; don't use Rekordbox's own export.
-import_xml = "~/Music/rekordbox_import.xml"
+# Leave unset to write to whatever Rekordbox → Preferences → Advanced →
+# Database → rekordbox xml → Imported Library already points at (read from
+# Rekordbox's settings), so Rekordbox needs no setup. A file already there that
+# dj-sync didn't create is copied once to <file>.pre-dj-sync.bak first.
+# If Rekordbox has nothing set, this falls back to ~/Music/rekordbox_import.xml.
+# import_xml = "~/Music/rekordbox_import.xml"
 default_playlist = "ChatGPT Downloads"
 # Use absolute paths (`which spotdl yt-dlp ffmpeg`): launchd's PATH is bare.
 spotdl_bin = "spotdl"

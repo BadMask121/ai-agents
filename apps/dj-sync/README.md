@@ -8,8 +8,9 @@ optional lanes:
   `TELEGRAM_BOT_TOKEN` is set.
 - **ChatGPT MCP download lane.** An MCP server that ChatGPT calls with Spotify or
   YouTube links. It downloads them with spotdl / yt-dlp into `~/Music/DJ_Downloads`
-  and adds them to `~/Music/rekordbox_import.xml` for Rekordbox's *rekordbox xml*
-  pane. It starts when `[mcp] enabled = true` is set. An optional bearer REST
+  and adds them to the file Rekordbox's *rekordbox xml* pane already reads.
+  dj-sync auto-detects Rekordbox's *Imported Library* setting, falling back to
+  `~/Music/rekordbox_import.xml`. It starts when `[mcp] enabled = true` is set. An optional bearer REST
   route serves an iOS Share Sheet shortcut.
 
 See [`docs/dj-sync/`](../../docs/dj-sync/) for the design. The MCP lane is covered
@@ -62,7 +63,7 @@ src/
 ├── jobs.rs           # download queue: single worker, staging → DJ_Downloads → XML
 ├── downloader.rs     # spotdl / yt-dlp child processes (argv only, timeout, output tail)
 ├── parser.rs         # link parsing, incl. the download allowlist / canonicaliser
-└── import_xml.rs     # writable rekordbox_import.xml model (non-destructive upsert)
+└── import_xml.rs     # writable import XML model (non-destructive upsert, one-time backup)
 deploy/
 ├── com.triplejmusic.dj-sync.plist       # LaunchAgent template
 ├── cloudflared-config.example.yml       # tunnel ingress → 127.0.0.1:8000

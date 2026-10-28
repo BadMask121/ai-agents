@@ -10,9 +10,10 @@ From the ChatGPT app on my phone: paste a Spotify or YouTube link, say
 "put this in Rekordbox". A few minutes later:
 
 - the audio is in `~/Music/DJ_Downloads` on the DJ laptop;
-- it's listed in a named playlist in `~/Music/rekordbox_import.xml`;
-- that file shows up in Rekordbox's **rekordbox xml** tree, ready to drag into
-  the collection.
+- it's listed in a named playlist in the import XML (whatever Rekordbox's
+  *Imported Library* points at, or `~/Music/rekordbox_import.xml`);
+- that file is the one Rekordbox's **rekordbox xml** tree already reads, ready
+  to drag into the collection.
 
 ## ⚠️ This reverses an earlier decision
 
@@ -47,7 +48,7 @@ read-only Rekordbox browser are unchanged. The download lane is opt-in
 | spotdl for Spotify, yt-dlp for YouTube | spotdl treats a plain YouTube URL as a *search string*. yt-dlp is the right tool for YouTube. |
 | lofty, not `id3` | Rekordbox wants `TotalTime`, `BitRate` and `SampleRate`. lofty reads those (and handles m4a/flac/wav), and the crate already used it. |
 | Own Location encoder | Rekordbox escapes only space, `" % & ' [ ]` and non-ASCII (lowercase hex), and leaves `# ? ( ) , + ! $ ; @` raw. Generic URL libraries disagree. The old parser cut paths off at `?` and `#`. All 10,781 Locations of a real 7.2.11 export round-trip byte for byte (`tests/location_roundtrip.rs`). |
-| Separate `rekordbox_import.xml` owned by dj-sync | Rekordbox's *Imported Library* is a read-only source, so we never touch Rekordbox's own database or export. A rewrite keeps every track and playlist already in the file but drops attributes we don't model. |
+| Write to Rekordbox's own *Imported Library* path | dj-sync reads `bridgeImportedLibraryFile` from Rekordbox's settings, so Rekordbox needs no setup. A file it didn't create is backed up once (`.pre-dj-sync.bak`). It never adopts the bot's collection export, and falls back to `~/Music/rekordbox_import.xml`. It never touches Rekordbox's database. A rewrite keeps every track and playlist but drops attributes we don't model. |
 | Optional iOS Shortcut + bearer REST | This is a fallback in case custom MCP plugins don't work in the ChatGPT mobile app, and it's quicker when no chat is needed. |
 
 ## Components
@@ -67,7 +68,7 @@ ChatGPT (web / iOS)            iOS Share Sheet Shortcut
                                            ├── library::read_meta (lofty)
                                            └── import_xml.rs  upsert tracks + playlist, atomic save
                                                            │
-                         ~/Music/DJ_Downloads/*.mp3        ~/Music/rekordbox_import.xml
+                         ~/Music/DJ_Downloads/*.mp3        <Rekordbox Imported Library>.xml
                                                            │
                                        Rekordbox 7 → rekordbox xml tree → drag into collection
 ```

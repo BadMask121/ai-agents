@@ -103,7 +103,18 @@ impl JobQueue {
         cfg.prepare()?;
         // Jobs don't survive a restart, so anything still staged is debris.
         let _ = std::fs::remove_dir_all(cfg.dir.join(".staging"));
-        if !cfg.import_xml.exists() {
+        if cfg.import_xml.exists() {
+            if let Some(backup) = ImportDoc::backup_foreign(&cfg.import_xml)? {
+                info!(
+                    original = %cfg.import_xml.display(),
+                    backup = %backup.display(),
+                    "backed up the existing import xml before dj-sync writes to it"
+                );
+            }
+        } else {
+            if let Some(parent) = cfg.import_xml.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
             ImportDoc::new()
                 .save_atomic(&cfg.import_xml)
                 .context("creating empty import xml")?;

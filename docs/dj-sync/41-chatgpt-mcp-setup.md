@@ -22,18 +22,36 @@ REPO=~/Desktop/WORK/Project.nosync/ai-agents
 
 ## 1. Install the downloaders
 
+`uv` installs the Python tools with their own managed Python. Check with
+`which uv`, and if it's missing, run `brew install uv`.
+
 ```bash
-brew install pipx yt-dlp deno     # deno: yt-dlp needs it for YouTube since late 2025
-pipx ensurepath                   # adds ~/.local/bin to your shell PATH (open a new terminal)
-pipx install spotdl               # spotdl needs Python ≥ 3.11; pipx uses Homebrew's
-spotdl --version && yt-dlp --version && ffmpeg -version | head -1
-which spotdl yt-dlp ffmpeg deno   # note these absolute paths for step 2
+uv tool install spotdl --python 3.12            # → ~/.local/bin/spotdl
+uv tool install "yt-dlp[default]" --python 3.12  # → ~/.local/bin/yt-dlp (incl. the YouTube challenge solver)
+ffmpeg -version | head -1                        # brew install ffmpeg if missing
 ```
 
-- If `ffmpeg` is missing, run `brew install ffmpeg`.
-- Don't use an older `yt-dlp` from conda or pip. YouTube changes often, and an
-  outdated yt-dlp fails with *"No video formats found"*.
-- Keep both tools up to date: `brew upgrade yt-dlp && pipx upgrade spotdl`.
+yt-dlp needs **deno 2.x** for YouTube, and `cloudflared` comes in step 4.
+
+- **On a supported Homebrew** (Apple silicon under `/opt/homebrew`): run
+  `brew install deno cloudflared`.
+- **On an Intel-prefix Homebrew (`/usr/local`) on Apple silicon:** Homebrew
+  builds everything from source there, which can take hours. Use the signed
+  official releases instead:
+
+```bash
+mkdir -p ~/.local/bin && cd "$(mktemp -d)"
+curl -fsSLO https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip
+curl -fsSL  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
+unzip -q deno-aarch64-apple-darwin.zip
+install -m 755 deno cloudflared ~/.local/bin/
+~/.local/bin/deno --version && ~/.local/bin/cloudflared --version
+```
+
+- Keep the tools current with `uv tool upgrade --all`. An outdated yt-dlp fails
+  with *"No video formats found"*.
+- Make sure `~/.local/bin` comes first in `extra_path` (step 2). An old `deno`
+  elsewhere on the PATH (e.g. a 2020 one in `/usr/local/bin`) breaks yt-dlp.
 
 ## 2. Configure dj-sync
 
@@ -59,9 +77,10 @@ public_base_url = "https://mcp.triplejmusic.art"
 
 [download]
 spotdl_bin = "/Users/<you>/.local/bin/spotdl"
-ytdlp_bin  = "/usr/local/bin/yt-dlp"      # /opt/homebrew/bin/yt-dlp on Apple-silicon Homebrew
-ffmpeg_bin = "/usr/local/bin/ffmpeg"
-extra_path = "/opt/homebrew/bin:/usr/local/bin"   # so yt-dlp finds deno
+ytdlp_bin  = "/Users/<you>/.local/bin/yt-dlp"
+ffmpeg_bin = "/usr/local/bin/ffmpeg"          # or /opt/homebrew/bin/ffmpeg
+extra_path = "/Users/<you>/.local/bin:/opt/homebrew/bin:/usr/local/bin"   # deno 2.x first
+# import_xml: leave unset (see step 5)
 ```
 
 Create the secrets file (`~/.dj-sync/.env`):
@@ -88,7 +107,7 @@ cargo install --path . --locked     # → ~/.cargo/bin/dj-sync (launchd can't ru
 dj-sync &
 sleep 2
 curl -s http://127.0.0.1:8000/health          # {"status":"ok"}
-ls ~/Music/rekordbox_import.xml                # created on first start
+grep -m1 import_xml ~/Library/Logs/dj-sync.log 2>/dev/null   # (under launchd) which XML it chose
 kill %1
 ```
 
@@ -131,13 +150,27 @@ resolve to IPv6.
 
 ### 4b. Start it automatically
 
-- **At login (recommended).** This matches the dj-sync LaunchAgent, which also
-  starts at login. It installs `~/Library/LaunchAgents/com.cloudflare.cloudflared.plist`
-  and reads `~/.cloudflared/config.yml`:
+- **At login (recommended).** This matches the dj-sync LaunchAgent. Install it,
+  then give it the arguments it needs:
 
   ```bash
   cloudflared service install
+  P=~/Library/LaunchAgents/com.cloudflare.cloudflared.plist
+  launchctl bootout gui/$(id -u)/com.cloudflare.cloudflared
+  /usr/libexec/PlistBuddy \
+    -c "Add :ProgramArguments:1 string --config" \
+    -c "Add :ProgramArguments:2 string $HOME/.cloudflared/config.yml" \
+    -c "Add :ProgramArguments:3 string tunnel" \
+    -c "Add :ProgramArguments:4 string run" \
+    -c "Delete :KeepAlive" -c "Add :KeepAlive bool true" $P
+  launchctl bootstrap gui/$(id -u) $P
+  grep 'Registered tunnel connection' ~/Library/Logs/com.cloudflare.cloudflared.err.log | tail -2
   ```
+
+  Recent cloudflared releases write this plist with **no arguments**. For a
+  locally managed tunnel, that makes it log *"use `cloudflared tunnel run`"*
+  and exit, which is why the extra arguments are added. This is the user-level
+  LaunchAgent and reads `~/.cloudflared/config.yml`.
 
 - **At boot, before login.** It reads `/etc/cloudflared/`, so copy the config
   and credentials there and fix `credentials-file:` to point at the new path:
@@ -175,33 +208,52 @@ ChatGPT's servers are bots by definition, and new zones block AI bots by default
 - **Check:** after your first ChatGPT attempt, look at Security → Events for
   blocked or challenged requests to `mcp.triplejmusic.art`.
 
+If `curl https://mcp.triplejmusic.art/…` on the Mac itself can't resolve right
+after setup, the Mac cached "doesn't exist" from an earlier lookup. ChatGPT
+isn't affected. Wait for the cache to expire, or flush it with
+`sudo killall -HUP mDNSResponder`. You can check that the tunnel works with:
+
+```bash
+curl --resolve mcp.triplejmusic.art:443:$(dig +short mcp.triplejmusic.art @1.1.1.1 | head -1) https://mcp.triplejmusic.art/health
+```
+
 ### 4d. Keep the Mac awake
 
 The tunnel is only up while the Mac is awake. Go to System Settings → Battery
 → Options and turn on *Prevent automatic sleeping on power adapter when the
 display is off*. Or run `caffeinate -s` during a prep session.
 
-## 5. Rekordbox 7 (one-time)
+## 5. Rekordbox 7 — usually nothing to do
 
-1. **Show the xml tree:** Rekordbox → Preferences → **View** → **Layout** →
-   tick **rekordbox xml**. A *rekordbox xml* node appears in the browser tree on
-   the left.
-2. **Point it at the import file:** Preferences → **Advanced** → **Database** →
-   *rekordbox xml* → **Imported Library** → **Browse…** → choose
-   `~/Music/rekordbox_import.xml`. dj-sync creates this file on first start. In
-   the file picker, press ⌘⇧. to show hidden files if you need to, or ⌘⇧G and
-   type the path.
-3. **After each download job:**
-   - Select the **rekordbox xml** node and use its reload/refresh control, or
-     collapse and expand it.
-   - Your playlists, such as *ChatGPT Downloads*, appear under *rekordbox xml →
-     Playlists*.
-   - Right-click a playlist and choose **Import Playlist**, or drag its tracks
-     into the Collection. Rekordbox analyses BPM, key and beatgrid on import.
+dj-sync reads Rekordbox's own settings
+(`~/Library/Application Support/Pioneer/rekordbox6/rekordbox3.settings`):
 
-This file is separate from anything Rekordbox writes. The Telegram bot's
-browser reads a different file: your manual *File → Export Collection in xml
-format* export at `rekordbox.xml_path`. The two don't collide.
+- **Imported Library** (`bridgeImportedLibraryFile`). When `[download]
+  import_xml` is unset, dj-sync writes to the file this setting points at, so
+  Rekordbox picks it up without any changes. The log shows the choice:
+  *"import_xml: using Rekordbox's Imported Library path"*.
+  - **Existing file there that dj-sync didn't create:** it's copied once to
+    `<file>.pre-dj-sync.bak` before the first write. dj-sync keeps its tracks
+    and playlists but drops cue/beatgrid data it doesn't model.
+  - **That file is your bot's `rekordbox.xml_path` export:** dj-sync won't
+    adopt it, and falls back to `~/Music/rekordbox_import.xml`.
+- **The rekordbox xml tree** (`showRbXml`) must be visible in the browser.
+
+Only if the log says *"Rekordbox has no Imported Library set"*, or the tree is
+hidden, set them once by hand:
+
+1. Preferences → **View** → **Layout** → tick **rekordbox xml**.
+2. Preferences → **Advanced** → **Database** → *rekordbox xml* → **Imported
+   Library** → **Browse…** → choose the file named in the log.
+
+After each download job:
+
+1. Select the **rekordbox xml** node and use its reload/refresh control, or
+   collapse and expand it.
+2. Your playlists, such as *ChatGPT Downloads*, appear under *rekordbox xml →
+   Playlists*.
+3. Right-click a playlist and choose **Import Playlist**, or drag its tracks
+   into the Collection. Rekordbox analyses BPM, key and beatgrid on import.
 
 ## 6. Add the plugin in ChatGPT
 
@@ -245,5 +297,5 @@ with no chat needed.
 | Job fails: *starting … (is it installed?)* | The `[download]` binary paths must be absolute (launchd's PATH is bare). |
 | yt-dlp: *No video formats found* / *Sign in to confirm* | Run `brew upgrade yt-dlp`. Make sure `deno` is on `extra_path`. |
 | spotdl errors or rate limits | Run `pipx upgrade spotdl`. If scraping keeps failing, set `spotdl_use_official_api = true` with your own Spotify app keys. |
-| New tracks don't appear in Rekordbox | Reload the *rekordbox xml* node, and check that *Imported Library* points at `~/Music/rekordbox_import.xml`. Check the job's `state` is `done`. |
+| New tracks don't appear in Rekordbox | Reload the *rekordbox xml* node, and check that *Imported Library* points at the file the dj-sync log names (`grep import_xml ~/Library/Logs/dj-sync.log`). Check the job's `state` is `done`. |
 | Anything else | Check `~/Library/Logs/dj-sync.log`. Set `RUST_LOG=dj_sync=debug` to see each downloader line. |

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context};
 use serde::Deserialize;
+use tracing::info;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -83,6 +84,8 @@ impl Default for McpCfg {
 #[serde(default)]
 pub struct DownloadCfg {
     pub dir: PathBuf,
+    /// Left unset (empty), `Config::load` uses the file Rekordbox's own
+    /// *Imported Library* setting points at, so Rekordbox needs no setup.
     pub import_xml: PathBuf,
     pub default_playlist: String,
     pub spotdl_bin: PathBuf,
@@ -102,7 +105,7 @@ impl Default for DownloadCfg {
         let music = dirs::home_dir().unwrap_or_default().join("Music");
         Self {
             dir: music.join("DJ_Downloads"),
-            import_xml: music.join("rekordbox_import.xml"),
+            import_xml: PathBuf::new(),
             default_playlist: "ChatGPT Downloads".to_string(),
             spotdl_bin: PathBuf::from("spotdl"),
             ytdlp_bin: PathBuf::from("yt-dlp"),
@@ -135,6 +138,9 @@ impl DownloadCfg {
 
     /// Creates the download dir and the XML's parent dir if missing.
     pub fn prepare(&self) -> anyhow::Result<()> {
+        if self.import_xml.as_os_str().is_empty() {
+            return Err(anyhow!("config: download.import_xml was not resolved"));
+        }
         if !REKORDBOX_FORMATS.contains(&self.format.as_str()) {
             return Err(anyhow!(
                 "config: download.format must be one of {REKORDBOX_FORMATS:?}, got {:?}",
@@ -162,8 +168,39 @@ impl Config {
         let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         cfg.download.expand_paths();
+        cfg.resolve_import_xml(rekordbox_settings_path().as_deref());
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Fill in `download.import_xml` when the config leaves it unset: prefer
+    /// the path in Rekordbox's own settings, then `~/Music/rekordbox_import.xml`.
+    /// Never adopts the bot's `rekordbox.xml_path` (your real collection export).
+    fn resolve_import_xml(&mut self, rekordbox_settings: Option<&Path>) {
+        if !self.download.import_xml.as_os_str().is_empty() {
+            return;
+        }
+        let detected = rekordbox_settings
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|raw| rekordbox_imported_library(&raw))
+            .filter(|p| Some(p) != self.rekordbox.xml_path.as_ref());
+        self.download.import_xml = match detected {
+            Some(p) => {
+                info!(path = %p.display(), "import_xml: using Rekordbox's Imported Library path");
+                p
+            }
+            None => {
+                let p = dirs::home_dir()
+                    .unwrap_or_default()
+                    .join("Music")
+                    .join("rekordbox_import.xml");
+                info!(
+                    path = %p.display(),
+                    "import_xml: Rekordbox has no Imported Library set; point it at this file"
+                );
+                p
+            }
+        };
     }
 
     fn validate(&self) -> anyhow::Result<()> {
@@ -214,6 +251,28 @@ impl Config {
             .filter_map(|s| s.trim().parse::<i64>().ok())
             .collect()
     }
+}
+
+/// Rekordbox 6 and 7 both keep their preferences here (macOS: ~/Library/
+/// Application Support/…, Windows: %APPDATA%\…).
+fn rekordbox_settings_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| {
+        d.join("Pioneer")
+            .join("rekordbox6")
+            .join("rekordbox3.settings")
+    })
+}
+
+/// Preferences → Advanced → Database → rekordbox xml → Imported Library is
+/// stored as `<VALUE name="bridgeImportedLibraryFile" val="…"/>`.
+pub fn rekordbox_imported_library(settings_xml: &str) -> Option<PathBuf> {
+    static RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+        regex::Regex::new(r#"name="bridgeImportedLibraryFile"\s+val="([^"]*)""#)
+            .expect("static regex")
+    });
+    let raw = RE.captures(settings_xml)?.get(1)?.as_str();
+    let path = PathBuf::from(quick_xml::escape::unescape(raw).ok()?.into_owned());
+    path.is_absolute().then_some(path)
 }
 
 fn validate_secret_path(s: &str) -> anyhow::Result<()> {
@@ -278,10 +337,10 @@ autoimport_dir = "/tmp"
         assert!(!cfg.mcp.enabled);
         assert_eq!(cfg.mcp.bind.to_string(), "127.0.0.1:8000");
         assert!(cfg.download.dir.ends_with("Music/DJ_Downloads"));
-        assert!(cfg
-            .download
-            .import_xml
-            .ends_with("Music/rekordbox_import.xml"));
+        assert!(
+            cfg.download.import_xml.as_os_str().is_empty(),
+            "unset until resolved"
+        );
         assert_eq!(cfg.download.format, "mp3");
     }
 
@@ -323,11 +382,65 @@ autoimport_dir = "/tmp"
         let mut cfg: Config = toml::from_str(raw).unwrap();
         cfg.download.expand_paths();
         assert!(!cfg.mcp.enabled);
-        assert_eq!(
-            cfg.download.import_xml,
-            dirs::home_dir().unwrap().join("Music/rekordbox_import.xml")
+        assert!(
+            cfg.download.import_xml.as_os_str().is_empty(),
+            "example leaves import_xml to auto-detection"
         );
         assert_eq!(cfg.download.max_urls_per_job, 25);
+    }
+
+    const SETTINGS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PROPERTIES>
+  <VALUE name="itunesLibraryFile" val="/Users/dj/Music/iTunes/iTunes Music Library.xml"/>
+  <VALUE name="bridgeImportedLibraryFile" val="/Users/dj/Music/A &amp; B/rekordbox.xml"/>
+</PROPERTIES>"#;
+
+    #[test]
+    fn reads_imported_library_from_rekordbox_settings() {
+        assert_eq!(
+            rekordbox_imported_library(SETTINGS),
+            Some(PathBuf::from("/Users/dj/Music/A & B/rekordbox.xml"))
+        );
+        assert_eq!(
+            rekordbox_imported_library(r#"<VALUE name="bridgeImportedLibraryFile" val=""/>"#),
+            None
+        );
+        assert_eq!(rekordbox_imported_library("<PROPERTIES/>"), None);
+    }
+
+    fn resolve(toml_src: &str, settings: Option<&str>) -> PathBuf {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("rekordbox3.settings");
+        if let Some(s) = settings {
+            std::fs::write(&settings_path, s).unwrap();
+        }
+        let mut cfg: Config = toml::from_str(toml_src).unwrap();
+        cfg.download.expand_paths();
+        cfg.resolve_import_xml(Some(&settings_path));
+        cfg.download.import_xml
+    }
+
+    #[test]
+    fn import_xml_resolution_order() {
+        let detected = PathBuf::from("/Users/dj/Music/A & B/rekordbox.xml");
+        let fallback = dirs::home_dir().unwrap().join("Music/rekordbox_import.xml");
+
+        // Rekordbox's own setting wins when the config is silent…
+        assert_eq!(resolve(MINIMAL, Some(SETTINGS)), detected);
+        // …an explicit config value always wins…
+        let explicit = format!("{MINIMAL}\n[download]\nimport_xml = \"/x/mine.xml\"\n");
+        assert_eq!(
+            resolve(&explicit, Some(SETTINGS)),
+            PathBuf::from("/x/mine.xml")
+        );
+        // …no settings file falls back to ~/Music…
+        assert_eq!(resolve(MINIMAL, None), fallback);
+        // …and the bot's collection export is never adopted.
+        let with_export = MINIMAL.replace(
+            "autoimport_dir = \"/tmp\"",
+            "autoimport_dir = \"/tmp\"\nxml_path = \"/Users/dj/Music/A & B/rekordbox.xml\"",
+        );
+        assert_eq!(resolve(&with_export, Some(SETTINGS)), fallback);
     }
 
     #[test]
