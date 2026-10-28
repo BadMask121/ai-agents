@@ -27,40 +27,6 @@ struct AppGlyph: View {
   }
 }
 
-/// A labelled URL, masked by default, with a Copy button that confirms.
-struct URLRow: View {
-  let title: String
-  let url: String
-  let reveal: Bool
-  let copied: Bool
-  let copy: () -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack {
-        Text(title).font(.caption).foregroundStyle(.secondary)
-        Spacer(minLength: 8)
-        Button(action: copy) {
-          Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-            .font(.caption)
-            .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(copied ? Color.green : Color.accentColor)
-        .help("Copy the full URL")
-      }
-      Text(reveal ? url : maskingSecretPath(url))
-        .font(.caption.monospaced())
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .textSelection(.enabled)
-        .contentTransition(.opacity)
-    }
-    .animation(.easeOut(duration: 0.15), value: copied)
-    .animation(.easeOut(duration: 0.15), value: reveal)
-  }
-}
-
 struct Card<Accessory: View, Content: View>: View {
   let title: String
   let systemImage: String

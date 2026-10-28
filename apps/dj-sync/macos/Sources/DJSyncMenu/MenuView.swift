@@ -24,14 +24,15 @@ struct MenuView: View {
         NotRunningCard(isStarting: model.isRestarting, start: model.restartService)
           .transition(.enter(reduceMotion))
       }
-      AssistantsCard(model: model)
-      DownloadsCard(model: model)
-      RekordboxCard(model: model)
       if let jobs = model.status?.recentJobs, !jobs.isEmpty {
         RecentCard(jobs: Array(jobs.prefix(3)))
           .transition(.enter(reduceMotion))
       }
-      ToolsCard(model: model)
+      // Tools only show up when they're being set up or need repair.
+      ToolsNotice(model: model)
+      AssistantsCard(model: model)
+      DownloadsCard(model: model)
+      RekordboxCard(model: model)
       AboutCard(model: model)
       if let note = model.actionNote {
         Banner(text: note, tone: .success)
@@ -478,7 +479,7 @@ private struct AssistantsCard: View {
 
   var body: some View {
     Card(title: "Assistants", systemImage: "sparkles") {
-      if !model.links.isEmpty || model.status?.mcp?.publicUrl != nil {
+      if !model.links.isEmpty {
         IconButton(
           systemImage: model.revealSecrets ? "eye.slash" : "eye",
           label: model.revealSecrets ? "Hide the private URLs" : "Show the private URLs"
@@ -488,7 +489,7 @@ private struct AssistantsCard: View {
         .padding(.vertical, -6)
       }
     } content: {
-      if model.links.isEmpty && model.status?.mcp?.publicUrl == nil {
+      if model.links.isEmpty {
         Text("Connect ChatGPT or Claude, then ask it to download tracks or change playlists, from your phone too.")
           .font(.callout)
           .foregroundStyle(.secondary)
@@ -496,12 +497,6 @@ private struct AssistantsCard: View {
       }
       ForEach(model.links) { link in
         LinkRow(link: link, model: model)
-      }
-      if let legacy = model.status?.mcp?.publicUrl {
-        URLRow(
-          title: "Original ChatGPT URL", url: legacy, reveal: model.revealSecrets,
-          copied: model.copied == "legacy"
-        ) { model.copy(legacy, key: "legacy") }
       }
       let missing = Assistant.allCases.filter { a in !model.links.contains { $0.assistant == a } }
       if !missing.isEmpty {
@@ -621,14 +616,17 @@ private struct CloudLine: View {
 
 // MARK: - Tools
 
-private struct ToolsCard: View {
+/// Nothing while the tools are fine; a compact card while they're being
+/// installed, or when one needs repair.
+private struct ToolsNotice: View {
   @Bindable var model: MenuModel
-  @State private var showVersions = false
 
   var body: some View {
-    if let report = model.toolbox {
+    if let report = model.toolbox, report.installing || !report.allReady {
       Card(title: "Tools", systemImage: "wrench.and.screwdriver") {
-        Badge(text: badge(report).0, tint: badge(report).1)
+        Badge(
+          text: report.installing ? "Installing" : "Needs repair",
+          tint: report.installing ? .accentColor : .orange)
       } content: {
         if report.installing {
           VStack(alignment: .leading, spacing: 4) {
@@ -637,45 +635,20 @@ private struct ToolsCard: View {
               .font(.caption)
               .foregroundStyle(.secondary)
           }
-        } else if let error = report.error, !report.allReady {
-          Banner(text: error)
-          Button("Repair", action: model.repairTools)
+        } else {
+          if let error = report.error {
+            Banner(text: error)
+          } else {
+            Text("Missing: \(report.all.filter { !$0.ready }.map(\.name).joined(separator: ", "))")
+              .font(.callout)
+              .foregroundStyle(.secondary)
+          }
+          Button("Repair Tools", action: model.repairTools)
             .controlSize(.small)
         }
-        DisclosureGroup(isExpanded: $showVersions) {
-          VStack(alignment: .leading, spacing: 3) {
-            ForEach(report.all) { tool in
-              HStack {
-                Image(systemName: tool.ready ? "checkmark.circle.fill" : "circle.dashed")
-                  .foregroundStyle(tool.ready ? .green : .secondary)
-                  .font(.caption)
-                Text(tool.name).font(.caption)
-                Spacer(minLength: 8)
-                Text(tool.displayVersion ?? "missing")
-                  .font(.caption.monospaced())
-                  .foregroundStyle(.secondary)
-              }
-            }
-            if !report.installing {
-              Button("Repair Tools", action: model.repairTools)
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .padding(.top, 2)
-            }
-          }
-          .padding(.top, 6)
-        } label: {
-          Text("yt-dlp, spotdl, ffmpeg, deno, uv")
-            .font(.callout)
-        }
       }
+      .transition(.opacity)
     }
-  }
-
-  private func badge(_ r: ToolboxReport) -> (String, Color) {
-    if r.installing { return ("Installing", .accentColor) }
-    if r.allReady { return ("Ready", .green) }
-    return ("Needs repair", .orange)
   }
 }
 

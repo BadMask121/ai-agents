@@ -11,6 +11,10 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.0.2] — 2026-10-28
+- **No service changes.** The version moves with the menu app (one product
+  version).
+
 ## [1.0.1] — 2026-10-28
 
 ### Changed
