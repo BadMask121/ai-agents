@@ -267,8 +267,19 @@ impl AgentCore {
 
     /// The Worker has the result (or will never take it): forget the job.
     pub fn reported(&mut self, cloud_id: &str) {
-        self.active.remove(cloud_id);
         self.rejected.remove(cloud_id);
+        let Some(local) = self.active.remove(cloud_id) else {
+            return;
+        };
+        // A playlist change just landed: the assistant may act on it next
+        // ("now add…"), so re-share the library now, not in a minute.
+        let was_library = self
+            .jobs
+            .get(&local)
+            .is_some_and(|s| s.kind == JobKind::Library);
+        if let (true, Some(sync)) = (was_library, self.library.as_mut()) {
+            sync.urgent = true;
+        }
     }
 
     /// Rebuild the library snapshot if master.db changed (at most once a minute).
@@ -306,6 +317,8 @@ struct LibrarySync {
     body: Option<Value>,
     /// Rekordbox content id → local file, for mirroring edits into the XML.
     paths: HashMap<String, PathBuf>,
+    /// Skip the once-a-minute limit on the next rebuild.
+    urgent: bool,
 }
 
 const SNAPSHOT_MIN_INTERVAL: Duration = Duration::from_secs(60);
@@ -319,6 +332,7 @@ impl LibrarySync {
             hash: None,
             body: None,
             paths: HashMap::new(),
+            urgent: false,
         }
     }
 
@@ -327,12 +341,17 @@ impl LibrarySync {
             .and_then(|m| m.modified())
             .ok();
         let stale = self.hash.is_none() || mtime != self.db_mtime;
-        let due = self
-            .last_built
-            .is_none_or(|t| t.elapsed() >= SNAPSHOT_MIN_INTERVAL);
+        let due = self.urgent
+            || self
+                .last_built
+                .is_none_or(|t| t.elapsed() >= SNAPSHOT_MIN_INTERVAL);
+        if !stale {
+            self.urgent = false;
+        }
         if !(stale && due) {
             return;
         }
+        self.urgent = false;
         self.last_built = Some(Instant::now());
         let lib = self.lib.clone();
         match tokio::task::spawn_blocking(move || lib.snapshot()).await {

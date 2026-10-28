@@ -57,6 +57,9 @@ Three things are versioned independently:
   sign and verify for the tools manifest and the update feed. The release
   public key is compiled in; the private key lives in
   `~/.dj-sync-release/ed25519.key` (0600).
+- **The library is re-shared right after a playlist change lands**, so the
+  assistant can act on a playlist it just created. Before, the
+  once-a-minute snapshot limit left about a minute of "no such playlist".
 - **Shortcut links** keep `api_url` and `token`. Cloud refusals (400/409, e.g.
   `too_many_links`) reach the menu app with their status and message.
 

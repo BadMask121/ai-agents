@@ -697,6 +697,13 @@ async fn connection(
                         if let Some(id) = v["job_id"].as_str() {
                             awaiting_ack.remove(id);
                             core.reported(id);
+                            // After a playlist change, share the new library now.
+                            core.refresh_library().await;
+                            let hash = core.library_hash();
+                            if hash.is_some() && hash != hash_sent {
+                                send(&mut ws, json!({ "type": "library_hash", "hash": hash })).await?;
+                                hash_sent = hash;
+                            }
                         }
                     }
                     "library_wanted" => share_library(session, core).await,
