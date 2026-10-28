@@ -22,8 +22,16 @@ export class SmtpClient {
     this.transport = nodemailer.createTransport({
       host: cfg.smtpHost,
       port: cfg.smtpPort,
-      secure: true,
+      // 465 is implicit TLS; every other port (587/25) starts plain and must
+      // upgrade via STARTTLS — requireTLS forbids a plaintext fallback.
+      secure: cfg.smtpPort === 465,
+      requireTLS: true,
       auth: { user: cfg.user, pass: cfg.pass },
+      // Fail fast so tool calls surface a clean error instead of an upstream
+      // proxy 504 (nodemailer's defaults wait minutes).
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
     });
   }
 

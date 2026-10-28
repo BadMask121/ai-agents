@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.154.0/config-schema.json",
+  "name": "mail-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  // nodemailer (SMTP) needs Node's net/tls; the IMAP client uses cloudflare:sockets.
+  "compatibility_flags": ["nodejs_compat"],
+  // The ChatGPT connector URL stays https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp.
+  "routes": [{ "pattern": "mail-mcp.jeffrey.build", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true }
+  // Secrets (wrangler secret): PRIVATEEMAIL_USER, PRIVATEEMAIL_PASS, MCP_SECRET_PATH.
+}
