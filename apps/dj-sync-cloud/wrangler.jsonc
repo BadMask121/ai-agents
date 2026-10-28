@@ -26,6 +26,13 @@
     }
   ],
 
+  // The Mac's Rekordbox library snapshot (POST /agent/library), read by the
+  // playlist tools. PLACEHOLDER id: replace it with the id printed by
+  // Created with `wrangler kv namespace create dj-sync-library`.
+  "kv_namespaces": [
+    { "binding": "LIBRARY", "id": "9ff56c62057649839c68af7e57527f09" }
+  ],
+
   // Daily retention: drop finished jobs older than 30 days.
   "triggers": { "crons": ["17 3 * * *"] },
 

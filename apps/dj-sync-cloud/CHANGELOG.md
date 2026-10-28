@@ -13,6 +13,35 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [0.2.0] — 2026-10-28 · agent protocol 1.1.0
+
+### Added
+- ChatGPT playlist management, answered from a snapshot of the Mac's
+  Rekordbox library:
+  - Reads: `list_playlists`, `search_tracks`, `get_playlist`. These work while
+    the Mac is offline and report `library_as_of` and `mac_online`.
+  - Writes: `create_playlist`, `add_tracks_to_playlist`,
+    `remove_tracks_from_playlist`, `rename_playlist`, `delete_playlist`.
+    Each is checked against the snapshot, then queued as a **library job**
+    (identical active jobs are reused), and returns a `job_id`.
+- Agent protocol 1.1 (MINOR bump, so 1.0 Macs keep working):
+  - `POST /agent/library` (body up to 16 MB, protocol ≥ 1.1): the Mac uploads
+    `{hash, generated_at, library_version, playlists, tracks}`. It's stored in
+    KV (binding `LIBRARY`), with the hash on the agent row.
+  - `POST /agent/poll` accepts an optional `library_hash` and answers
+    `library_wanted` (true when it differs from the stored one).
+  - Claimed jobs carry `kind` (`download` or `library`). Library jobs add
+    `ops` (`ensure_playlist`, `add_to_playlist`, `remove_from_playlist`,
+    `rename_playlist`, `delete_playlist`) and a `summary`. Agents on protocol
+    1.0 are never handed a library job.
+  - `POST /agent/jobs/{id}/complete` accepts an optional `library_version`.
+- Migration `0002_library.sql`: `jobs.kind`, `jobs.ops`, `jobs.summary` and
+  `agent.library_hash`, `library_generated_at`, `library_version`.
+
+### Changed
+- `get_download_status` describes any job, download or playlist change, and
+  shows the Rekordbox library version a library job produced.
+
 ## [0.1.0] — 2026-10-28 · agent protocol 1.0.0
 
 ### Added

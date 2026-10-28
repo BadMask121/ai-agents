@@ -72,7 +72,7 @@ describe("routing", () => {
       ALL,
       deps,
     );
-    expect((await body(list)).result.tools).toHaveLength(2);
+    expect((await body(list)).result.tools).toHaveLength(10);
   });
 
   it("gives a 2026-07-28 probe a bare 400 so the client falls back", async () => {
@@ -199,7 +199,7 @@ describe("agent API", () => {
 
     // Not claiming: just a heartbeat.
     const idle = await body(await poll(deps, { active: [], can_claim: false }));
-    expect(idle).toEqual({ worker_version: WORKER_VERSION, protocol: AGENT_PROTOCOL, job: null });
+    expect(idle).toEqual({ worker_version: WORKER_VERSION, protocol: AGENT_PROTOCOL, library_wanted: false, job: null });
     const health = await body(await route(new Request(`${BASE}/health`), ALL, deps));
     expect(health.agent).toMatchObject({ online: true, version: "0.2.0" });
     expect(health.queued).toBe(2);
@@ -207,6 +207,7 @@ describe("agent API", () => {
     const got = await body(await poll(deps, { active: [], can_claim: true }));
     expect(got.job).toEqual({
       job_id: first,
+      kind: "download",
       playlist: "One",
       urls: ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
       attempt: 1,

@@ -6,6 +6,8 @@ import { addSeconds, validSecretPath } from "./util";
 
 export interface Env {
   DB: D1Database;
+  /** The Mac's Rekordbox library snapshot (see d1store.ts). */
+  LIBRARY?: KVNamespace;
   DEFAULT_PLAYLIST: string;
   MAX_URLS: string;
   PUBLIC_HOST: string;
@@ -16,7 +18,7 @@ export interface Env {
 
 function deps(env: Env): Deps {
   return {
-    store: new D1Store(env.DB),
+    store: new D1Store(env.DB, env.LIBRARY),
     now: () => new Date(),
     config: {
       defaultPlaylist: env.DEFAULT_PLAYLIST || "ChatGPT Downloads",

@@ -3,7 +3,7 @@
 
 import { AGENT_ONLINE_SECONDS, MAX_PLAYLIST_NAME } from "./constants";
 import type { MediaRef } from "./links";
-import type { JobRow, JobSource, JobState, Store } from "./store";
+import type { JobKind, JobRow, JobSource, JobState, LibraryOp, Store } from "./store";
 import { newJobId, relativeTime } from "./util";
 
 export interface Config {
@@ -65,10 +65,44 @@ export async function submit(
     return { ok: true, value: { job: existing, position, deduplicated: true } };
   }
 
-  const job: JobRow = {
+  return { ok: true, value: await insert(deps, newJob(deps, "download", playlist.value, urls, dedupeKey, source)) };
+}
+
+/**
+ * Queue Rekordbox playlist ops for the Mac (`playlist` is the target the
+ * ops are about). Identical active work is reused, like downloads.
+ */
+export async function submitLibrary(
+  deps: Deps,
+  playlist: string,
+  ops: LibraryOp[],
+  summary: string,
+): Promise<Submitted> {
+  const dedupeKey = JSON.stringify(["library", ops]);
+  const existing = await deps.store.findActiveByDedupe(dedupeKey);
+  if (existing) {
+    const position = await deps.store.countActiveBefore(existing.created_at, existing.id);
+    return { job: existing, position, deduplicated: true };
+  }
+  const job = newJob(deps, "library", playlist, [], dedupeKey, "mcp");
+  job.ops = ops;
+  job.summary = summary;
+  return insert(deps, job);
+}
+
+function newJob(
+  deps: Deps,
+  kind: JobKind,
+  playlist: string,
+  urls: string[],
+  dedupeKey: string,
+  source: JobSource,
+): JobRow {
+  return {
     id: newJobId(),
+    kind,
     state: "queued",
-    playlist: playlist.value,
+    playlist,
     urls,
     dedupe_key: dedupeKey,
     source,
@@ -79,10 +113,15 @@ export async function submit(
     finished_at: null,
     message: "Queued.",
     result: null,
+    ops: null,
+    summary: null,
   };
+}
+
+async function insert(deps: Deps, job: JobRow): Promise<Submitted> {
   await deps.store.insertJob(job);
   const position = await deps.store.countActiveBefore(job.created_at, job.id);
-  return { ok: true, value: { job, position, deduplicated: false } };
+  return { job, position, deduplicated: false };
 }
 
 export async function agentStatus(deps: Deps): Promise<AgentStatus> {
@@ -94,17 +133,18 @@ export async function agentStatus(deps: Deps): Promise<AgentStatus> {
 }
 
 /** " Your Mac is offline (last seen 3 h ago); it will download when it's back online." */
-export function offlineNote(agent: AgentStatus, now: Date): string {
+export function offlineNote(agent: AgentStatus, now: Date, kind: JobKind = "download"): string {
   const seen = agent.last_seen ? relativeTime(agent.last_seen, now) : "never";
-  return ` Your Mac is offline (last seen ${seen}); it will download when it's back online.`;
+  const what = kind === "library" ? "update Rekordbox" : "download";
+  return ` Your Mac is offline (last seen ${seen}); it will ${what} when it's back online.`;
 }
 
-export function stateWord(state: JobState): string {
+export function stateWord(state: JobState, kind: JobKind = "download"): string {
   switch (state) {
     case "queued":
       return "queued";
     case "running":
-      return "downloading";
+      return kind === "library" ? "updating Rekordbox" : "downloading";
     case "done":
       return "done";
     case "failed":
@@ -116,8 +156,10 @@ export function stateWord(state: JobState): string {
 export function jobView(j: JobRow) {
   return {
     job_id: j.id,
+    kind: j.kind,
     state: j.state,
     playlist: j.playlist,
+    summary: j.summary,
     urls: j.urls,
     source: j.source,
     created_at: j.created_at,
@@ -128,5 +170,6 @@ export function jobView(j: JobRow) {
     tracks: j.result?.tracks ?? [],
     errors: j.result?.errors ?? [],
     xml_version: j.result?.xml_version ?? null,
+    library_version: j.result?.library_version ?? null,
   };
 }

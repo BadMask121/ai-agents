@@ -4,12 +4,19 @@
 //   POST /api/downloads              — iOS Shortcut (Bearer SHORTCUT_API_KEY)
 //   GET  /api/downloads/{id}
 //   POST /agent/poll                 — the Mac (Bearer AGENT_TOKEN, see agent.ts)
+//   POST /agent/library              — the Mac's Rekordbox library snapshot (≤16 MB)
 //   POST /agent/jobs/{id}/complete
 //   anything else                    — 404
 // The secret path is the MCP credential, so nothing here logs URLs.
 
-import { complete, gate, poll } from "./agent";
-import { AGENT_PROTOCOL, MAX_BODY_BYTES, SUPPORTED_MCP_VERSIONS, WORKER_VERSION } from "./constants";
+import { PROTOCOL_HEADER, complete, gate, poll, uploadLibrary } from "./agent";
+import {
+  AGENT_PROTOCOL,
+  MAX_BODY_BYTES,
+  MAX_LIBRARY_BYTES,
+  SUPPORTED_MCP_VERSIONS,
+  WORKER_VERSION,
+} from "./constants";
 import { agentStatus, jobView, offlineNote, submit, type Deps } from "./jobs";
 import { extractMediaRef, linkIn, type MediaRef } from "./links";
 import { dispatch, parseError } from "./mcp";
@@ -47,13 +54,16 @@ export async function route(req: Request, secrets: Secrets, deps: Deps): Promise
   const agentToken = nonEmpty(secrets.AGENT_TOKEN);
   if (agentToken && req.method === "POST") {
     const done = AGENT_COMPLETE_PATH.exec(path);
-    if (path === "/agent/poll" || done) {
-      const body = await readJson(req);
+    const library = path === "/agent/library";
+    if (path === "/agent/poll" || library || done) {
+      const body = await readJson(req, library ? MAX_LIBRARY_BYTES : MAX_BODY_BYTES);
       if (body.kind === "too_large") return empty(413);
-      const denied = await gate(req, agentToken, deps);
-      if (denied) return denied;
+      const g = await gate(req, agentToken, deps);
+      if (!g.ok) return g.response;
       if (body.kind === "invalid") return json({ error: "invalid_body", detail: "body is not valid JSON" }, 400);
-      return done ? complete(decodeURIComponent(done[1]!), body.value, deps) : poll(body.value, deps);
+      if (done) return complete(decodeURIComponent(done[1]!), body.value, deps);
+      if (library) return uploadLibrary(body.value, g.protocol, req.headers.get(PROTOCOL_HEADER)!.trim(), deps);
+      return poll(body.value, g.protocol, deps);
     }
   }
 
@@ -176,11 +186,11 @@ async function apiStatus(req: Request, key: string, jobId: string, deps: Deps): 
 
 type Body = { kind: "ok"; value: unknown } | { kind: "invalid" } | { kind: "too_large" };
 
-async function readJson(req: Request): Promise<Body> {
+async function readJson(req: Request, limit = MAX_BODY_BYTES): Promise<Body> {
   const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return { kind: "too_large" };
+  if (declared > limit) return { kind: "too_large" };
   const buf = await req.arrayBuffer();
-  if (buf.byteLength > MAX_BODY_BYTES) return { kind: "too_large" };
+  if (buf.byteLength > limit) return { kind: "too_large" };
   try {
     return { kind: "ok", value: JSON.parse(new TextDecoder().decode(buf)) };
   } catch {

@@ -42,14 +42,34 @@ describe("protocol", () => {
     expect(((await dispatch({ jsonrpc: "1.0", id: 5, method: "ping" }, deps)) as Any).error.code).toBe(-32600);
   });
 
-  it("lists both tools with object schemas", async () => {
+  it("lists every tool with object schemas and honest annotations", async () => {
     const { deps } = makeDeps();
     const r: Any = await dispatch({ jsonrpc: "2.0", id: 1, method: "tools/list" }, deps);
     const tools = r.result.tools;
-    expect(tools.map((t: Any) => t.name)).toEqual(["download_to_rekordbox", "get_download_status"]);
+    expect(tools.map((t: Any) => t.name)).toEqual([
+      "download_to_rekordbox",
+      "get_download_status",
+      "list_playlists",
+      "search_tracks",
+      "get_playlist",
+      "create_playlist",
+      "add_tracks_to_playlist",
+      "remove_tracks_from_playlist",
+      "rename_playlist",
+      "delete_playlist",
+    ]);
     for (const t of tools) expect(t.inputSchema.type).toBe("object");
     expect(tools[0].inputSchema.properties.urls.maxItems).toBe(3);
-    expect(tools[1].annotations.readOnlyHint).toBe(true);
+    const byName = Object.fromEntries(tools.map((t: Any) => [t.name, t]));
+    for (const n of ["get_download_status", "list_playlists", "search_tracks", "get_playlist"]) {
+      expect(byName[n].annotations.readOnlyHint, n).toBe(true);
+    }
+    for (const n of ["create_playlist", "add_tracks_to_playlist", "remove_tracks_from_playlist", "rename_playlist"]) {
+      expect(byName[n].annotations, n).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    }
+    expect(byName.delete_playlist.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(byName.search_tracks.inputSchema.properties.limit).toMatchObject({ minimum: 1, maximum: 50 });
+    expect(byName.add_tracks_to_playlist.inputSchema.properties.track_ids).toMatchObject({ minItems: 1, maxItems: 500 });
   });
 });
 
@@ -148,7 +168,7 @@ describe("get_download_status", () => {
 
   it("lists recent jobs newest first, and handles unknown ids", async () => {
     const { deps, advance } = makeDeps();
-    expect((await call(deps, "get_download_status", {})).content[0].text).toContain("No download jobs yet");
+    expect((await call(deps, "get_download_status", {})).content[0].text).toContain("No jobs yet");
     await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "A" });
     advance(5);
     await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "B" });

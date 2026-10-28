@@ -33,30 +33,47 @@ iOS Shortcut ──REST──┘                                       ▲
 | `GET /api/downloads/{id}` | Bearer `SHORTCUT_API_KEY` | job status |
 | `POST /agent/poll` | agent headers | heartbeat, lease extension, claim |
 | `POST /agent/jobs/{id}/complete` | agent headers | report the result |
+| `POST /agent/library` | agent headers (protocol ≥ 1.1) | upload the library snapshot (≤ 16 MB) to KV `LIBRARY` |
 | anything else | — | 404. The `/api/*` and `/agent/*` routes also return 404 when their secret isn't set. |
 
-## Agent protocol (1.0.0)
+## Agent protocol (1.1.0)
 
 Every agent request carries these headers:
 
 ```
 Authorization: Bearer <AGENT_TOKEN>
-X-DJ-Sync-Agent-Protocol: 1.0.0      # semver; same MAJOR, MINOR ≤ the Worker's, else 409
-X-DJ-Sync-Agent-Version: 0.2.0       # the Mac's dj-sync version (shown in /health)
+X-DJ-Sync-Agent-Protocol: 1.1.0      # semver; same MAJOR, MINOR ≤ the Worker's, else 409
+X-DJ-Sync-Agent-Version: 0.8.0       # the Mac's dj-sync version (shown in /health)
 ```
 
-**`POST /agent/poll`** takes `{"active": ["<job_id>", …], "can_claim": true}`.
+**`POST /agent/poll`** takes `{"active": ["<job_id>", …], "can_claim": true,
+"library_hash": "<sha256>"|null}`.
 
 - It extends `lease_until` by 15 minutes for each `active` job that is still
   running.
 - If `can_claim` is set, it atomically claims **one** job: the oldest queued
   job, or a running job whose lease has run out. Lease expiry is how a
   download abandoned by a sleeping Mac gets retried.
-- It returns `{"worker_version", "protocol", "job": null | {"job_id", "playlist", "urls", "attempt"}}`.
+- It returns `{"worker_version", "protocol", "library_wanted", "job": null |
+  {"job_id", "kind", "playlist", "urls", "attempt", "ops"?, "summary"?}}`.
+  `library_wanted` is true when `library_hash` differs from the stored
+  snapshot.
+  - `kind` is `download` or `library`. A library job carries rbdb.py `ops`
+    (`ensure_playlist`, `add_to_playlist`, `remove_from_playlist`,
+    `rename_playlist`, `delete_playlist`, by exact playlist name and
+    Rekordbox `content_id`) and a `summary`.
+  - Agents on protocol 1.0 are never handed library jobs.
+
+**`POST /agent/library`** takes `{hash, generated_at, library_version,
+playlists: [{id, name, folder, track_ids}], tracks: [{id, title, artist,
+album, genre, bpm, key, duration_secs}]}` and answers `{ok, playlists,
+tracks}`. File paths are never sent.
 
 **`POST /agent/jobs/{id}/complete`** takes `{"state": "done"|"failed",
 "message", "tracks": [{artist, title, file, already_downloaded}], "errors":
-[{url, error}], "xml_version": "1.3.0"|null}`.
+[{url, error}], "xml_version": "1.3.0"|null, "library_version":
+"1.2.1"|null}`. The Mac completes a library job only once the change is in
+master.db.
 
 | Response | When |
 |---|---|
