@@ -16,6 +16,9 @@ export const CANONICAL_HOST = "djsync.jeffrey.build";
 const CLOUD_EXACT = new Set(["/health", "/api/downloads", "/api/playlists"]);
 const CLOUD_PREFIXES = ["/v2/", "/api/downloads/", "/agent/", "/telegram/", "/i/"];
 const DOWNLOAD = /^\/download\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
+// Kept in R2 for apps that fetch it from the old downloads host directly; here
+// it redirects to the released version's file.
+const LATEST_DMG = "DJ-Sync-latest.dmg";
 const SHORTCUT_API = new Set(["/api/downloads", "/api/playlists"]);
 export const IPHONE_GUIDE = "/connect/iphone/";
 
@@ -55,6 +58,14 @@ async function download(request, env, name) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
   }
+  // Old links and the app's "latest" link save the DMG under its version too.
+  if (name === LATEST_DMG) {
+    const version = await releasedVersion(env);
+    if (version) {
+      const location = `https://${CANONICAL_HOST}/download/DJ-Sync-${version}.dmg`;
+      return new Response(null, { status: 302, headers: { location, "cache-control": "public, max-age=300" } });
+    }
+  }
   const key = `djsync/${name}`;
   const ranged = request.method === "GET" && request.headers.has("range");
   const object =
@@ -82,4 +93,16 @@ async function download(request, env, name) {
   }
   headers.set("content-length", String(object.size));
   return new Response(object.body, { headers });
+}
+
+/** The released version, from the update feed (null if it can't be read:
+ *  DJ-Sync-latest.dmg is then served as is). */
+async function releasedVersion(env) {
+  try {
+    const feed = await env.DOWNLOADS.get("djsync/appcast.json");
+    const version = feed && (await feed.json())?.latest?.version;
+    return /^\d+\.\d+\.\d+$/.test(version ?? "") ? version : null;
+  } catch {
+    return null;
+  }
 }

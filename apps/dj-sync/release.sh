@@ -132,12 +132,14 @@ put "$DMG" "DJ-Sync-$VERSION.dmg" application/x-apple-diskimage "$IMMUTABLE"
 put "$ZIP" "DJ-Sync-$VERSION.zip" application/zip "$IMMUTABLE"
 put "$OUT/tools-manifest.json.sig" tools-manifest.json.sig text/plain "$SHORT"
 put "$OUT/tools-manifest.json" tools-manifest.json application/json "$SHORT"
+# For apps that fetch it from the old downloads host; djsync.jeffrey.build
+# redirects this name to the versioned file.
 put "$DMG" DJ-Sync-latest.dmg application/x-apple-diskimage "$SHORT"
 put "$OUT/appcast.json.sig" appcast.json.sig text/plain "$SHORT"
 put "$OUT/appcast.json" appcast.json application/json "$SHORT"
 
 git tag -a "djsync-v$VERSION" -m "DJ Sync $VERSION"
-echo "== released DJ Sync $VERSION: $BASE_URL/DJ-Sync-latest.dmg (tag djsync-v$VERSION; push it with git push --tags)"
+echo "== released DJ Sync $VERSION: $BASE_URL/DJ-Sync-$VERSION.dmg (tag djsync-v$VERSION; push it with git push --tags)"
 
 # ---- website ----
 WRANGLER="$WRANGLER" "$SITE/deploy.sh" || die "the app is released, but the website didn't deploy: fix it and run apps/dj-sync-site/deploy.sh"

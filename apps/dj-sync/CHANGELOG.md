@@ -20,6 +20,9 @@ Three things are versioned independently:
     clean site tree.
   - **After the tag:** it runs `apps/dj-sync-site/deploy.sh`.
   - **`--dry-run`:** skips the site commit and the deploy.
+- **The release message names the versioned DMG.** It now prints
+  `DJ-Sync-<version>.dmg`. `DJ-Sync-latest.dmg` is still uploaded for the old
+  downloads host, and djsync.jeffrey.build redirects it to the versioned file.
 
 ## [1.2.1] — 2026-10-28 · songs load to the deck
 

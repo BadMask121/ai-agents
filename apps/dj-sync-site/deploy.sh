@@ -17,13 +17,18 @@ VERSION=$(tr -d '[:space:]' < ../dj-sync/macos/VERSION)
 
 python3 -I tools/seo.py public >/dev/null
 node --test test/*.test.mjs >/dev/null || die "site tests failed (node --test test/*.test.mjs)"
+# The pages link straight to DJ-Sync-$VERSION.dmg, so it must be released first.
+DMG="$SITE/download/DJ-Sync-$VERSION.dmg"
+curl -fsSI "$DMG" >/dev/null || die "DJ-Sync-$VERSION.dmg isn't released yet (apps/dj-sync/release.sh deploys the site itself)"
 "$WRANGLER" deploy
 
 # The deploy is live within seconds; allow a little longer before giving up.
-want="\"softwareVersion\":\"$VERSION\""
+latest() { curl -fsSI "$SITE/download/DJ-Sync-latest.dmg" | tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }'; }
 for _ in 1 2 3 4 5 6; do
-  live=$(curl -fsS "$SITE/?v=$VERSION" | grep -o '"softwareVersion":"[^"]*"' || true)
-  [[ "$live" == "$want" ]] && { echo "== website live with DJ Sync $VERSION: $SITE"; exit 0; }
+  page=$(curl -fsS "$SITE/?v=$VERSION" || true)
+  if [[ "$page" == *"\"softwareVersion\":\"$VERSION\""* && "$page" == *"$DMG"* && "$(latest)" == "$DMG" ]]; then
+    echo "== website live with DJ Sync $VERSION: $DMG"; exit 0
+  fi
   sleep 5
 done
-die "live site shows ${live:-no softwareVersion}, expected $VERSION"
+die "the live site isn't on $VERSION yet (home page download link or DJ-Sync-latest.dmg → $(latest))"

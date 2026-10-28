@@ -17,6 +17,10 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
   - **Downloads:** `/download/<file>` comes from the R2 bucket
     `dj-sync-downloads` (key `djsync/<file>`, uploaded by
     `apps/dj-sync/release.sh`), with HEAD and byte ranges.
+    - **Page links** point at the released version's file
+      (`DJ-Sync-1.2.1.dmg`).
+    - **`DJ-Sync-latest.dmg`** redirects there, using the version in
+      `djsync/appcast.json`.
   - **Cloud endpoints:** `/health`, `/v2/*`, `/api/downloads*`,
     `/api/playlists`, `/agent/*`, `/telegram/*`, `/i/*` (the one-scan iPhone
     install) and any path ending in `/mcp` go to the `dj-sync-cloud` Worker
