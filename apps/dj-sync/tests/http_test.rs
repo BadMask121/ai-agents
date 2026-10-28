@@ -183,6 +183,13 @@ import_xml = "{d}/import.xml"
     .await;
     assert_eq!(s, StatusCode::BAD_GATEWAY, "{b}");
     assert_eq!(serde_json::from_str::<Value>(&b).unwrap()["ok"], false);
+    // Telegram is a kind the app may ask for (it reaches the cloud too).
+    let (s, b) = send(
+        with_cloud(),
+        post("/local/links", json!({"kind": "telegram"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY, "{b}");
 
     // Without a cloud v2 session the routes don't exist.
     let req = Request::get("/local/links").body(Body::empty()).unwrap();

@@ -39,6 +39,7 @@ test("other hostnames get a 301 to the same path on djsync.jeffrey.build", async
 test("cloud paths go to dj-sync-cloud, pages to the static files", async () => {
   const e = env();
   for (const p of ["/health", "/v2/register", "/v2/agent", "/api/downloads", "/api/downloads/abc", "/agent/poll",
+    "/api/playlists", "/telegram/webhook", "/v2/admin/telegram/setup",
     "/u2dDy37bIx227JDdDMLBoA/secret/mcp", "/0123456789abcdef0123456789abcdef/mcp"]) {
     assert.equal(await (await worker.fetch(req(`https://djsync.jeffrey.build${p}`, { method: "POST" }), e)).text(), "cloud", p);
   }

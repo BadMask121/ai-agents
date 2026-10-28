@@ -23,8 +23,10 @@
     <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
     <nav class="nav" aria-label="Main">
       <a href="/install/">Install</a>
-      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
       <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
       <a href="/faq/">FAQ</a>
       <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
     </nav>
@@ -39,13 +41,15 @@
     <h2>What the DJ Sync cloud stores for your Mac</h2>
     <ul>
       <li><strong>Requests and results:</strong> the links you ask DJ Sync to download, playlist names, and each job’s result (track titles, errors, version numbers).</li>
-      <li><strong>A copy of your library’s catalogue:</strong> track titles, artists, albums, genres, BPM, keys and lengths, plus your playlists and which tracks are in them, so ChatGPT or Claude can browse and search while your Mac is offline.</li>
+      <li><strong>A copy of your library’s catalogue:</strong> track titles, artists, albums, genres, BPM, keys and lengths, plus your playlists and which tracks are in them, so your assistant or the Telegram bot can browse and search while your Mac is offline.</li>
       <li><strong>Security values:</strong> one-way hashes of your Mac’s token and of your assistant links. The links themselves are kept only on your Mac.</li>
+      <li><strong>If you connect Telegram:</strong> your chat’s ID and your Telegram username and first name; which DJ Sync Mac that chat belongs to, so messages reach the right Mac; links waiting for you to pick a playlist; and which chat to tell when a download finishes.</li>
     </ul>
 
     <h2>What it never stores</h2>
     <ul>
       <li>Your name, email or any account details. There is no account.</li>
+      <li>Your phone number. Telegram doesn’t share it with bots.</li>
       <li>File paths on your Mac, or any audio. Downloads go straight from their source to your Mac.</li>
       <li>IP addresses. To stop abuse, sign-ups are limited per network using a salted hash of the IP address that changes every day.</li>
     </ul>
@@ -53,14 +57,16 @@
     <h2>How long it’s kept</h2>
     <ul>
       <li>Finished jobs are deleted after 30 days.</li>
+      <li>Links waiting for you to pick a playlist in Telegram are deleted after 24 hours.</li>
+      <li>Disconnecting Telegram (<code>/stop</code>, or <span class="ui">Disconnect</span> in the DJ Sync menu) removes that chat’s link to your Mac.</li>
       <li>If your Mac doesn’t connect for 90 days, everything the cloud holds for it is deleted.</li>
     </ul>
 
     <h2>Where it runs</h2>
     <p>The DJ Sync cloud runs on Cloudflare’s Workers platform. DJ Sync doesn’t sell or share your data, and uses it only to run the service.</p>
 
-    <h2>Your assistant</h2>
-    <p>What you type into ChatGPT or Claude, and what DJ Sync returns to them (such as track titles from your library), is handled by OpenAI or Anthropic under their own privacy policies.</p>
+    <h2>Your assistant and Telegram</h2>
+    <p>What you type into ChatGPT, Claude or Telegram, and what DJ Sync returns to them (such as track titles from your library), is handled by OpenAI, Anthropic or Telegram under their own privacy policies.</p>
 
     <h2>On your Mac</h2>
     <p>Everything else stays on your Mac in a hidden <code>.dj-sync</code> folder: settings, your assistant links, the tools DJ Sync installs, and backups of your Rekordbox library. DJ Sync sends no usage statistics. “Copy diagnostics” only copies to your clipboard; nothing is sent unless you choose to share it.</p>
@@ -78,8 +84,10 @@
       <div>DJ Sync — free for DJs. No account.</div>
       <nav aria-label="Footer">
         <a href="/install/">Install</a>
-        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
         <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
         <a href="/faq/">FAQ</a>
         <a href="/privacy/">Privacy</a>
         <a href="/terms/">Terms</a>

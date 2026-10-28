@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DJ Sync — Ask your AI. It lands in Rekordbox.</title>
-<meta name="description" content="Free Mac app: send a Spotify or YouTube link to ChatGPT or Claude and it downloads straight into your Rekordbox library and playlists.">
+<meta name="description" content="Free Mac app: send a Spotify or YouTube link from Telegram, Claude, ChatGPT or your iPhone and it downloads straight into your Rekordbox library and playlists.">
 <meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -12,7 +12,7 @@
 <link rel="canonical" href="https://djsync.jeffrey.build/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="DJ Sync — Ask your AI. It lands in Rekordbox.">
-<meta property="og:description" content="Free Mac app: send a Spotify or YouTube link to ChatGPT or Claude and it downloads straight into your Rekordbox library and playlists.">
+<meta property="og:description" content="Free Mac app: send a Spotify or YouTube link from Telegram, Claude, ChatGPT or your iPhone and it downloads straight into your Rekordbox library and playlists.">
 <meta property="og:url" content="https://djsync.jeffrey.build/">
 <script src="/assets/site.js" defer></script>
 </head>
@@ -23,8 +23,10 @@
     <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
     <nav class="nav" aria-label="Main">
       <a href="/install/">Install</a>
-      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
       <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
       <a href="/faq/">FAQ</a>
       <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
     </nav>
@@ -35,7 +37,7 @@
     <div class="reveal">
       <span class="eyebrow">Free · Mac · Rekordbox 6 &amp; 7</span>
       <h1><span class="line">Ask your AI.</span> <span class="line">It lands in Rekordbox.</span></h1>
-      <p class="lead">DJ Sync is a free menu bar app for your Mac. Send a Spotify or YouTube link to ChatGPT or Claude, from your phone or your laptop, and the track downloads on your Mac, straight into your Rekordbox library and playlists.</p>
+      <p class="lead">DJ Sync is a free menu bar app for your Mac. Send a Spotify or YouTube link from Telegram, Claude, ChatGPT or your iPhone’s Share menu, on your phone or your laptop, and the track downloads on your Mac, straight into your Rekordbox library and playlists.</p>
       <div class="cta"><a class="btn btn-primary" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg>Download for Mac</a><a class="btn btn-ghost" href="/install/">How to install</a></div>
       <p class="fineprint">macOS 14 or later · Apple silicon &amp; Intel · No account, no subscription</p>
     </div>
@@ -59,9 +61,24 @@
       </div>
       <ol class="steps">
         <li class="card"><h3>Install DJ Sync</h3><p>Drag it to Applications and open it. It downloads its own tools and backs up your Rekordbox library before it changes anything.</p></li>
-        <li class="card"><h3>Connect ChatGPT or Claude</h3><p>Copy your private link from the DJ Sync menu and paste it into ChatGPT or Claude once. It then works on your phone too.</p></li>
+        <li class="card"><h3>Connect your phone or assistant</h3><p>Pair Telegram with a QR code, or paste your private link into Claude or ChatGPT once. Free options included, and it works from your phone.</p></li>
         <li class="card"><h3>Just ask</h3><p>“Download this into Friday Warm-up.” “Make a playlist of my 120 BPM house.” “Rename Sat Night to Saturday.”</p></li>
       </ol>
+    </div>
+  </section>
+
+  <section class="section" id="works-with">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Works with what you already use</h2>
+        <p>Pick one, or several. Each takes a couple of minutes to set up.</p>
+      </div>
+      <div class="grid four">
+        <a class="card" href="/connect/telegram/"><span class="price">Free · any phone</span><h3>Telegram</h3><p>Pair with a QR code, then send or share links to the DJ Sync bot and tap a playlist.</p></a>
+        <a class="card" href="/connect/claude/"><span class="price">Free plan</span><h3>Claude</h3><p>Chat about your library and playlists. The free plan includes one custom connector.</p></a>
+        <a class="card" href="/connect/iphone/"><span class="price">Free · iPhone</span><h3>iPhone Shortcut</h3><p>Share from Spotify or YouTube, choose DJ Sync, pick a playlist. No chat needed.</p></a>
+        <a class="card" href="/connect/chatgpt/"><span class="price paid">Paid plan</span><h3>ChatGPT</h3><p>Custom connectors need ChatGPT Plus, Pro, Business, Enterprise or Edu.</p></a>
+      </div>
     </div>
   </section>
 
@@ -71,7 +88,7 @@
         <h2>Built for how DJs actually prep</h2>
       </div>
       <div class="grid">
-        <div class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg></div><h3>ChatGPT and Claude</h3><p>Talk to the assistant you already use, on the web or on your phone.</p></div>
+        <div class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg></div><h3>Telegram, Claude or ChatGPT</h3><p>Message the DJ Sync bot, or talk to the assistant you already use, on the web or on your phone.</p></div>
         <div class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M16.5 5.5 14 9"/></svg></div><h3>Your real library</h3><p>Tracks land in your Rekordbox Collection and a <strong>DJ Sync</strong> playlist folder, the same as music you import yourself.</p></div>
         <div class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h11M4 12h11M4 18h7"/><path d="M18 9v8"/><circle cx="16.5" cy="17.5" r="1.8"/><path d="M18 9l3-1"/></svg></div><h3>Playlists by chat</h3><p>Create, add, remove, rename and delete. Search your library by artist, genre, BPM or key.</p></div>
         <div class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></div><h3>Backed up, every time</h3><p>DJ Sync backs up your library before each change. Restore any version from the menu.</p></div>
@@ -95,8 +112,10 @@
       <div>DJ Sync — free for DJs. No account.</div>
       <nav aria-label="Footer">
         <a href="/install/">Install</a>
-        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
         <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
         <a href="/faq/">FAQ</a>
         <a href="/privacy/">Privacy</a>
         <a href="/terms/">Terms</a>

@@ -15,3 +15,14 @@ describe("hostnames", () => {
     expect(publicHosts({ PUBLIC_HOST: "a.example" })).toBe("a.example");
   });
 });
+
+describe("assistant origins", () => {
+  it("accepts Claude's and ChatGPT's web origins", () => {
+    for (const o of ["https://claude.ai", "https://www.claude.ai", "https://api.anthropic.com", "https://chatgpt.com"]) {
+      expect(originAllowed(o, "djsync.jeffrey.build"), o).toBe(true);
+    }
+    for (const o of ["https://claude.ai.evil.example", "https://notclaude.ai", "https://anthropic.com.evil.example"]) {
+      expect(originAllowed(o, "djsync.jeffrey.build"), o).toBe(false);
+    }
+  });
+});

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Connect Claude · DJ Sync</title>
-<meta name="description" content="Add DJ Sync to Claude as a custom connector so Claude can download tracks and manage your Rekordbox playlists.">
+<meta name="description" content="Add DJ Sync to Claude as a custom connector (one is free) so Claude can download tracks and manage your Rekordbox playlists, on the web and your phone.">
 <meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -12,7 +12,7 @@
 <link rel="canonical" href="https://djsync.jeffrey.build/connect/claude/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Connect Claude · DJ Sync">
-<meta property="og:description" content="Add DJ Sync to Claude as a custom connector so Claude can download tracks and manage your Rekordbox playlists.">
+<meta property="og:description" content="Add DJ Sync to Claude as a custom connector (one is free) so Claude can download tracks and manage your Rekordbox playlists, on the web and your phone.">
 <meta property="og:url" content="https://djsync.jeffrey.build/connect/claude/">
 <script src="/assets/site.js" defer></script>
 </head>
@@ -23,8 +23,10 @@
     <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
     <nav class="nav" aria-label="Main">
       <a href="/install/">Install</a>
-      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
       <a href="/connect/claude/" class="hide-sm" aria-current="page">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm">ChatGPT</a>
       <a href="/faq/">FAQ</a>
       <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
     </nav>
@@ -33,7 +35,8 @@
 <main id="main" class="page">
   <article class="prose">
     <h1>Connect Claude</h1>
-    <p class="lead">Add DJ Sync to Claude once on claude.ai. It then works in the Claude apps on your phone and desktop too. Claude’s free plan includes one custom connector.</p>
+    <p class="lead">Add DJ Sync to Claude once on claude.ai. It then works in the Claude apps on your phone and desktop too.</p>
+    <div class="note"><strong>Free plan: one custom connector.</strong> Claude’s free plan includes one custom connector, which is enough for DJ Sync. If you already use it for something else, connect through <a href="/connect/telegram/">Telegram</a> instead. It’s free too.</div>
     <ol class="howto">
       <li>
         <h3>Copy your private link from DJ Sync</h3>
@@ -42,7 +45,7 @@
       </li>
       <li>
         <h3>Add it to Claude</h3>
-        <p>Open <a href="https://claude.ai" rel="noopener">claude.ai</a>, go to <span class="ui">Settings → Connectors</span> and click <span class="ui">Add custom connector</span>. Fill in:</p>
+        <p>On a computer, open <a href="https://claude.ai" rel="noopener">claude.ai</a>, go to <span class="ui">Settings → Connectors</span> and click <span class="ui">Add custom connector</span>. Fill in:</p>
         <ul>
           <li><strong>Name:</strong> DJ Sync</li>
           <li><strong>Remote MCP server URL:</strong> paste your link</li>
@@ -53,14 +56,21 @@
         <h3>Turn it on in a chat</h3>
         <p>In a chat, open the tools menu and switch <span class="ui">DJ Sync</span> on. Claude asks before it uses a tool that changes things. Try:</p>
         <ul>
-  <li>“Download https://open.spotify.com/track/… and add it to a playlist called Friday Warm-up.”</li>
-  <li>“Search my library for amapiano between 110 and 115 BPM and make a playlist of the results.”</li>
-  <li>“Rename Friday Warm-up to Friday Opening.”</li>
-  <li>“What happened to my last download?”</li>
-</ul>
-        <p>The DJ Sync menu shows <span class="ui">Connected</span> once Claude has used your link.</p>
+          <li>“Download https://open.spotify.com/track/… into my Gqom playlist.”</li>
+          <li>“How many afrobeats playlists do I have?”</li>
+          <li>“Search my library for amapiano between 110 and 115 BPM and make a playlist of the results.”</li>
+          <li>“Rename Friday Warm-up to Friday Opening.”</li>
+          <li>“What happened to my last download?”</li>
+        </ul>
+      </li>
+      <li>
+        <h3>Use it from your phone</h3>
+        <p>Connectors you add on claude.ai are available in the Claude app on your iPhone or Android phone. Open a chat there, switch DJ Sync on from the tools menu, and ask the same way. The DJ Sync menu on your Mac shows when Claude last used your link.</p>
       </li>
     </ol>
+
+    <h2>Other ways to connect</h2>
+    <p><a href="/connect/telegram/">Telegram</a> (free, any phone) · <a href="/connect/claude/">Claude</a> (free plan) · <a href="/connect/iphone/">iPhone Shortcut</a> (free) · <a href="/connect/chatgpt/">ChatGPT</a> (paid plan). See <a href="/faq/#which-way">which way to connect</a>.</p>
   </article>
 </main>
 <footer class="site-footer">
@@ -69,8 +79,10 @@
       <div>DJ Sync — free for DJs. No account.</div>
       <nav aria-label="Footer">
         <a href="/install/">Install</a>
-        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
         <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
         <a href="/faq/">FAQ</a>
         <a href="/privacy/">Privacy</a>
         <a href="/terms/">Terms</a>

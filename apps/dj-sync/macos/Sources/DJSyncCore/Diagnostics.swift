@@ -9,6 +9,9 @@ public enum Diagnostics {
     var out = text
     out = out.replacingOccurrences(
       of: #"(?i)(bearer\s+)\S+"#, with: "$1…", options: .regularExpression)
+    // Telegram pairing codes (t.me/<bot>?start=<code>) are short but secret.
+    out = out.replacingOccurrences(
+      of: #"(?i)([?&]start=)[A-Za-z0-9_\-]+"#, with: "$1…", options: .regularExpression)
     out = out.replacingOccurrences(
       of: #"(?<![A-Za-z0-9_\-])([A-Za-z0-9_\-]{4})[A-Za-z0-9_\-]{20,}(?![A-Za-z0-9_\-])"#,
       with: "$1…", options: .regularExpression)

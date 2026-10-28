@@ -28,6 +28,10 @@ export interface Env {
   ADMIN_TOKEN?: string;
   V1_RETIRED?: string;
   LEGACY_TENANT_ID?: string;
+  /** The shared Telegram bot (connect-anywhere spec §1): secrets, and its @username (a var). */
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  TELEGRAM_BOT_USERNAME?: string;
 }
 
 function deps(env: Env): Deps {

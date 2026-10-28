@@ -3,15 +3,15 @@
 //   - /download/<file> from the R2 bucket (DMG, update zip, signed feed and
 //     tools manifest; uploaded by apps/dj-sync/release.sh under djsync/),
 //   - the cloud endpoints (MCP connector URLs, the Mac's agent socket and
-//     REST, the Shortcut API), passed to the dj-sync-cloud Worker over a
-//     service binding.
+//     REST, the Shortcut API, the Telegram bot's webhook), passed to the
+//     dj-sync-cloud Worker over a service binding.
 // Any other hostname routed here (djsync.triplejmusic.art) gets a 301 to the
 // same path on the canonical host.
 
 export const CANONICAL_HOST = "djsync.jeffrey.build";
 
-const CLOUD_EXACT = new Set(["/health", "/api/downloads"]);
-const CLOUD_PREFIXES = ["/v2/", "/api/downloads/", "/agent/"];
+const CLOUD_EXACT = new Set(["/health", "/api/downloads", "/api/playlists"]);
+const CLOUD_PREFIXES = ["/v2/", "/api/downloads/", "/agent/", "/telegram/"];
 const DOWNLOAD = /^\/download\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
 
 export function isCloudPath(path) {

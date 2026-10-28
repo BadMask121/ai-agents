@@ -4,6 +4,7 @@
 import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { Registry } from "../src/registry";
 import { route, type Namespaces, type Secrets } from "../src/router";
+import type { TelegramApi } from "../src/telegram";
 import { Tenant } from "../src/tenant";
 import { FakeNamespace, FakeWebSocket } from "./do-harness";
 import { AGENT_TOKEN, SECRET, SHORTCUT_KEY, makeDeps } from "./helpers";
@@ -16,11 +17,21 @@ export interface Registered {
   agent_token: string;
 }
 
-export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}) {
+export interface CloudOptions {
+  /** Extra Durable Object env (e.g. the Telegram bot settings). */
+  env?: Record<string, string>;
+  /** A fake Bot API for the Worker and every Tenant. */
+  telegram?: TelegramApi;
+}
+
+export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
   let now = new Date(start);
   const clock = () => new Date(now);
-  const env: Any = { DEFAULT_PLAYLIST: "ChatGPT Downloads", MAX_URLS: "3", PUBLIC_HOST: "mcp.example.test" };
-  const TENANT = new FakeNamespace(Tenant, () => env, (t) => (t.clock = clock));
+  const env: Any = { DEFAULT_PLAYLIST: "ChatGPT Downloads", MAX_URLS: "3", PUBLIC_HOST: "mcp.example.test", ...opts.env };
+  const TENANT = new FakeNamespace(Tenant, () => env, (t) => {
+    t.clock = clock;
+    if (opts.telegram) t.telegramApi = opts.telegram;
+  });
   const REGISTRY = new FakeNamespace(Registry, () => env, (r) => (r.clock = clock));
   env.TENANT = TENANT;
   env.REGISTRY = REGISTRY;
@@ -33,7 +44,7 @@ export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {
     REGISTRY,
     secrets,
     v1,
-    call: (req: Request) => route(req, cloud.secrets, v1.deps, ns),
+    call: (req: Request) => route(req, cloud.secrets, v1.deps, ns, opts.telegram ? { telegram: opts.telegram } : {}),
     advance(seconds: number) {
       now = new Date(now.getTime() + seconds * 1000);
       v1.advance(seconds);
@@ -110,3 +121,26 @@ export function req(method: string, path: string, body?: unknown, headers: Recor
 }
 
 export const YT = (n: number) => `https://youtu.be/${String(n).padStart(11, "a").slice(-11)}`;
+
+/** Records Bot API calls instead of making them. */
+export class FakeTelegram implements TelegramApi {
+  calls: { method: string; params: Any }[] = [];
+  private nextMessage = 100;
+  async call<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    this.calls.push({ method, params });
+    if (method === "sendMessage") return { message_id: ++this.nextMessage } as T;
+    if (method === "getMe") return { id: 42, is_bot: true, username: "DJSyncAppBot", first_name: "DJ Sync" } as T;
+    return true as T;
+  }
+  /** Texts sent to one chat, oldest first. */
+  texts(chat: number | string): string[] {
+    return this.calls.filter((c) => c.method === "sendMessage" && String(c.params.chat_id) === String(chat)).map((c) => c.params.text);
+  }
+  last(chat: number | string): Any {
+    return this.calls.filter((c) => c.method === "sendMessage" && String(c.params.chat_id) === String(chat)).at(-1)?.params;
+  }
+  of(method: string): Any[] {
+    return this.calls.filter((c) => c.method === method).map((c) => c.params);
+  }
+}
+

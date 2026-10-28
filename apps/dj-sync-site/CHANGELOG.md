@@ -4,6 +4,35 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-10-28
+### Worker
+- **New cloud routes forwarded** to dj-sync-cloud: `/telegram/*` (the shared
+  bot's webhook) and `/api/playlists` (the iPhone Shortcut's playlist list).
+  `/v2/admin/telegram/setup` already goes through the `/v2/` prefix.
+
+### Pages
+- **Setup guides for every way to connect:**
+  - **New** `/connect/telegram/` (free, any phone: QR pairing, sending links,
+    playlist buttons, commands).
+  - **New** `/connect/iphone/` (free: a Share-sheet Shortcut that lists your
+    playlists from `/api/playlists` and posts to `/api/downloads`).
+  - **`/connect/chatgpt/`** now leads with **ChatGPT needs a paid plan**
+    (Plus, Pro, Business, Enterprise or Edu) for custom connectors, and gains
+    "After DJ Sync updates, refresh the connector".
+  - **`/connect/claude/`** says the free plan includes one custom connector,
+    and covers phone use.
+- **Home:** a "Works with" section with Telegram (free), Claude (free), iPhone
+  Shortcut (free) and ChatGPT (paid plan). The copy now names every channel.
+- **Navigation:** the header and footer link all four guides. The header's
+  guide links show from 900px; below that, home and the footer carry them.
+- **FAQ:** "Which way should I connect?" and "Why doesn't ChatGPT see my
+  playlists?", plus updated cost, offline and leaked-link answers.
+- **Privacy:** what the Telegram bot stores (chat ID, username, first name,
+  the chat → Mac mapping, pending picks for 24 hours, and which chat to
+  notify), and that phone numbers are never stored.
+- **Install:** the "connect" step lists all four options.
+- `sitemap.xml` includes the two new pages.
+
 ## [1.1.0] — 2026-10-28
 ### Changed
 - **The site moved to djsync.jeffrey.build,** which is now DJ Sync's one host.

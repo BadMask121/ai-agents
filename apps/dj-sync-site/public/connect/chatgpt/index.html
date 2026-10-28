@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Connect ChatGPT · DJ Sync</title>
-<meta name="description" content="Add DJ Sync to ChatGPT as a custom MCP server so ChatGPT can download tracks and manage your Rekordbox playlists.">
+<meta name="description" content="Add DJ Sync to ChatGPT (paid plan) as a custom MCP connector so ChatGPT can download tracks and manage your Rekordbox playlists.">
 <meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -12,7 +12,7 @@
 <link rel="canonical" href="https://djsync.jeffrey.build/connect/chatgpt/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Connect ChatGPT · DJ Sync">
-<meta property="og:description" content="Add DJ Sync to ChatGPT as a custom MCP server so ChatGPT can download tracks and manage your Rekordbox playlists.">
+<meta property="og:description" content="Add DJ Sync to ChatGPT (paid plan) as a custom MCP connector so ChatGPT can download tracks and manage your Rekordbox playlists.">
 <meta property="og:url" content="https://djsync.jeffrey.build/connect/chatgpt/">
 <script src="/assets/site.js" defer></script>
 </head>
@@ -23,8 +23,10 @@
     <a class="brand" href="/" aria-label="DJ Sync home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="ill-accent"/><circle cx="16" cy="16" r="8.6" fill="none" stroke-width="2.2" class="logo-ink"/><circle cx="16" cy="16" r="2.3" class="logo-fill"/><path d="M23.5 6.5 19 11" stroke-width="2.2" stroke-linecap="round" class="logo-ink"/></svg><span>DJ Sync</span></a>
     <nav class="nav" aria-label="Main">
       <a href="/install/">Install</a>
-      <a href="/connect/chatgpt/" class="hide-sm" aria-current="page">ChatGPT</a>
+      <a href="/connect/telegram/" class="hide-sm">Telegram</a>
       <a href="/connect/claude/" class="hide-sm">Claude</a>
+      <a href="/connect/iphone/" class="hide-sm">iPhone</a>
+      <a href="/connect/chatgpt/" class="hide-sm" aria-current="page">ChatGPT</a>
       <a href="/faq/">FAQ</a>
       <a class="btn btn-primary btn-sm" href="https://djsync.jeffrey.build/download/DJ-Sync-latest.dmg">Download</a>
     </nav>
@@ -34,6 +36,7 @@
   <article class="prose">
     <h1>Connect ChatGPT</h1>
     <p class="lead">Add DJ Sync to ChatGPT once on the web. It then works in the ChatGPT app on your phone as well.</p>
+    <div class="note warn"><strong>Needs a paid ChatGPT plan.</strong> Adding a custom connector (MCP server) to ChatGPT requires a Plus, Pro, Business, Enterprise or Edu plan. On ChatGPT’s free plan, connect DJ Sync through <a href="/connect/telegram/">Telegram</a>, <a href="/connect/claude/">Claude’s free plan</a> or an <a href="/connect/iphone/">iPhone Shortcut</a> instead. All three are free.</div>
     <ol class="howto">
       <li>
         <h3>Copy your private link from DJ Sync</h3>
@@ -42,27 +45,39 @@
       </li>
       <li>
         <h3>Add it to ChatGPT</h3>
-        <p>On a computer, open <a href="https://chatgpt.com" rel="noopener">chatgpt.com</a> and go to <span class="ui">Plugins</span>. Click <span class="ui">Add</span>, then <span class="ui">Create custom MCP server</span>, and fill in:</p>
+        <p>On a computer, open <a href="https://chatgpt.com" rel="noopener">chatgpt.com</a>, go to <span class="ui">Settings → Apps &amp; Connectors</span> and create a custom connector (MCP server). Fill in:</p>
         <ul>
           <li><strong>Name:</strong> DJ Sync</li>
           <li><strong>MCP server URL:</strong> paste your link</li>
           <li><strong>Authentication:</strong> No authentication (the link itself is the key)</li>
         </ul>
-        <p>Save it. ChatGPT may warn that the server isn’t verified by OpenAI. That’s expected for independent apps like DJ Sync.</p>
-        <div class="note">ChatGPT’s menus move around. If you can’t find <span class="ui">Plugins</span>, look for adding a connector or a custom MCP server in Settings. If your plan doesn’t offer custom MCP servers, <a href="/connect/claude/">Claude’s free plan</a> allows one custom connector.</div>
+        <p>Save it. ChatGPT may warn that the connector isn’t verified by OpenAI. That’s expected for independent apps like DJ Sync.</p>
+        <div class="note">ChatGPT’s menus move around and differ by plan: the place may be called <span class="ui">Apps &amp; Connectors</span>, <span class="ui">Connectors</span> or <span class="ui">Plugins</span>. On a Business, Enterprise or Edu workspace, an admin may need to allow custom connectors first.</div>
       </li>
       <li>
-        <h3>Ask</h3>
-        <p>Start a chat and mention DJ Sync (or pick it from the tools menu). ChatGPT asks you to confirm before it changes anything. Try:</p>
+        <h3>Ask, on your computer or your phone</h3>
+        <p>Start a new chat and mention DJ Sync (or pick it from the <span class="ui">+</span> tools menu). Once added on the web, DJ Sync is also in the ChatGPT app on your iPhone or Android phone. ChatGPT asks you to confirm before it changes anything. Try:</p>
         <ul>
-  <li>“Download https://open.spotify.com/track/… and add it to a playlist called Friday Warm-up.”</li>
-  <li>“Search my library for amapiano between 110 and 115 BPM and make a playlist of the results.”</li>
-  <li>“Rename Friday Warm-up to Friday Opening.”</li>
-  <li>“What happened to my last download?”</li>
-</ul>
-        <p>The DJ Sync menu shows <span class="ui">Connected</span> once ChatGPT has used your link.</p>
+          <li>“Download https://open.spotify.com/track/… into my Gqom playlist.”</li>
+          <li>“How many afrobeats playlists do I have?”</li>
+          <li>“Search my library for amapiano between 110 and 115 BPM and make a playlist of the results.”</li>
+          <li>“Rename Friday Warm-up to Friday Opening.”</li>
+          <li>“What happened to my last download?”</li>
+        </ul>
+        <p>The DJ Sync menu shows when ChatGPT last used your link.</p>
       </li>
     </ol>
+
+    <h2 id="refresh">After DJ Sync updates, refresh the connector</h2>
+    <p>ChatGPT keeps its own copy of DJ Sync’s list of tools from when you added it. When DJ Sync gains new tools, ChatGPT keeps using the old list until you refresh it. The tell-tale sign is ChatGPT saying DJ Sync can only download tracks and check downloads, or that it can’t see your playlists.</p>
+    <ol>
+      <li>On <a href="https://chatgpt.com" rel="noopener">chatgpt.com</a>, open <span class="ui">Settings → Apps &amp; Connectors → DJ Sync</span>.</li>
+      <li>Click <span class="ui">Refresh</span>. If there’s no Refresh, remove DJ Sync and add it again with the link from <span class="ui">DJ Sync → Assistants → Copy</span>.</li>
+      <li>Start a <strong>new</strong> chat. Older chats can keep the old list. Your phone uses the same connector, so there’s nothing to do there.</li>
+    </ol>
+
+    <h2>Other ways to connect</h2>
+    <p><a href="/connect/telegram/">Telegram</a> (free, any phone) · <a href="/connect/claude/">Claude</a> (free plan) · <a href="/connect/iphone/">iPhone Shortcut</a> (free) · <a href="/connect/chatgpt/">ChatGPT</a> (paid plan). See <a href="/faq/#which-way">which way to connect</a>.</p>
   </article>
 </main>
 <footer class="site-footer">
@@ -71,8 +86,10 @@
       <div>DJ Sync — free for DJs. No account.</div>
       <nav aria-label="Footer">
         <a href="/install/">Install</a>
-        <a href="/connect/chatgpt/">Connect ChatGPT</a>
+        <a href="/connect/telegram/">Connect Telegram</a>
         <a href="/connect/claude/">Connect Claude</a>
+        <a href="/connect/iphone/">Connect iPhone</a>
+        <a href="/connect/chatgpt/">Connect ChatGPT</a>
         <a href="/faq/">FAQ</a>
         <a href="/privacy/">Privacy</a>
         <a href="/terms/">Terms</a>

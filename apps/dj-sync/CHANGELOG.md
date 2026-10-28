@@ -11,6 +11,21 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.1.0] — 2026-10-28 · connect from anywhere
+
+### Added
+- **`/local/links` accepts kind `telegram`.**
+- **Links pass through the cloud's `paired`, `telegram_username` and
+  `expires_at`.** The pairing link (`url`) and its expiry stay in
+  `links.json` like other secrets; `paired` always comes from the cloud.
+  Rotate sets a new code and clears the pairing.
+### Changed
+- **`CloudError::Rejected` carries the cloud's `error` code.** `/local/*`
+  error replies now include `"code"`.
+- **A 503 with error `telegram_not_configured` is a refusal, not an outage.**
+  It reaches the app with its message instead of "cloud returned 503". Other
+  5xx answers are still outages.
+
 ## [1.0.2] — 2026-10-28
 - **No service changes.** The version moves with the menu app (one product
   version).

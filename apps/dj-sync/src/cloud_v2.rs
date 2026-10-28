@@ -57,9 +57,9 @@ pub enum CloudError {
     Limited(String),
     /// Another connection took over this DJ's socket.
     Replaced,
-    /// The cloud refused the request itself (bad kind, too many links, …):
-    /// pass its status and message on.
-    Rejected(StatusCode, String),
+    /// The cloud refused the request itself (bad kind, too many links,
+    /// Telegram not set up, …): pass its status, message and `error` code on.
+    Rejected(StatusCode, String, Option<String>),
     /// Offline, DNS, 5xx, …: back off and retry.
     Transient(anyhow::Error),
 }
@@ -71,7 +71,7 @@ impl std::fmt::Display for CloudError {
             CloudError::Incompatible(b) => write!(f, "incompatible cloud protocol: {b}"),
             CloudError::Limited(b) => write!(f, "over a DJ Sync limit: {b}"),
             CloudError::Replaced => write!(f, "another connection replaced this one"),
-            CloudError::Rejected(_, msg) => write!(f, "{msg}"),
+            CloudError::Rejected(_, msg, _) => write!(f, "{msg}"),
             CloudError::Transient(e) => write!(f, "{e:#}"),
         }
     }
@@ -116,6 +116,14 @@ pub struct Link {
     pub api_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Telegram links: a chat has been paired (the cloud's answer, never cached).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram_username: Option<String>,
+    /// Telegram links: when the pairing code in `url` stops working.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
 }
 
 /// This Mac's identity with the shared Worker, shared by the lane and the
@@ -257,6 +265,10 @@ impl CloudSession {
                 l.url = k.url.clone();
                 l.api_url = k.api_url.clone();
                 l.token = k.token.clone();
+                // The pairing code's expiry, if the list doesn't repeat it.
+                if l.expires_at.is_none() {
+                    l.expires_at = k.expires_at.clone();
+                }
             }
         }
         write_private_json(&self.links_path(), &known)?;
@@ -301,9 +313,18 @@ impl CloudSession {
             url: None,
             api_url: None,
             token: None,
+            paired: None,
+            telegram_username: None,
+            expires_at: None,
         });
         link.url = text("url");
         link.last_used_at = None;
+        // Telegram: a new pairing code (any paired chat is unbound).
+        link.expires_at = text("expires_at");
+        link.paired = body["paired"].as_bool();
+        if link.paired != Some(true) {
+            link.telegram_username = None;
+        }
         // Shortcut links get a new bearer token with the new secret.
         if let Some(token) = text("token") {
             link.token = Some(token);
@@ -464,20 +485,30 @@ fn classify(status: StatusCode, body: String) -> CloudError {
             CloudError::Incompatible(snippet)
         }
         StatusCode::TOO_MANY_REQUESTS => CloudError::Limited(snippet),
-        s if s.is_client_error() => {
-            let msg = serde_json::from_str::<Value>(&body)
-                .ok()
-                .and_then(|v| {
-                    v["message"]
-                        .as_str()
-                        .or(v["error"].as_str())
-                        .map(String::from)
-                })
+        s if s.is_client_error() || refusal_code(&body).is_some() => {
+            let v = serde_json::from_str::<Value>(&body).ok();
+            let code = v
+                .as_ref()
+                .and_then(|v| v["error"].as_str())
+                .map(String::from);
+            let msg = v
+                .as_ref()
+                .and_then(|v| v["message"].as_str().or(v["error"].as_str()))
+                .map(String::from)
                 .unwrap_or(snippet);
-            CloudError::Rejected(s, msg)
+            CloudError::Rejected(s, msg, code)
         }
         _ => CloudError::Transient(anyhow!("cloud returned {status}: {snippet}")),
     }
+}
+
+/// 5xx answers that are deliberate refusals, not outages (e.g. 503
+/// `telegram_not_configured`): the app should show them, not retry.
+fn refusal_code(body: &str) -> Option<String> {
+    const REFUSALS: [&str; 1] = ["telegram_not_configured"];
+    let v: Value = serde_json::from_str(body).ok()?;
+    let code = v["error"].as_str()?;
+    REFUSALS.contains(&code).then(|| code.to_string())
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
@@ -632,7 +663,7 @@ pub async fn run_with(
                 warn!("another connection took over this Mac's DJ Sync identity");
                 t.replaced_retry
             }
-            Err(CloudError::Rejected(status, msg)) => {
+            Err(CloudError::Rejected(status, msg, _)) => {
                 warn!(%status, detail = %msg, "cloud refused the connection");
                 t.slow_retry
             }
@@ -862,6 +893,8 @@ mod tests {
         library_hash: Option<String>,
         links: Vec<Value>,
         next_link: u32,
+        /// Answer telegram link requests with 503 telegram_not_configured.
+        no_telegram: bool,
     }
     type Shared = Arc<StdMutex<Fake>>;
 
@@ -995,16 +1028,30 @@ mod tests {
         if !authorised(&f, &h) {
             return StatusCode::UNAUTHORIZED.into_response();
         }
+        if body["kind"] == "telegram" && f.no_telegram {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": "telegram_not_configured",
+                            "message": "Telegram isn't set up on this DJ Sync cloud yet."})),
+            )
+                .into_response();
+        }
         f.next_link += 1;
         let id = format!("l{}", f.next_link);
         let link = json!({"id": id, "kind": body["kind"], "label": body["label"],
                           "created_at": "2026-10-28T00:00:00Z", "last_used_at": null});
         f.links.push(link.clone());
         let mut out = link;
-        out["url"] = json!(format!(
-            "https://mcp.example/{}/secret{}/mcp",
-            f.tenant, f.next_link
-        ));
+        if body["kind"] == "telegram" {
+            out["url"] = json!(format!("https://t.me/djsync_bot?start=code{}", f.next_link));
+            out["expires_at"] = json!("2026-10-28T00:10:00Z");
+            out["paired"] = json!(false);
+        } else {
+            out["url"] = json!(format!(
+                "https://mcp.example/{}/secret{}/mcp",
+                f.tenant, f.next_link
+            ));
+        }
         (StatusCode::CREATED, Json(out)).into_response()
     }
 
@@ -1209,6 +1256,73 @@ mod tests {
         assert_eq!(f.uploads, vec![upload]);
     }
 
+    #[tokio::test]
+    async fn telegram_links_keep_the_pairing_url_and_show_pairing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake: Shared = Arc::default();
+        let base = fake_worker(fake.clone()).await;
+        let session = CloudSession::new(&base, tmp.path().to_path_buf()).unwrap();
+
+        let made = session
+            .create_link("telegram", Some("Telegram"))
+            .await
+            .unwrap();
+        assert_eq!(
+            made.url.as_deref(),
+            Some("https://t.me/djsync_bot?start=code1")
+        );
+        assert_eq!(made.paired, Some(false));
+        let listed = session.list_links().await.unwrap();
+        assert_eq!(listed[0].url, made.url, "deep link kept on this Mac");
+        assert_eq!(
+            listed[0].expires_at.as_deref(),
+            Some("2026-10-28T00:10:00Z")
+        );
+        assert_eq!(listed[0].paired, None, "the cloud hasn't said yet");
+
+        // The DJ taps Start in Telegram: the cloud now reports the chat.
+        {
+            let mut f = fake.lock().unwrap();
+            f.links[0]["paired"] = json!(true);
+            f.links[0]["telegram_username"] = json!("djjj");
+            f.links[0]["label"] = json!("Telegram (@djjj)");
+        }
+        let listed = session.list_links().await.unwrap();
+        assert_eq!(listed[0].paired, Some(true));
+        assert_eq!(listed[0].telegram_username.as_deref(), Some("djjj"));
+        assert_eq!(listed[0].label.as_deref(), Some("Telegram (@djjj)"));
+        let json = serde_json::to_value(&listed[0]).unwrap();
+        assert_eq!(
+            json["telegram_username"], "djjj",
+            "passed through to the app"
+        );
+    }
+
+    #[tokio::test]
+    async fn telegram_not_configured_is_a_refusal_not_an_outage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake: Shared = Arc::default();
+        fake.lock().unwrap().no_telegram = true;
+        let base = fake_worker(fake.clone()).await;
+        let session = CloudSession::new(&base, tmp.path().to_path_buf()).unwrap();
+        match session.create_link("telegram", None).await {
+            Err(CloudError::Rejected(s, msg, code)) => {
+                assert_eq!(s.as_u16(), 503);
+                assert_eq!(msg, "Telegram isn't set up on this DJ Sync cloud yet.");
+                assert_eq!(code.as_deref(), Some("telegram_not_configured"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // Other 503s are still outages.
+        assert!(matches!(
+            classify(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{\"error\":\"unavailable\"}".into()
+            ),
+            CloudError::Transient(_)
+        ));
+    }
+
     #[test]
     fn close_codes_and_statuses_map_to_errors() {
         use tokio_tungstenite::tungstenite::protocol::CloseFrame as Frame;
@@ -1241,7 +1355,7 @@ mod tests {
             StatusCode::CONFLICT,
             r#"{"error":"too_many_links","limit":10}"#.into(),
         ) {
-            CloudError::Rejected(s, msg) => {
+            CloudError::Rejected(s, msg, _) => {
                 assert_eq!((s.as_u16(), msg.as_str()), (409, "too_many_links"))
             }
             other => panic!("{other:?}"),
@@ -1266,6 +1380,9 @@ mod tests {
             url: Some(url.into()),
             api_url: None,
             token: None,
+            paired: None,
+            telegram_username: None,
+            expires_at: None,
         };
         write_private_json(
             &tmp.path().join("links.json"),

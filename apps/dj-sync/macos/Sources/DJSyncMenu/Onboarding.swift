@@ -297,12 +297,12 @@ private struct AssistantStep: View {
     Card(title: "Assistant", systemImage: "sparkles") {
       EmptyView()
     } content: {
-      Text("Pick where you'll ask for tracks. DJ Sync gives it a private link to this Mac. It works from your phone too, even while this Mac is asleep.")
+      Text("Pick where you'll ask for tracks. DJ Sync gives it a private link to this Mac. It works from your phone too, even while this Mac is asleep. Telegram and Claude are free; ChatGPT needs a paid plan.")
         .font(.callout)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
       HStack(spacing: 8) {
-        ForEach(Assistant.allCases) { assistant in
+        ForEach(Assistant.onboarding) { assistant in
           Button {
             model.choose(assistant)
           } label: {
@@ -314,7 +314,25 @@ private struct AssistantStep: View {
         }
       }
     }
-    if let assistant = model.assistant {
+    if let assistant = model.assistant, assistant == .telegram {
+      Card(title: "Pair Telegram", systemImage: "paperplane") {
+        EmptyView()
+      } content: {
+        if let link = model.link {
+          TelegramPairing(
+            link: link, busy: model.connecting,
+            open: { url in if let u = URL(string: url) { NSWorkspace.shared.open(u) } },
+            newCode: { model.menu.newTelegramCode(link) }
+          )
+          LiveCheck(connected: model.connected, assistant: assistant)
+        } else {
+          HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Making your pairing code…").font(.callout).foregroundStyle(.secondary)
+          }
+        }
+      }
+    } else if let assistant = model.assistant {
       Card(title: "Paste this into \(assistant.name)", systemImage: "link") {
         EmptyView()
       } content: {
@@ -359,7 +377,9 @@ private struct LiveCheck: View {
         Text("Connected. Try: “\(assistant.example)”")
       } else {
         ProgressView().controlSize(.mini)
-        Text("Waiting for \(assistant.name) to connect…")
+        Text(
+          assistant == .telegram
+            ? "Waiting for you to tap Start in Telegram…" : "Waiting for \(assistant.name) to connect…")
       }
     }
     .font(.caption)
