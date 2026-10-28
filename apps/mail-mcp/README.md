@@ -3,10 +3,8 @@
 Remote MCP server exposing a **privateemail.com** (Namecheap Private Email /
 Open-Xchange) mailbox to **ChatGPT** over the MCP **Streamable HTTP** transport.
 
-**Live:** `https://mail-mcp.jeffrey.build` (Coolify on Hetzner; TLS via Let's Encrypt).
-MCP endpoint: `https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp`. Pushes touching
-`apps/mail-mcp/**` on the `mail-mcp` branch auto-deploy via
-`.github/workflows/deploy-mail-mcp.yml`.
+**Live:** `https://mail-mcp.jeffrey.build`, a Cloudflare Worker (`mail-mcp`).
+MCP endpoint: `https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp`.
 
 Product overview & tool reference: [`docs/mail-mcp/README.md`](../../docs/mail-mcp/README.md).
 Design: [`docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md`](../../docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md).
@@ -15,41 +13,52 @@ Design: [`docs/superpowers/specs/2026-07-18-mail-mcp-chatgpt-design.md`](../../d
 
 ```
 src/
-  config.ts      env → validated Config (fail fast)
-  imap.ts        imapflow wrapper: connection lifecycle, folder ops
-  smtp.ts        nodemailer wrapper: send
-  mailbox.ts     domain service — trims protocol shapes for the model
-  tools/index.ts MCP tool registration (thin; calls Mailbox)
-  server.ts      Express + Streamable HTTP transport at /<secret>/mcp
-  index.ts       entrypoint
+  worker.ts        Worker entry (wires in cloudflare:sockets)
+  app.ts           routes: / landing, /health, /<secret>/mcp (stateless MCP); 404 otherwise
+  config.ts        Worker env → validated Config (fail fast)
+  mailbox.ts       domain service: one IMAP session per call, trims shapes for the model
+  tools/index.ts   MCP tool registration (thin; calls Mailbox)
+  smtp.ts          nodemailer: send (587 STARTTLS)
+  text.ts          light HTML → text
+  imap.ts          IMAP exports
+  imap/protocol.ts IMAP wire format: response reader + value parser
+  imap/codec.ts    mailbox names, encoded headers, base64/QP, charsets
+  imap/structure.ts ENVELOPE / BODYSTRUCTURE → body part + attachments
+  imap/session.ts  connect, LOGIN, LIST/STATUS/SELECT/SEARCH/FETCH/MOVE/STORE/EXPUNGE
+  socket.ts        cloudflare:sockets TLS connector
 ```
+
+The IMAP client is written for Workers sockets (imapflow's Node streams don't
+work there). Reads fetch only what they need (`read_email` the text part,
+`get_attachment` that one section) to stay inside the free-plan CPU budget.
 
 ## Develop
 
 ```bash
 pnpm install
-cp .env.example .env      # fill creds + MCP_SECRET_PATH
-pnpm dev                  # http://localhost:8080/<secret>/mcp
+cp .env.example .dev.vars   # fill creds + MCP_SECRET_PATH (wrangler dev reads .dev.vars)
+pnpm dev                    # wrangler dev: http://localhost:8787/<secret>/mcp
 pnpm typecheck
-pnpm test                 # unit tests (mocked IMAP/SMTP)
-RUN_LIVE_TESTS=1 pnpm test  # + one live smoke test against the real mailbox
+pnpm test                   # vitest: scripted IMAP server, no network
 ```
 
-## Deploy (Hetzner / Coolify)
+## Deploy (Cloudflare)
 
-Mirrors the `apps/prole-site` Coolify v4 flow (see the `project_prole_landing` memory):
+```bash
+pnpm deploy   # wrangler deploy (custom domain mail-mcp.jeffrey.build)
+```
 
-1. New Coolify **Dockerfile** application. **Base directory:** `apps/mail-mcp`.
-   **Dockerfile location:** `Dockerfile` (relative to base dir).
-2. Set env secrets in Coolify: `PRIVATEEMAIL_USER`, `PRIVATEEMAIL_PASS`,
-   `MCP_SECRET_PATH` (`openssl rand -hex 24`). `PORT` stays `8080`.
-3. Assign a domain, e.g. `mail-mcp.jeffrey.build`. Coolify/Traefik terminates TLS.
-4. Deploy (API or UI — no webhook). Health check: `GET /health`.
-5. In ChatGPT → Settings → Connectors (Developer Mode on) → add custom connector
-   `https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp`, auth **No authentication**.
+Secrets live in the Worker (`wrangler secret put <NAME>` or `wrangler secret
+bulk`): `PRIVATEEMAIL_USER`, `PRIVATEEMAIL_PASS`, `MCP_SECRET_PATH`
+(`openssl rand -hex 24`). Rollback: `npx wrangler rollback`. Health check:
+`GET /health`.
+
+In ChatGPT → Settings → Connectors (Developer Mode on) → custom connector
+`https://mail-mcp.jeffrey.build/<MCP_SECRET_PATH>/mcp`, auth **No authentication**.
 
 ## Security
 
-Credentials only in env; never logged or returned. Only `/<secret>/mcp` and
-`/health` respond — everything else is 404. Bodies/attachments are size-capped.
-`delete_email` moves to Trash unless `permanent: true`.
+Credentials only in Worker secrets; never logged or returned. Only `/`,
+`/health` and `/<secret>/mcp` respond, everything else is 404. Bodies and
+attachments are size-capped. `delete_email` moves to Trash unless
+`permanent: true`.
