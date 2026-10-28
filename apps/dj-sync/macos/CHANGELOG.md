@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.3.1] — 2026-10-28 · app icon
+
+### Fixed
+- **DJ Sync has its logo.** The orange record icon now shows in Finder, the
+  installer window, Applications and the Dock. The app never shipped an icon
+  before, so macOS showed a blank placeholder.
+
 ## [1.3.0] — 2026-10-28 · uninstall
 
 ### Added

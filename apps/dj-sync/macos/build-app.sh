@@ -35,6 +35,7 @@ trap 'rm -rf "$STAGE"' EXIT
 APP="$STAGE/DJ Sync.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$MENU" "$APP/Contents/MacOS/DJSyncMenu"
+cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"   # from ../scripts/make-icon.py
 lipo -create -output "$APP/Contents/Helpers/dj-sync" "${SERVICE_SLICES[@]}"
 sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" Info.plist.in > "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
