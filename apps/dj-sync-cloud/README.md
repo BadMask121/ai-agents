@@ -43,6 +43,39 @@ iOS Shortcut ──REST──┘                                       ▲
 | `POST /agent/library` | agent headers (protocol ≥ 1.1) | upload the library snapshot (≤ 16 MB) to KV `LIBRARY` |
 | anything else | — | 404. The `/api/*` and `/agent/*` routes also return 404 when their secret isn't set. |
 
+The table above is protocol 1 (one DJ, retired since 2026-10-28). Protocol 2
+and the connect-anywhere routes, per DJ:
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /<tenant_id>/<link_secret>/mcp` | link secret | MCP, 11 tools including `move_tracks` |
+| `POST /api/downloads`, `GET /api/downloads/{id}` | `Bearer <tenant_id>.<secret>` (shortcut link) | iPhone Shortcut. `playlist_name` (a name or a "Folder/Name" path) is resolved and pinned; optional `playlist_id` |
+| `GET /api/playlists` | same | `{playlists: [{playlist_id, name, folder, path, tracks}]}`, the DJ Sync folder first, then A–Z |
+| `POST /telegram/webhook` | `X-Telegram-Bot-Api-Secret-Token` | the shared bot (pairing, links, buttons, commands) |
+| `POST /v2/admin/telegram/setup` | `Bearer ADMIN_TOKEN` | setWebhook, setMyCommands and the descriptions; returns getMe |
+| `POST /v2/agent/links {kind:"telegram"}` | agent headers | `{…, url: "https://t.me/<bot>?start=<code>", expires_at, paired: false}`. 503 `telegram_not_configured` without the bot |
+
+## Telegram bot (connect-anywhere spec §1)
+
+One bot for every DJ. A DJ pairs a chat from the Mac app: it creates a
+`telegram` link, then shows its `t.me` link as a QR code. Tapping it sends
+`/start <code>`, and the Registry maps that chat to the DJ.
+
+**Setting it up (once):**
+
+```bash
+cd apps/dj-sync-cloud
+npx wrangler secret put TELEGRAM_BOT_TOKEN        # paste the @BotFather token
+openssl rand -hex 24 | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+# TELEGRAM_BOT_USERNAME (no @) is a var in wrangler.jsonc
+npx wrangler deploy
+curl -s -X POST -H "Authorization: Bearer $(cat ~/path/to/admin-token)" \
+  https://djsync.jeffrey.build/v2/admin/telegram/setup
+```
+
+The webhook runs on the canonical host (`djsync.jeffrey.build`), which
+dj-sync-site forwards here.
+
 ## Agent protocol (1.1.0)
 
 Every agent request carries these headers:

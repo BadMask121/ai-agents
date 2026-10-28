@@ -584,3 +584,106 @@ describe("write tools", () => {
     expect(await deps.store.recentJobs(10)).toHaveLength(2);
   });
 });
+
+describe("move_tracks (connect-anywhere spec §1b)", () => {
+  const jobOps = async (deps: Deps, jobId: string) => (await deps.store.getJob(jobId))!.ops;
+  const DUPES = {
+    ...SNAPSHOT,
+    playlists: [
+      ...SNAPSHOT.playlists,
+      { id: "d1", name: "Dupes", folder: "Old", track_ids: ["t1"] },
+      { id: "d2", name: "Dupes", folder: "New", track_ids: [] },
+    ],
+  };
+
+  it("moves chosen tracks in source order: adds to the target, then removes from the source", async () => {
+    const { deps } = await withLibrary();
+    // Asked in a different order than the playlist holds them.
+    const r = await call(deps, "move_tracks", { from_playlist: "amapiano bangers", to_playlist: "warm up", track_ids: ["t4", "t1"] });
+    expect(r.isError).toBe(false);
+    expect(r.structuredContent).toMatchObject({ kind: "library", summary: 'Move 2 tracks from "Amapiano Bangers" to "Warmup"' });
+    expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
+      { op: "add_to_playlist", playlist: "Warmup", content_id: "t1", playlist_id: "p3" },
+      { op: "add_to_playlist", playlist: "Warmup", content_id: "t4", playlist_id: "p3" },
+      { op: "remove_from_playlist", playlist: "Amapiano Bangers", content_id: "t1", playlist_id: "p1" },
+      { op: "remove_from_playlist", playlist: "Amapiano Bangers", content_id: "t4", playlist_id: "p1" },
+    ]);
+    expect(text(r)).toContain(APPLY);
+    // Retried while still queued: the same job.
+    const again = await call(deps, "move_tracks", { from_playlist: "Amapiano Bangers", to_playlist: "Warmup", track_ids: ["t1", "t4"] });
+    expect(again.structuredContent).toMatchObject({ job_id: r.structuredContent.job_id, deduplicated: true });
+  });
+
+  it("moves a whole playlist with all: true", async () => {
+    const { deps } = await withLibrary();
+    const r = await call(deps, "move_tracks", { from_playlist: "Warmup", to_playlist: "Closing", all: true });
+    expect(r.structuredContent.summary).toBe('Move 2 tracks from "Warmup" to "Closing"');
+    const ops = await jobOps(deps, r.structuredContent.job_id);
+    expect(ops!.map((o: Any) => `${o.op}:${o.content_id}`)).toEqual([
+      "add_to_playlist:t2",
+      "add_to_playlist:t1",
+      "remove_from_playlist:t2",
+      "remove_from_playlist:t1",
+    ]);
+    const empty = await call(deps, "move_tracks", { from_playlist: "afro house", to_playlist: "Closing", all: true });
+    expect(empty.isError).toBe(true);
+    expect(text(empty)).toContain("has no tracks to move");
+  });
+
+  it("refuses tracks that aren't in the source, and queues nothing", async () => {
+    const { deps } = await withLibrary();
+    const r = await call(deps, "move_tracks", { from_playlist: "Warmup", to_playlist: "Closing", track_ids: ["t1", "t3", "ghost"] });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toEqual({ error: "tracks_not_in_playlist", track_ids_not_in_playlist: ["t3", "ghost"] });
+    expect(text(r)).toContain('aren\'t in "Warmup"');
+    expect(await deps.store.recentJobs(5)).toHaveLength(0);
+    for (const bad of [
+      { from_playlist: "Warmup", to_playlist: "Closing" },
+      { from_playlist: "Warmup", to_playlist: "Closing", all: true, track_ids: ["t1"] },
+      { from_playlist: "Warmup", to_playlist: "Closing", all: "yes" },
+      { from_playlist: "Warmup", to_playlist: "Closing", track_ids: [] },
+    ]) {
+      expect((await call(deps, "move_tracks", bad)).isError, JSON.stringify(bad)).toBe(true);
+    }
+  });
+
+  it("asks when either playlist is ambiguous, and accepts the picked ids", async () => {
+    const { deps } = makeDeps();
+    expect((await upload(deps, DUPES)).status).toBe(200);
+    const src = await call(deps, "move_tracks", { from_playlist: "Dupes", to_playlist: "Closing", all: true });
+    expect(src.structuredContent.error).toBe("playlist_ambiguous");
+    const dst = await call(deps, "move_tracks", { from_playlist: "Warmup", to_playlist: "Dupes", track_ids: ["t1"] });
+    expect(dst.structuredContent.error).toBe("playlist_ambiguous");
+    const unknown = await call(deps, "move_tracks", { from_playlist: "Warmup", to_playlist: "Nowhere", track_ids: ["t1"] });
+    expect(unknown.structuredContent.error).toBe("playlist_not_found");
+    expect(text(unknown)).toContain("create_playlist: true");
+    expect(await deps.store.recentJobs(5)).toHaveLength(0);
+
+    const r = await call(deps, "move_tracks", {
+      from_playlist: "Dupes",
+      from_playlist_id: "d1",
+      to_playlist: "Dupes",
+      to_playlist_id: "d2",
+      all: true,
+    });
+    expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
+      { op: "add_to_playlist", playlist: "Dupes", content_id: "t1", playlist_id: "d2" },
+      { op: "remove_from_playlist", playlist: "Dupes", content_id: "t1", playlist_id: "d1" },
+    ]);
+  });
+
+  it("creates the target with create_playlist, and won't move a playlist into itself", async () => {
+    const { deps } = await withLibrary();
+    const r = await call(deps, "move_tracks", { from_playlist: "Closing", to_playlist: "Late Night", all: true, create_playlist: true });
+    expect(r.isError).toBe(false);
+    expect(text(r)).toContain('"Late Night" will be created in the DJ Sync folder.');
+    expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
+      { op: "ensure_playlist", name: "Late Night" },
+      { op: "add_to_playlist", playlist: "Late Night", content_id: "t5" },
+      { op: "remove_from_playlist", playlist: "Closing", content_id: "t5", playlist_id: "p4" },
+    ]);
+    const self = await call(deps, "move_tracks", { from_playlist: "Warmup", to_playlist: "warm up", all: true });
+    expect(self.isError).toBe(true);
+    expect(text(self)).toContain("both the source and the target");
+  });
+});

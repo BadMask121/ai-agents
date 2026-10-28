@@ -8,6 +8,13 @@
 //   POST /__/touch    {tenant_id, day}
 //   GET  /__/stats
 //   POST /__/sweep
+//   Telegram (connect-anywhere spec §1): one-time pairing codes and which DJ
+//   each chat belongs to —
+//   POST /__/telegram/code        {code, tenant_id, link_id, expires_at}
+//   POST /__/telegram/pair        {code, chat_id} → {tenant_id, link_id, previous, replaced} | 404 | 410
+//   GET  /__/telegram/chat?id=    → {tenant_id, link_id} | 404
+//   POST /__/telegram/forget_link {tenant_id, link_id} → {chat_ids}
+//   POST /__/telegram/forget_chat {chat_id, tenant_id}
 
 import { DurableObject } from "cloudflare:workers";
 import { TENANT_ID, newAgentToken, newTenantId, randomBase64url, sha256Hex, utcDay } from "./bytes";
@@ -29,7 +36,10 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, last_seen_day TEXT);
 CREATE INDEX IF NOT EXISTS tenants_seen ON tenants (last_seen_day);
 CREATE TABLE IF NOT EXISTS registrations (ip_hash TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (ip_hash, day));
-CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, registrations INTEGER NOT NULL)
+CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, registrations INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS pairing_codes (code TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, link_id TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_chats (chat_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, link_id TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS telegram_chats_link ON telegram_chats (tenant_id, link_id)
 `;
 
 type Row = Record<string, ArrayBuffer | string | number | null>;
@@ -58,6 +68,74 @@ export class Registry extends DurableObject<RegistryEnv> {
     if (path === "/__/touch" && req.method === "POST") return this.touch((await req.json()) as Record<string, unknown>);
     if (path === "/__/stats" && req.method === "GET") return json(this.stats());
     if (path === "/__/sweep" && req.method === "POST") return json(await this.sweep());
+    if (path.startsWith("/__/telegram/")) return this.telegram(req, path);
+    return new Response(null, { status: 404 });
+  }
+
+  // ---------- Telegram ----------
+
+  private async telegram(req: Request, path: string): Promise<Response> {
+    const str = (v: unknown) => (typeof v === "string" && v !== "" && v.length <= 64 ? v : null);
+    if (path === "/__/telegram/chat" && req.method === "GET") {
+      const id = new URL(req.url).searchParams.get("id") ?? "";
+      const r = this.rows("SELECT tenant_id, link_id FROM telegram_chats WHERE chat_id = ?", id)[0];
+      return r ? json({ tenant_id: r.tenant_id, link_id: r.link_id }) : json({ error: "unknown_chat" }, 404);
+    }
+    if (req.method !== "POST") return new Response(null, { status: 405 });
+    const b = (await req.json()) as Record<string, unknown>;
+    const now = this.clock().toISOString();
+
+    if (path === "/__/telegram/code") {
+      const [code, tenant, link, expires] = [str(b.code), str(b.tenant_id), str(b.link_id), str(b.expires_at)];
+      if (!code || !tenant || !link || !expires) return json({ error: "invalid_body" }, 400);
+      this.ctx.storage.sql.exec("DELETE FROM pairing_codes WHERE expires_at < ? OR (tenant_id = ? AND link_id = ?)", now, tenant, link);
+      this.ctx.storage.sql.exec("INSERT INTO pairing_codes (code, tenant_id, link_id, expires_at) VALUES (?, ?, ?, ?)", code, tenant, link, expires);
+      return json({ ok: true }, 201);
+    }
+
+    if (path === "/__/telegram/pair") {
+      const [code, chat] = [str(b.code), str(b.chat_id)];
+      if (!code || !chat) return json({ error: "invalid_body" }, 400);
+      const found = this.rows("DELETE FROM pairing_codes WHERE code = ? RETURNING tenant_id, link_id, expires_at", code)[0];
+      if (!found) return json({ error: "unknown_code" }, 404);
+      if ((found.expires_at as string) < now) return json({ error: "expired_code" }, 410);
+      const [tenant, link] = [found.tenant_id as string, found.link_id as string];
+      const before = this.rows("SELECT tenant_id, link_id FROM telegram_chats WHERE chat_id = ?", chat)[0];
+      // A link pairs with one chat: other chats on it are replaced.
+      const replaced = this.rows(
+        "DELETE FROM telegram_chats WHERE tenant_id = ? AND link_id = ? AND chat_id != ? RETURNING chat_id",
+        tenant,
+        link,
+        chat,
+      ).map((r) => r.chat_id as string);
+      this.ctx.storage.sql.exec(
+        `INSERT INTO telegram_chats (chat_id, tenant_id, link_id) VALUES (?, ?, ?)
+         ON CONFLICT (chat_id) DO UPDATE SET tenant_id = excluded.tenant_id, link_id = excluded.link_id`,
+        chat,
+        tenant,
+        link,
+      );
+      const previous =
+        before && (before.tenant_id !== tenant || before.link_id !== link)
+          ? { tenant_id: before.tenant_id as string, link_id: before.link_id as string }
+          : null;
+      return json({ tenant_id: tenant, link_id: link, previous, replaced });
+    }
+
+    if (path === "/__/telegram/forget_link") {
+      const [tenant, link] = [str(b.tenant_id), str(b.link_id)];
+      if (!tenant || !link) return json({ error: "invalid_body" }, 400);
+      this.ctx.storage.sql.exec("DELETE FROM pairing_codes WHERE tenant_id = ? AND link_id = ?", tenant, link);
+      const chats = this.rows("DELETE FROM telegram_chats WHERE tenant_id = ? AND link_id = ? RETURNING chat_id", tenant, link);
+      return json({ chat_ids: chats.map((r) => r.chat_id as string) });
+    }
+
+    if (path === "/__/telegram/forget_chat") {
+      const [chat, tenant] = [str(b.chat_id), str(b.tenant_id)];
+      if (!chat || !tenant) return json({ error: "invalid_body" }, 400);
+      this.ctx.storage.sql.exec("DELETE FROM telegram_chats WHERE chat_id = ? AND tenant_id = ?", chat, tenant);
+      return json({ ok: true });
+    }
     return new Response(null, { status: 404 });
   }
 
@@ -178,6 +256,8 @@ export class Registry extends DurableObject<RegistryEnv> {
       try {
         if (ns) await ns.get(ns.idFromName(id)).fetch("https://tenant/__/purge", { method: "POST" });
         this.ctx.storage.sql.exec("DELETE FROM tenants WHERE id = ?", id);
+        this.ctx.storage.sql.exec("DELETE FROM pairing_codes WHERE tenant_id = ?", id);
+        this.ctx.storage.sql.exec("DELETE FROM telegram_chats WHERE tenant_id = ?", id);
         purged++;
       } catch (e) {
         console.error(`purge failed for a tenant: ${e instanceof Error ? e.message : String(e)}`);

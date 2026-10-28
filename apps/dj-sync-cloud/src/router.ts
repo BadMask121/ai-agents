@@ -7,8 +7,11 @@
 //   PUT  /v2/agent/library                ″  gzip'd library snapshot
 //   GET|POST /v2/agent/links, POST /v2/agent/links/{id}/rotate, DELETE /v2/agent/links/{id}
 //   POST /<tenant_id>/<link_secret>/mcp   MCP for one DJ
-//   POST /api/downloads, GET /api/downloads/{id}   Bearer <tenant_id>.<link_secret> (shortcut link)
+//   POST /api/downloads, GET /api/downloads/{id}, GET /api/playlists
+//                                         Bearer <tenant_id>.<link_secret> (shortcut link)
 //   GET  /v2/stats                        Bearer ADMIN_TOKEN
+//   POST /v2/admin/telegram/setup         Bearer ADMIN_TOKEN: webhook, commands, descriptions
+//   POST /telegram/webhook                X-Telegram-Bot-Api-Secret-Token (the shared bot)
 //   — protocol 1 —
 //   POST /<MCP_SECRET_PATH>/mcp, /api/downloads (Bearer SHORTCUT_API_KEY): D1, or the
 //        LEGACY_TENANT_ID DJ once retired
@@ -28,12 +31,13 @@ import {
   MAX_LIBRARY_GZIP_BYTES,
   WORKER_VERSION,
 } from "./constants";
-import { apiStatus, apiSubmit, bearer, mcpPost, readJson, unauthorized } from "./http";
+import { apiPlaylists, apiStatus, apiSubmit, bearer, mcpPost, readJson, unauthorized } from "./http";
 import { agentStatus, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
+import { botApi, telegramSetup, telegramWebhook, type TelegramApi, type TelegramEnv } from "./telegram";
 import { empty, json, timingSafeEqual, validSecretPath } from "./util";
 
-export interface Secrets {
+export interface Secrets extends TelegramEnv {
   MCP_SECRET_PATH?: string;
   AGENT_TOKEN?: string;
   SHORTCUT_API_KEY?: string;
@@ -48,6 +52,11 @@ export interface Secrets {
 export interface Namespaces {
   TENANT: DurableObjectNamespace;
   REGISTRY: DurableObjectNamespace;
+}
+
+export interface RouteOptions {
+  /** The Bot API (tests pass a fake); defaults to the real one when the token is set. */
+  telegram?: TelegramApi | null;
 }
 
 const MCP_PATH = /^\/([^/]+)\/mcp$/;
@@ -75,13 +84,23 @@ const FORWARDED = [
   VERSION_HEADER,
 ];
 
-export async function route(req: Request, secrets: Secrets, deps: Deps, ns?: Namespaces): Promise<Response> {
+export async function route(req: Request, secrets: Secrets, deps: Deps, ns?: Namespaces, opts: RouteOptions = {}): Promise<Response> {
   const path = new URL(req.url).pathname;
   const retired = secrets.V1_RETIRED === "true";
 
   if (path === "/health" && req.method === "GET") return health(deps, retired);
 
   if (ns) {
+    const telegram =
+      opts.telegram !== undefined ? opts.telegram : secrets.TELEGRAM_BOT_TOKEN?.trim() ? botApi(secrets.TELEGRAM_BOT_TOKEN.trim()) : null;
+    if (path === "/telegram/webhook") return telegramWebhook(req, secrets, ns, telegram);
+    if (path === "/v2/admin/telegram/setup") {
+      const admin = nonEmpty(secrets.ADMIN_TOKEN);
+      if (!admin) return empty(404);
+      if (req.method !== "POST") return empty(405, { allow: "POST" });
+      if (!timingSafeEqual(bearer(req), admin)) return unauthorized();
+      return telegramSetup(secrets, telegram);
+    }
     const v2 = await routeV2(req, path, secrets, ns);
     if (v2) return v2;
   }
@@ -97,6 +116,11 @@ export async function route(req: Request, secrets: Secrets, deps: Deps, ns?: Nam
   }
 
   const apiKey = nonEmpty(secrets.SHORTCUT_API_KEY);
+  if (apiKey && path === "/api/playlists" && req.method === "GET") {
+    if (!timingSafeEqual(bearer(req), apiKey)) return unauthorized();
+    if (retired) return legacyTenant ? forward(ns!, legacyTenant, "/__/shortcut_playlists", req, { "x-djs-legacy": "1" }) : empty(404);
+    return apiPlaylists(deps);
+  }
   if (apiKey) {
     const m = API_JOB_PATH.exec(path);
     if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET")) {
@@ -187,10 +211,12 @@ async function routeV2(req: Request, path: string, secrets: Secrets, ns: Namespa
   if (mcp) return forward(ns, mcp[1]!, "/__/mcp", req, { "x-djs-link": mcp[2]! });
 
   const m = API_JOB_PATH.exec(path);
-  if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET")) {
+  const playlists = path === "/api/playlists" && req.method === "GET";
+  if ((path === "/api/downloads" && req.method === "POST") || (m && req.method === "GET") || playlists) {
     const b = V2_SHORTCUT_BEARER.exec(bearer(req));
     if (b && LINK_SECRET.test(b[2]!)) {
-      return forward(ns, b[1]!, m ? `/__/shortcut/${m[1]}` : "/__/shortcut", req, { "x-djs-link": b[2]! });
+      const to = playlists ? "/__/shortcut_playlists" : m ? `/__/shortcut/${m[1]}` : "/__/shortcut";
+      return forward(ns, b[1]!, to, req, { "x-djs-link": b[2]! });
     }
   }
   return null;

@@ -13,6 +13,67 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.3.0] — 2026-10-28
+
+Connect-anywhere spec (`docs/superpowers/specs/2026-10-28-dj-sync-connect-anywhere-design.md`).
+Agent protocol unchanged (2.0.0).
+
+### Added
+- **The shared Telegram bot** (§1).
+  - **Webhook:** `POST /telegram/webhook`, which needs
+    `X-Telegram-Bot-Api-Secret-Token`. Group chats are ignored.
+  - **Pairing:** a `telegram` link (`POST /v2/agent/links {kind:"telegram"}`)
+    returns `url: https://t.me/<bot>?start=<code>` and `expires_at`. The
+    one-time code (22 characters) is held in the Registry for 10 minutes.
+    `/start <code>` binds the chat, the latest pairing wins, and the chat
+    gets a welcome.
+  - **Link list:** `GET /v2/agent/links` shows `paired`, `telegram_username`
+    and a label like "Telegram (@user)".
+  - **Unpairing:** rotate issues a new code and lets the chat go. Delete and
+    `/stop` unpair, and the chat is told.
+  - **Sending links:** a clear playlist hint queues the download pinned to that
+    playlist. No hint, or an unclear one, gets buttons: the closest playlists,
+    the DJ Sync folder first, Default, and "New playlist" when unclear.
+    Choices last 24 hours.
+  - **Commands:** `/playlists [words]`, `/search <words>`, `/status`, `/help`,
+    `/stop`.
+  - **Finish notifications:** "✅ …" or "⚠️ …" reach the chat when its job
+    completes.
+  - **Limits:** 60 messages an hour per chat, with one warning. Replies are
+    trimmed to 4,096 characters.
+  - **Setup:** `POST /v2/admin/telegram/setup` (Bearer `ADMIN_TOKEN`) calls
+    setWebhook (secret, message and callback_query updates, drop pending),
+    setMyCommands, setMyDescription and setMyShortDescription, and returns
+    getMe.
+  - **New storage:** Registry tables `pairing_codes` and `telegram_chats`.
+    Tenant tables `telegram_chats`, `tg_pending` and `tg_jobs`, added to
+    existing DJs by `SqlStore.migrate`.
+- **`move_tracks`** (§1b): moves `track_ids` (or `all: true`) from one
+  playlist to another in **one** library job.
+  - Ops: `ensure_playlist` when `create_playlist`, then `add_to_playlist` in
+    source order, then `remove_from_playlist`, each pinned by `playlist_id`.
+  - Playlists are resolved with the same suggestions and ambiguity question
+    as the other tools, and `from_playlist_id`/`to_playlist_id` break ties.
+  - Tracks not in the source are listed, and nothing is queued. Moving a
+    playlist into itself is refused.
+  - The summary reads "Move N tracks from "A" to "B"".
+  - The server instructions and `add_tracks_to_playlist` now say that copying
+    is `add_tracks_to_playlist` and moving is `move_tracks`.
+- **`GET /api/playlists`** (Shortcut bearer, or the legacy key): `{playlists:
+  [{playlist_id, name, folder, path, tracks}]}`, the DJ Sync folder first,
+  then A–Z by path.
+
+### Changed
+- **`POST /api/downloads`** resolves `playlist_name` like the MCP tools,
+  including the "Folder/Name" path that `/api/playlists` returns, and pins
+  `playlist_id` when it matches one playlist. Otherwise the name is used as
+  given. It also takes an optional `playlist_id` (a stale id gets 400), and
+  the response includes `playlist_id`.
+- **Claude's origins are accepted:** `claude.ai`, `*.claude.ai` and
+  `*.anthropic.com`.
+- **Link kinds** now include `telegram`. Without the bot configured, creating
+  one is 503 `telegram_not_configured`.
+
 ## [1.2.0] — 2026-10-28
 
 ### Changed

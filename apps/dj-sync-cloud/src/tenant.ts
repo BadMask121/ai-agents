@@ -11,6 +11,8 @@
 //   GET  /__/agent (Upgrade)         x-djs-token: <agent_token>
 //   PUT  /__/agent/library           ″
 //   GET|POST /__/agent/links, POST /__/agent/links/{id}/rotate, DELETE /__/agent/links/{id}
+//   GET  /__/shortcut_playlists      shortcut link auth (GET /api/playlists)
+//   POST /__/telegram/bind|unbind|update   from the Worker's Telegram webhook
 
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
@@ -33,15 +35,19 @@ import {
   MAX_MCP_CALLS_PER_HOUR,
   MAX_QUEUED_JOBS,
   RETENTION_DAYS,
+  TELEGRAM_MESSAGES_PER_HOUR,
+  TELEGRAM_PAIRING_SECONDS,
   WORKER_VERSION,
 } from "./constants";
-import { apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
+import { apiPlaylists, apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
 import { normalizePlaylistName, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
-import { LINK_KINDS, SqlStore, type LinkKind, type LinkRow, type SqlDb } from "./sqlstore";
+import { LINK_KINDS, SqlStore, type LinkKind, type LinkRow, type SqlDb, type TelegramChat } from "./sqlstore";
+import { botApi, send, telegramConfigured, type TelegramApi, type TelegramEnv, type TgUpdate } from "./telegram";
+import { handleUpdate, welcome } from "./telegram-bot";
 import { addSeconds, empty, json, publicHosts, timingSafeEqual } from "./util";
 
-export interface TenantEnv {
+export interface TenantEnv extends TelegramEnv {
   REGISTRY?: DurableObjectNamespace;
   DEFAULT_PLAYLIST?: string;
   MAX_URLS?: string;
@@ -67,6 +73,7 @@ const LINK_LABELS: Record<LinkKind, string> = {
   chatgpt: "ChatGPT",
   claude: "Claude",
   shortcut: "iOS Shortcut",
+  telegram: "Telegram",
   other: "Other",
 };
 
@@ -79,6 +86,10 @@ export class Tenant extends DurableObject<TenantEnv> {
   private storeCache: SqlStore | null = null;
   /** tools/call timestamps in the last hour (in memory, per spec §3.7). */
   private mcpCalls: number[] = [];
+  /** The Bot API; tests set a fake. */
+  telegramApi: TelegramApi | null = null;
+  /** Telegram messages per chat in the last hour (in memory). */
+  private tgRate = new Map<string, { times: number[]; warned: boolean }>();
 
   constructor(ctx: DurableObjectState, env: TenantEnv) {
     super(ctx, env);
@@ -88,6 +99,12 @@ export class Tenant extends DurableObject<TenantEnv> {
     };
     // Keep-alives are answered without waking this object (spec §3.4).
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
+
+  private get telegram(): TelegramApi | null {
+    if (this.telegramApi) return this.telegramApi;
+    const token = this.env.TELEGRAM_BOT_TOKEN?.trim();
+    return token ? botApi(token) : null;
   }
 
   /** `null` until /__/init — an unknown tenant never gets storage. */
@@ -137,7 +154,10 @@ export class Tenant extends DurableObject<TenantEnv> {
       if (!store) return empty(404);
 
       if (path === "/__/mcp") return await this.mcp(req, store);
-      if (path === "/__/shortcut" || path.startsWith("/__/shortcut/")) return await this.shortcut(req, store, path);
+      if (path === "/__/shortcut" || path.startsWith("/__/shortcut/") || path === "/__/shortcut_playlists") {
+        return await this.shortcut(req, store, path);
+      }
+      if (path.startsWith("/__/telegram/") && req.method === "POST") return await this.telegramRoute(req, store, path);
       if (path.startsWith("/__/agent/")) return await this.agentRest(req, store, path);
       return empty(404);
     } finally {
@@ -219,6 +239,7 @@ export class Tenant extends DurableObject<TenantEnv> {
     const auth = await this.authenticate(req, store);
     if (!auth || (auth.kind === "link" && auth.link.kind !== "shortcut")) return unauthorized();
     const deps = this.deps(store);
+    if (path === "/__/shortcut_playlists") return req.method === "GET" ? apiPlaylists(deps) : empty(405, { allow: "GET" });
     if (path === "/__/shortcut" && req.method === "POST") return apiSubmit(req, deps);
     const id = path.slice("/__/shortcut/".length);
     if (id !== "" && req.method === "GET") return apiStatus(decodeURIComponent(id), deps);
@@ -248,13 +269,22 @@ export class Tenant extends DurableObject<TenantEnv> {
 
     if (path === "/__/agent/library" && req.method === "PUT") return this.uploadLibrary(req, store);
     if (path === "/__/agent/links") {
-      if (req.method === "GET") return json(store.links().map(linkView));
+      if (req.method === "GET") {
+        const chats = new Map(store.telegramChats().map((c) => [c.link_id, c]));
+        return json(store.links().map((l) => linkView(l, chats.get(l.id) ?? null)));
+      }
       if (req.method === "POST") return this.createLink(req, store);
     }
     const m = /^\/__\/agent\/links\/([A-Za-z0-9_-]{1,32})(\/rotate)?$/.exec(path);
     if (m) {
       if (m[2] && req.method === "POST") return this.rotateLink(store, m[1]!);
-      if (!m[2] && req.method === "DELETE") return store.deleteLink(m[1]!) ? empty(204) : json({ error: "not_found" }, 404);
+      if (!m[2] && req.method === "DELETE") {
+        const link = store.links().find((l) => l.id === m[1]);
+        if (!link) return json({ error: "not_found" }, 404);
+        if (link.kind === "telegram") await this.unpairTelegram(store, link.id, "Disconnected from DJ Sync on the Mac.");
+        store.deleteLink(link.id);
+        return empty(204);
+      }
     }
     return empty(404);
   }
@@ -318,6 +348,9 @@ export class Tenant extends DurableObject<TenantEnv> {
     if (!label.ok || [...label.value].length > MAX_LINK_LABEL) {
       return json({ error: "invalid_body", detail: `label must be at most ${MAX_LINK_LABEL} characters` }, 400);
     }
+    if (kind === "telegram" && !telegramConfigured(this.env)) {
+      return json({ error: "telegram_not_configured", detail: "The DJ Sync Telegram bot isn't set up on this server yet." }, 503);
+    }
     if (store.links().length >= MAX_LINKS) return json({ error: "too_many_links", limit: MAX_LINKS }, 409);
 
     const secret = newLinkSecret();
@@ -330,6 +363,14 @@ export class Tenant extends DurableObject<TenantEnv> {
       last_used_at: null,
     };
     store.insertLink(link);
+    if (link.kind === "telegram") {
+      const view = await this.pairingView(store, link);
+      if (!view) {
+        store.deleteLink(link.id);
+        return json({ error: "unavailable", detail: "Couldn't start Telegram pairing; try again." }, 503);
+      }
+      return json(view, 201);
+    }
     return json(this.secretView(store, link, secret), 201);
   }
 
@@ -337,7 +378,132 @@ export class Tenant extends DurableObject<TenantEnv> {
     const secret = newLinkSecret();
     if (!store.setLinkSecret(id, await sha256Hex(secret))) return json({ error: "not_found" }, 404);
     const link = store.links().find((l) => l.id === id)!;
+    if (link.kind === "telegram") {
+      // A new code, and whichever chat was paired is let go.
+      await this.unpairTelegram(store, link.id, "Disconnected: DJ Sync on the Mac made a new Telegram link.");
+      const view = await this.pairingView(store, link);
+      return view ? json(view) : json({ error: "unavailable", detail: "Couldn't start Telegram pairing; try again." }, 503);
+    }
     return json(this.secretView(store, link, secret));
+  }
+
+  // ---------- Telegram (connect-anywhere spec §1) ----------
+
+  private registryStub() {
+    const ns = this.env.REGISTRY;
+    return ns ? ns.get(ns.idFromName("registry")) : null;
+  }
+
+  /** A fresh one-time pairing code for a telegram link, as the Mac shows it. */
+  private async pairingView(store: SqlStore, link: LinkRow) {
+    const registry = this.registryStub();
+    if (!registry) return null;
+    const code = randomBase64url(16);
+    const expiresAt = addSeconds(this.clock(), TELEGRAM_PAIRING_SECONDS).toISOString();
+    const res = await registry.fetch("https://registry/__/telegram/code", {
+      method: "POST",
+      body: JSON.stringify({ code, tenant_id: store.meta("tenant_id"), link_id: link.id, expires_at: expiresAt }),
+    });
+    if (res.status !== 201) return null;
+    return {
+      ...linkView(link, null),
+      url: `https://t.me/${this.env.TELEGRAM_BOT_USERNAME!.trim().replace(/^@/, "")}?start=${code}`,
+      expires_at: expiresAt,
+    };
+  }
+
+  /** Let go of a telegram link's chat (here and in the Registry) and tell it why. */
+  private async unpairTelegram(store: SqlStore, linkId: string, why: string): Promise<void> {
+    const chat = store.unbindTelegramLink(linkId);
+    try {
+      await this.registryStub()?.fetch("https://registry/__/telegram/forget_link", {
+        method: "POST",
+        body: JSON.stringify({ tenant_id: store.meta("tenant_id"), link_id: linkId }),
+      });
+    } catch (e) {
+      console.error(`registry forget_link failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const api = this.telegram;
+    if (chat && api && why !== "") await send(api, chat, why);
+  }
+
+  private async telegramRoute(req: Request, store: SqlStore, path: string): Promise<Response> {
+    const b = (await req.json()) as Record<string, unknown>;
+    const api = this.telegram;
+    const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
+
+    if (path === "/__/telegram/unbind") {
+      const chat = str(b.chat_id);
+      if (chat) store.unbindTelegramChat(chat);
+      return json({ ok: true });
+    }
+    if (path === "/__/telegram/bind") {
+      const [linkId, chatId] = [str(b.link_id), str(b.chat_id)];
+      const link = store.links().find((l) => l.id === linkId && l.kind === "telegram");
+      if (!link || !chatId) return json({ error: "not_found" }, 404);
+      const chat: TelegramChat = {
+        link_id: link.id,
+        chat_id: chatId,
+        username: str(b.username)?.slice(0, 64) ?? null,
+        first_name: str(b.first_name)?.slice(0, 64) ?? null,
+        paired_at: this.clock().toISOString(),
+      };
+      store.bindTelegram(chat);
+      store.touchLink(link.id, chat.paired_at);
+      if (api) await send(api, chatId, welcome(chat.first_name));
+      return json({ ok: true });
+    }
+    if (path === "/__/telegram/update") {
+      const linkId = str(b.link_id);
+      const link = store.links().find((l) => l.id === linkId && l.kind === "telegram");
+      if (!link || !api || typeof b.update !== "object" || b.update === null) return json({ error: "not_found" }, 404);
+      const now = this.clock();
+      if (!link.last_used_at || now.getTime() - Date.parse(link.last_used_at) >= LINK_TOUCH_SECONDS * 1000) {
+        store.touchLink(link.id, now.toISOString());
+      }
+      this.cleanupDaily(store);
+      const handled = await handleUpdate(
+        {
+          store,
+          deps: this.deps(store),
+          api,
+          now: () => this.clock(),
+          disconnect: async (id) => {
+            await this.unpairTelegram(store, id, "");
+            store.deleteLink(id);
+          },
+          rateLimit: (chatId) => this.telegramRate(chatId),
+        },
+        b.update as TgUpdate,
+        link.id,
+      );
+      return handled ? json({ ok: true }) : json({ error: "not_paired" }, 404);
+    }
+    return empty(404);
+  }
+
+  /** At most TELEGRAM_MESSAGES_PER_HOUR per chat; the first one over gets a warning. */
+  private telegramRate(chatId: string): "ok" | "warn" | "drop" {
+    const now = this.clock().getTime();
+    const r = this.tgRate.get(chatId) ?? { times: [], warned: false };
+    r.times = r.times.filter((t) => now - t < 3600_000);
+    this.tgRate.set(chatId, r);
+    if (r.times.length >= TELEGRAM_MESSAGES_PER_HOUR) {
+      if (r.warned) return "drop";
+      r.warned = true;
+      return "warn";
+    }
+    r.warned = false;
+    r.times.push(now);
+    return "ok";
+  }
+
+  /** Tell the chat that asked for a job how it went. */
+  private async notifyTelegram(store: SqlStore, jobId: string, state: "done" | "failed", message: string): Promise<void> {
+    const chat = store.takeTgJob(jobId);
+    const api = this.telegram;
+    if (!chat || !api) return;
+    await send(api, chat, `${state === "done" ? "✅" : "⚠️"} ${message}`);
   }
 
   // ---------- agent WebSocket (protocol 2.0.0, spec §3.4) ----------
@@ -478,6 +644,7 @@ export class Tenant extends DurableObject<TenantEnv> {
     else await store.finishJob(jobId, parsed.state, parsed.message, parsed.result, this.clock().toISOString());
     ws.send(JSON.stringify({ type: "ack", job_id: jobId, result }));
     await this.armAlarm(store);
+    if (result === "ok") await this.notifyTelegram(store, jobId, parsed.state, parsed.message);
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
@@ -563,8 +730,16 @@ export class Tenant extends DurableObject<TenantEnv> {
   }
 }
 
-function linkView(l: LinkRow) {
-  return { id: l.id, kind: l.kind, label: l.label, created_at: l.created_at, last_used_at: l.last_used_at };
+function linkView(l: LinkRow, chat: TelegramChat | null = null) {
+  const view = { id: l.id, kind: l.kind, label: l.label, created_at: l.created_at, last_used_at: l.last_used_at };
+  if (l.kind !== "telegram") return view;
+  const who = chat?.username ? `@${chat.username}` : (chat?.first_name ?? null);
+  return {
+    ...view,
+    label: chat && who ? `Telegram (${who})` : l.label,
+    paired: chat !== null,
+    telegram_username: chat?.username ?? null,
+  };
 }
 
 function activeIds(v: unknown): string[] | null {

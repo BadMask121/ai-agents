@@ -72,7 +72,7 @@ describe("routing", () => {
       ALL,
       deps,
     );
-    expect((await body(list)).result.tools).toHaveLength(10);
+    expect((await body(list)).result.tools).toHaveLength(11);
   });
 
   it("gives a 2026-07-28 probe a bare 400 so the client falls back", async () => {

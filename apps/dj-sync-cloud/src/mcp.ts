@@ -51,6 +51,7 @@ const ADD_TRACKS = "add_tracks_to_playlist";
 const REMOVE_TRACKS = "remove_tracks_from_playlist";
 const RENAME_PLAYLIST = "rename_playlist";
 const DELETE_PLAYLIST = "delete_playlist";
+const MOVE_TRACKS = "move_tracks";
 
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
@@ -120,7 +121,8 @@ function initialize(params: Obj): Json {
       "\"Folder/Name\"): the tools match them to the DJ's playlists, and when they can't tell which " +
       "one is meant they return the closest playlists instead of acting — then ask the user to pick " +
       "and call again with that exact name. To put downloads in a brand-new playlist, set " +
-      "create_playlist: true. get_playlist pages through long playlists with offset.",
+      "create_playlist: true. get_playlist pages through long playlists with offset. To move tracks " +
+      "from one playlist to another use move_tracks (add_tracks_to_playlist copies them instead).",
   };
 }
 
@@ -310,7 +312,9 @@ function libraryToolDefinitions(): Json[] {
     {
       name: ADD_TRACKS,
       title: "Add tracks to a Rekordbox playlist",
-      description: "Add tracks (by track_id) to an existing Rekordbox playlist. Queued for the Mac; returns a job_id.",
+      description:
+        "Add (copy) tracks, by track_id, to an existing Rekordbox playlist; they stay in any other playlists. " +
+        "To move them out of a playlist instead, use move_tracks. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
         properties: { playlist: nameSchema("Existing playlist name."), track_ids: trackIdsSchema(1), playlist_id: PLAYLIST_ID_SCHEMA },
@@ -332,6 +336,33 @@ function libraryToolDefinitions(): Json[] {
         additionalProperties: false,
       },
       annotations: writes("Remove tracks from a Rekordbox playlist"),
+    },
+    {
+      name: MOVE_TRACKS,
+      title: "Move tracks between Rekordbox playlists",
+      description:
+        "Move tracks from one Rekordbox playlist to another in a single change: they're added to " +
+        "to_playlist and removed from from_playlist (they stay in the library). Give track_ids " +
+        "(from get_playlist on from_playlist) or all: true for every track. To copy instead, use " +
+        "add_tracks_to_playlist. Queued for the Mac; returns a job_id.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          from_playlist: nameSchema("Playlist the tracks are in now."),
+          from_playlist_id: PLAYLIST_ID_SCHEMA,
+          to_playlist: nameSchema("Playlist to move them to."),
+          to_playlist_id: PLAYLIST_ID_SCHEMA,
+          track_ids: trackIdsSchema(1),
+          all: { type: "boolean", description: "Move every track in from_playlist (instead of track_ids)." },
+          create_playlist: {
+            type: "boolean",
+            description: "Make to_playlist (in the DJ Sync folder) if it doesn't exist yet.",
+          },
+        },
+        required: ["from_playlist", "to_playlist"],
+        additionalProperties: false,
+      },
+      annotations: writes("Move tracks between Rekordbox playlists"),
     },
     {
       name: RENAME_PLAYLIST,
@@ -506,6 +537,7 @@ const TOOLS: Record<string, Handler> = {
   [REMOVE_TRACKS]: (args, deps) => editTracks(args, deps, "remove"),
   [RENAME_PLAYLIST]: callRenamePlaylist,
   [DELETE_PLAYLIST]: callDeletePlaylist,
+  [MOVE_TRACKS]: callMoveTracks,
 };
 
 const APPLY_NOTE =
@@ -830,6 +862,87 @@ async function editTracks(args: Obj | undefined, deps: Deps, mode: "add" | "remo
   const n = plural(ids.value.length, "track");
   const summary = mode === "add" ? `Add ${n} to "${playlist.name}"` : `Remove ${n} from "${playlist.name}"`;
   return queueLibrary(deps, playlist.name, ops, summary);
+}
+
+/**
+ * One library job (so one rbdb transaction): add to the target in source
+ * order, then remove from the source. Copying is add_tracks_to_playlist.
+ */
+async function callMoveTracks(args: Obj | undefined, deps: Deps): Promise<Json> {
+  const from = nameArg(args?.from_playlist, "from_playlist");
+  if ("error" in from) return from.error;
+  const to = nameArg(args?.to_playlist, "to_playlist");
+  if ("error" in to) return to.error;
+  for (const flag of ["all", "create_playlist"]) {
+    const v = args?.[flag];
+    if (v !== undefined && v !== null && typeof v !== "boolean") return toolError(`\`${flag}\` must be true or false.`);
+  }
+  const all = args?.all === true;
+  const hasIds = args?.track_ids !== undefined && args?.track_ids !== null;
+  if (all && hasIds) return toolError("Give either track_ids or all: true, not both.");
+  if (!all && !hasIds) {
+    return toolError("Say which tracks to move: track_ids (from get_playlist on from_playlist), or all: true for every track.");
+  }
+  const ids = all ? null : parseTrackIds(args?.track_ids, 1);
+  if (ids && !ids.ok) return toolError(ids.error);
+
+  const playlists = await deps.store.getLibraryPlaylists();
+  if (!playlists) return toolError(NO_LIBRARY);
+  const src = pickPlaylist(playlists, from.value, "", args?.from_playlist_id);
+  if ("ask" in src) return src.ask;
+  const source = src.playlist;
+
+  let target: LibPlaylist | null = null;
+  if (typeof args?.to_playlist_id === "string" && args.to_playlist_id !== "") {
+    const picked = pickPlaylist(playlists, to.value, "", args.to_playlist_id);
+    if ("ask" in picked) return picked.ask;
+    target = picked.playlist;
+  } else {
+    const m = resolvePlaylist(playlists, to.value);
+    if (m.kind === "one") target = m.playlist;
+    else if (m.kind === "many") return ambiguousPlaylist(m.options, to.value);
+    else if (args?.create_playlist !== true) {
+      return noSuchPlaylist(m.suggestions, to.value, " To move them into a new playlist, call again with create_playlist: true.");
+    }
+  }
+  if (target?.id === source.id) {
+    return toolError(`"${source.name}" is both the source and the target; pick a different to_playlist.`);
+  }
+
+  // Source order, each track once.
+  const inSource = [...new Set(source.track_ids)];
+  let moving: string[];
+  if (ids) {
+    const present = new Set(inSource);
+    const absent = ids.value.filter((id) => !present.has(id));
+    if (absent.length > 0) {
+      return toolResult(
+        `Nothing was changed: ${plural(absent.length, "track")} (${absent.slice(0, 10).join(", ")}) ` +
+          `${absent.length === 1 ? "isn't" : "aren't"} in "${source.name}". Use track_ids from get_playlist on "${source.name}".`,
+        { error: "tracks_not_in_playlist", track_ids_not_in_playlist: absent.slice(0, 10) },
+        true,
+      );
+    }
+    const wanted = new Set(ids.value);
+    moving = inSource.filter((id) => wanted.has(id));
+  } else {
+    moving = inSource;
+  }
+  if (moving.length === 0) return toolError(`"${source.name}" has no tracks to move.`);
+
+  const toName = target?.name ?? to.value;
+  const pinTo = target ? { playlist_id: target.id } : {};
+  const ops: LibraryOp[] = [
+    ...(target ? [] : [{ op: "ensure_playlist", name: toName } as LibraryOp]),
+    ...moving.map((id): LibraryOp => ({ op: "add_to_playlist", playlist: toName, content_id: id, ...pinTo })),
+    ...moving.map(
+      (id): LibraryOp => ({ op: "remove_from_playlist", playlist: source.name, content_id: id, playlist_id: source.id }),
+    ),
+  ];
+  const summary = `Move ${plural(moving.length, "track")} from "${source.name}" to "${toName}"`;
+  return queueLibrary(deps, toName, ops, summary, {
+    before: target ? "" : `"${toName}" will be created in the DJ Sync folder. `,
+  });
 }
 
 async function callRenamePlaylist(args: Obj | undefined, deps: Deps): Promise<Json> {

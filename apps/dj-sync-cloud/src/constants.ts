@@ -1,5 +1,5 @@
 /** Semver of this Worker. Keep in sync with package.json (a test checks it). */
-export const WORKER_VERSION = "1.2.0";
+export const WORKER_VERSION = "1.3.0";
 
 /**
  * Semver of the agent API the Mac polls. A Mac is compatible when it has the
@@ -72,6 +72,17 @@ export const INACTIVE_TENANT_DAYS = 90;
 export const SWEEP_CRON = "41 4 * * 1";
 /** Tenants purged per Registry sweep step (DO subrequest budget on Free). */
 export const SWEEP_BATCH = 40;
+
+// ---------- Telegram bot (connect-anywhere spec §1) ----------
+
+/** A pairing code from the Mac app works this long, once. */
+export const TELEGRAM_PAIRING_SECONDS = 600;
+/** Links waiting for a playlist button are kept this long. */
+export const TELEGRAM_PENDING_SECONDS = 24 * 3600;
+/** Messages a chat may send an hour before the bot stops listening for a while. */
+export const TELEGRAM_MESSAGES_PER_HOUR = 60;
+/** Playlist buttons offered for a link (plus Default / New). */
+export const TELEGRAM_BUTTONS = 6;
 
 /** WebSocket close codes (agent protocol 2). */
 export const CLOSE_UNAUTHORIZED = 4001;

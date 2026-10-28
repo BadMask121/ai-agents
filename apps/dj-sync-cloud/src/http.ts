@@ -4,6 +4,7 @@
 
 import { MAX_BODY_BYTES, SUPPORTED_MCP_VERSIONS } from "./constants";
 import { agentStatus, jobView, offlineNote, submit, type Deps } from "./jobs";
+import { cleanName, playlistPath, resolvePlaylist, sortPlaylists } from "./library";
 import { extractMediaRef, linkIn, type MediaRef } from "./links";
 import { dispatch, parseError } from "./mcp";
 import { empty, json } from "./util";
@@ -40,9 +41,10 @@ export async function mcpPost(
 
 /**
  * DNS-rebinding guard from the MCP spec: browsers always send Origin, so a
- * present-but-foreign one is refused. ChatGPT's backend normally sends none.
+ * present-but-foreign one is refused. ChatGPT's and Claude's backends
+ * normally send none. `publicHosts`: our own hostname(s), comma-separated
+ * (canonical first, then aliases).
  */
-/** `publicHosts`: our own hostname(s), comma-separated (canonical first, then aliases). */
 export function originAllowed(origin: string | null, publicHosts: string): boolean {
   if (origin === null) return true;
   let host: string;
@@ -52,9 +54,11 @@ export function originAllowed(origin: string | null, publicHosts: string): boole
     return false;
   }
   return (
-    ["localhost", "127.0.0.1", "[::1]", "chatgpt.com", "chat.openai.com"].includes(host) ||
+    ["localhost", "127.0.0.1", "[::1]", "chatgpt.com", "chat.openai.com", "claude.ai"].includes(host) ||
     host.endsWith(".chatgpt.com") ||
     host.endsWith(".openai.com") ||
+    host.endsWith(".claude.ai") ||
+    host.endsWith(".anthropic.com") ||
     publicHosts
       .toLowerCase()
       .split(",")
@@ -90,6 +94,9 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   if (b.playlist_name !== undefined && b.playlist_name !== null && typeof b.playlist_name !== "string") {
     return json({ error: "playlist_name must be a string" }, 400);
   }
+  if (b.playlist_id !== undefined && b.playlist_id !== null && typeof b.playlist_id !== "string") {
+    return json({ error: "playlist_id must be a string" }, 400);
+  }
 
   const media: MediaRef[] = [];
   const rejected: { url: unknown; reason: string }[] = [];
@@ -104,16 +111,51 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   }
   if (media.length === 0) return json({ error: "no supported Spotify or YouTube links", rejected }, 400);
 
-  const sub = await submit(deps, media, (b.playlist_name as string | undefined) ?? null, "shortcut");
+  // A pinned playlist_id wins; a name (or "Folder/Name" path from
+  // GET /api/playlists) that matches one playlist is pinned too; anything
+  // else is used as given — the Shortcut is a direct action, not a chat.
+  let playlistName = (b.playlist_name as string | undefined) ?? null;
+  let playlistId: string | null = null;
+  const pinned = typeof b.playlist_id === "string" && b.playlist_id !== "" ? b.playlist_id : null;
+  if (pinned !== null || (playlistName !== null && cleanName(playlistName) !== "")) {
+    const playlists = await deps.store.getLibraryPlaylists();
+    if (pinned !== null) {
+      const p = playlists?.find((x) => x.id === pinned);
+      if (!p) return json({ error: "no playlist has that playlist_id; get one from GET /api/playlists" }, 400);
+      playlistName = p.name;
+      playlistId = p.id;
+    } else if (playlists) {
+      const m = resolvePlaylist(playlists, playlistName!);
+      if (m.kind === "one") {
+        playlistName = m.playlist.name;
+        playlistId = m.playlist.id;
+      }
+    }
+  }
+
+  const sub = await submit(deps, media, playlistName, "shortcut", playlistId);
   if (!sub.ok) return json({ error: sub.error }, 400);
   const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
   // The Shortcut shows `message` in a notification, so make it self-explanatory.
   const message = job.message + (agent.online ? "" : offlineNote(agent, deps.now()));
   return json(
-    { ...jobView(job), message, position, deduplicated, rejected, mac_online: agent.online },
+    { ...jobView(job), playlist_id: job.playlist_id ?? null, message, position, deduplicated, rejected, mac_online: agent.online },
     202,
   );
+}
+
+/**
+ * GET /api/playlists: the DJ's playlists for the Shortcut's "Choose from
+ * List" — the DJ Sync folder first, then A–Z by path.
+ */
+export async function apiPlaylists(deps: Deps): Promise<Response> {
+  const playlists = (await deps.store.getLibraryPlaylists()) ?? [];
+  const djSync = (p: { folder: string }) => (p.folder === "DJ Sync" ? 0 : 1);
+  const rows = sortPlaylists(playlists)
+    .map((p) => ({ playlist_id: p.id, name: p.name, folder: p.folder, path: playlistPath(p), tracks: p.track_ids.length }))
+    .sort((a, b) => djSync(a) - djSync(b) || a.path.toLocaleLowerCase().localeCompare(b.path.toLocaleLowerCase()));
+  return json({ playlists: rows });
 }
 
 export async function apiStatus(jobId: string, deps: Deps): Promise<Response> {

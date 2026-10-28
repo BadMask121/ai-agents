@@ -62,13 +62,19 @@
     // as this tenant (an id, not a secret), and the legacy MCP secret path and
     // Shortcut key now reach it.
     "LEGACY_TENANT_ID": "u2dDy37bIx227JDdDMLBoA",
-    "V1_RETIRED": "true"
+    "V1_RETIRED": "true",
+    // The shared Telegram bot's @username (connect-anywhere spec §1), for the
+    // t.me/<bot>?start=<code> pairing links. Not a secret.
+    "TELEGRAM_BOT_USERNAME": "DJSyncAppBot"
   },
   // Secrets (wrangler secret put …), never in this file:
   //   MCP_SECRET_PATH   — same value as ~/.dj-sync/.env, so the ChatGPT plugin URL is unchanged
   //   AGENT_TOKEN       — shared with the Mac (CLOUD_AGENT_TOKEN in ~/.dj-sync/.env)
   //   SHORTCUT_API_KEY  — optional; enables /api/downloads for the iOS Shortcut
-  //   ADMIN_TOKEN       — optional; enables GET /v2/stats (Bearer)
+  //   ADMIN_TOKEN       — optional; enables GET /v2/stats and POST /v2/admin/telegram/setup (Bearer)
+  //   TELEGRAM_BOT_TOKEN       — the shared bot's token from @BotFather
+  //   TELEGRAM_WEBHOOK_SECRET  — random; Telegram echoes it in X-Telegram-Bot-Api-Secret-Token
+  //   (Without both, /telegram/* is 404 and creating a telegram link is 503 telegram_not_configured.)
 
   "observability": {
     "enabled": true,
