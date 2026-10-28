@@ -39,7 +39,7 @@ The NLU parser is also Haiku for the same reason: parsing "sync this please" →
 
 Every piece of persistent state fits in 4 flat files (see `01-architecture.md`). A SQLite would be premature — the access patterns are "load on boot, write on shutdown," not "query." Add one when there's a feature that actually needs it (history view, playlist diff over time).
 
-## Long-poll, not webhooks
+## Long-poll, not webhooks (for Telegram)
 
 - Webhooks need a public HTTPS endpoint with a real cert. That means either a tunnel (`ngrok`, `cloudflared`) or a VPS hop. Both are extra moving parts.
 - Long-polling works behind any NAT, any firewall, any coffee-shop wifi. The bot just makes outbound HTTPS requests to Telegram.
@@ -71,3 +71,25 @@ If we later want a TS-side helper (e.g., a tray icon app), it lives in `apps/dj-
 - **A queue / worker like Sidekiq** — one job at a time, in-process channel, done.
 - **OAuth for Spotify** — the Web API's Client Credentials flow is enough for public playlist reads. User OAuth would add a callback server and a token-refresh flow that earns nothing for v1. (Add it the day we want to read a private "Liked Songs" library.)
 - **Beatport API integration** — Beatport's API is partner-only; there is no public path. Buy-list stays as deep links the user opens manually.
+
+## ChatGPT download lane (added 2026-10-28)
+
+This is a deliberate exception to "no audio download" ([README](README.md)) and to
+"no tunnel" (above). The full rationale is in
+[40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md). In short:
+
+- **The interface is MCP over HTTPS.** ChatGPT can only call remote MCP
+  servers, so this lane needs the inbound endpoint the Telegram lane avoids.
+  **Cloudflare Tunnel** provides it: there's no open port, Cloudflare handles
+  TLS, and the domain is on Cloudflare (`triplejmusic.art`). `jeffrey.build`
+  stays on Namecheap DNS.
+- **axum + a hand-rolled JSON-RPC router.** Two tools, stateless JSON
+  responses, and no SDK to track.
+- **spotdl and yt-dlp as subprocesses**, run through `tokio::process` with argv
+  only. Spotify links go to spotdl, which matches metadata and fetches the
+  audio from YouTube. YouTube links go to yt-dlp. There's no Python in-process
+  and no reimplemented scraper.
+- **Single-worker queue, same as the Telegram executor.** DJ prep still isn't
+  a concurrency problem.
+- **Still single-tenant.** The secret URL path is the credential. Don't share it.
+

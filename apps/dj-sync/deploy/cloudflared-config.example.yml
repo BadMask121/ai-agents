@@ -1,0 +1,16 @@
+# Copy to ~/.cloudflared/config.yml (or /etc/cloudflared/config.yml for the
+# at-boot `sudo cloudflared service install` variant) and fill in the tunnel
+# UUID printed by `cloudflared tunnel create dj-sync`.
+#
+# See docs/dj-sync/41-chatgpt-mcp-setup.md.
+
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /Users/YOU/.cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  # 127.0.0.1, not localhost: localhost can resolve to ::1, and dj-sync
+  # listens on IPv4 only.
+  - hostname: mcp.triplejmusic.art
+    service: http://127.0.0.1:8000
+  # Everything else on this tunnel is refused.
+  - service: http_status:404

@@ -2,7 +2,7 @@
 
 A personal DJ-prep agent. You paste a Spotify playlist URL into a Telegram chat from your phone; a Rust service running on your laptop (or VPS) fetches metadata, matches each track against your local music library, drops matches into Rekordbox's AutoImport folder, and (optionally) syncs the resulting crate to a USB drive ready for a CDJ.
 
-**Target host:** your DJ laptop (macOS) where Rekordbox already runs. A small Rust binary stays resident; Telegram is the only inbound surface. No always-on server required for v1.
+**Target host:** your DJ laptop (macOS) where Rekordbox already runs. A small Rust binary stays resident. Telegram is reached by outbound long-polling. The optional ChatGPT download lane adds one inbound HTTPS endpoint through a Cloudflare Tunnel (`mcp.triplejmusic.art`). No always-on server is required.
 
 ## What this gives you
 
@@ -16,7 +16,9 @@ A personal DJ-prep agent. You paste a Spotify playlist URL into a Telegram chat 
 
 ## Reality check (read first)
 
-**dj-sync does not download audio from Spotify.** Spotify's terms forbid it and the Web API only exposes metadata (titles, artists, ISRCs, durations). The matching engine assumes you already own — or are willing to buy — the audio files. The output of a sync is "matched against your library + a shopping list for the rest." If you expected a one-shot Spotify-to-USB ripper, this is not that tool.
+**The Telegram matching lane does not download audio.** The Web API only exposes metadata (titles, artists, ISRCs, durations). The matching engine assumes you already own, or are willing to buy, the audio files. The output of a `/sync` is "matched against your library + a shopping list for the rest."
+
+**The opt-in ChatGPT download lane (added 2026-10-28) does download audio, and that deliberately reverses this doc's original "no audio extraction" rule.** You give ChatGPT (or an iOS Shortcut) a Spotify or YouTube link, and dj-sync runs spotdl / yt-dlp, which fetch the audio **from YouTube**. Nothing is pulled from Spotify's own stream. The files land in `~/Music/DJ_Downloads` and are added to `~/Music/rekordbox_import.xml` for Rekordbox's *rekordbox xml* pane. This goes against Spotify's and YouTube's terms of service. It's for personal prep only: buy what you play out. See [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md).
 
 **Rekordbox is the analysis layer.** dj-sync does not compute BPM, key, or beatgrids. It drops files into Rekordbox's configured AutoImport folder; Rekordbox handles analysis on its own schedule the next time it runs. You still own the performance-side workflow (cue points, hot cues, memory cues) inside Rekordbox itself.
 
@@ -50,6 +52,9 @@ Follow these in sequence. Each file is short and focused.
 6. [06-rekordbox-pipeline.md](06-rekordbox-pipeline.md) — _(deferred)_ AutoImport folder, analysis, USB sync
 7. [07-bot-commands.md](07-bot-commands.md) — _(deferred)_ `/sync`, `/scan`, NLU parser
 8. [20-roadmap.md](20-roadmap.md) — _(deferred)_ designed-but-not-yet-built features
+9. [30-rekordbox-browser-design.md](30-rekordbox-browser-design.md) — browse your Rekordbox playlists from Telegram
+10. [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md) — ChatGPT MCP download lane: decisions, tools, job flow, security
+11. [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md) — step-by-step setup: spotdl / yt-dlp, launchd, Cloudflare Tunnel, Rekordbox, ChatGPT, iOS Shortcut
 
 Files marked _(deferred)_ are placeholders — the architecture is locked in `01` / `02` / `03`; the per-component docs land as we build each module.
 
@@ -59,8 +64,8 @@ Files marked _(deferred)_ are placeholders — the architecture is locked in `01
 
 ## Out of scope
 
-- Spotify audio extraction (forbidden, not negotiable)
+- Ripping Spotify's own audio stream. (The download lane sources audio from YouTube via spotdl / yt-dlp; see doc 40 for that deliberate reversal.)
 - Beatport / Bandcamp auto-purchase (no public API allows it; manual)
 - Real-time DJ control (this is a prep tool, not a performance tool)
 - Multi-user / shared playlists (single-tenant by design)
-- Web UI (Telegram is the entire interface — adding a UI doubles the surface area for no real-world gain)
+- Web UI (Telegram and ChatGPT are the interfaces; adding a UI doubles the surface area for no real-world gain)

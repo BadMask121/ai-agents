@@ -12,7 +12,7 @@ ai-agents/
 │   ├── career-ops-ui/   # Next.js web UI — AI job-application pipeline
 │   ├── booking-ops/     # Node worker — AI email/booking agent (Telegram-driven)
 │   ├── mail-mcp/        # Node MCP server — ChatGPT ⇄ privateemail mailbox (IMAP/SMTP)
-│   ├── dj-sync/         # Rust bot — Spotify → Rekordbox prep via Telegram
+│   ├── dj-sync/         # Rust — Spotify/YouTube → Rekordbox prep via Telegram + ChatGPT MCP
 │   ├── prole-site/     # Static landing page for Prole (deployed via Coolify)
 │   ├── prole-promo/     # Remotion promo video for Prole
 │   ├── shared/          # TS library — shared agent types/utils (@ai-agents/shared)
@@ -135,27 +135,39 @@ Developer Mode.
 - **Docs:** [`docs/mail-mcp/`](docs/mail-mcp/) (product overview, tool reference,
   ChatGPT connect + deploy steps).
 
-### `apps/dj-sync` — Spotify → Rekordbox prep (Rust bot)
+### `apps/dj-sync` — Spotify / YouTube → Rekordbox prep (Rust)
 
-A Telegram bot that takes Spotify/song links, matches them against your local
-music library (ISRC → fuzzy → optional AI), builds Rekordbox autoimport XML, and
-can sync to USB.
+One binary with two optional lanes:
 
-- **Stack:** Rust 2021, tokio, teloxide (Telegram), reqwest, lofty, quick-xml,
-  optional Anthropic SDK for match fallback.
+- **Telegram bot.** It takes Spotify links and matches them against your local
+  library (ISRC → fuzzy → optional AI). It can also browse your Rekordbox
+  playlists and sync to USB.
+- **ChatGPT MCP download lane.** An MCP server reachable at
+  `mcp.triplejmusic.art` through a Cloudflare Tunnel. ChatGPT sends it Spotify or
+  YouTube links. It downloads them with spotdl / yt-dlp into `~/Music/DJ_Downloads`
+  and adds them to `~/Music/rekordbox_import.xml` for Rekordbox's *rekordbox xml*
+  pane. An optional iOS Share Sheet shortcut uses a bearer REST route.
+
+- **Stack:** Rust 2021, tokio, teloxide (Telegram), axum (MCP/HTTP), reqwest,
+  lofty, quick-xml, spotdl + yt-dlp (subprocesses), optional Anthropic SDK for
+  match fallback.
 - **Standalone Cargo project** (not in the pnpm workspace).
 - **Run (from `apps/dj-sync/`):**
   ```bash
-  cargo run                 # start the bot
-  cargo test                # matcher / URL-parsing tests
-  cargo build --release
+  cargo run                 # starts whichever lanes are configured
+  cargo test                # parser, matcher, XML, job queue, MCP + HTTP router tests
+  cargo install --path . --locked   # for the launchd agent (deploy/)
   ```
-- **Entry point:** `src/main.rs`; key modules `matcher.rs`, `library.rs`,
-  `spotify.rs`, `rekordbox.rs`, `bot.rs`.
-- **Config:** `.env` (Telegram/Spotify/Anthropic) + `~/.dj-sync/config.toml`
-  (library roots, Rekordbox dir, USB mount).
+- **Entry point:** `src/main.rs`. Key modules: `matcher.rs`, `library.rs`,
+  `bot.rs` (Telegram); `http.rs`, `mcp.rs`, `jobs.rs`, `downloader.rs`,
+  `import_xml.rs` (download lane).
+- **Config:** `~/.dj-sync/.env` (Telegram, Spotify and Anthropic keys,
+  `MCP_SECRET_PATH`, `SHORTCUT_API_KEY`) and `~/.dj-sync/config.toml` (library
+  roots, Rekordbox paths, USB mount, `[mcp]`, `[download]`).
+- **Deploy:** a LaunchAgent plus Cloudflare Tunnel on the DJ laptop. See
+  [`docs/dj-sync/41-chatgpt-mcp-setup.md`](docs/dj-sync/41-chatgpt-mcp-setup.md).
 - **Docs:** [`docs/dj-sync/`](docs/dj-sync/) (architecture, flow, stack
-  decisions, Rekordbox design).
+  decisions, Rekordbox browser, ChatGPT MCP design + setup).
 
 ### Prole — "snip → paste anywhere" (moved to its own repo)
 

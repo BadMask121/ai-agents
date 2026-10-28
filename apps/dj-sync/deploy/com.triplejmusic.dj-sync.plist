@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for dj-sync (Telegram bot and/or the ChatGPT MCP download lane).
+  launchd doesn't expand ~ or $HOME, so install with:
+
+    sed "s#/Users/YOU#$HOME#g" deploy/com.triplejmusic.dj-sync.plist \
+      > ~/Library/LaunchAgents/com.triplejmusic.dj-sync.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.triplejmusic.dj-sync.plist
+
+  See docs/dj-sync/41-chatgpt-mcp-setup.md.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.triplejmusic.dj-sync</string>
+
+  <!-- Installed by `cargo install --path apps/dj-sync`. Must live outside
+       ~/Desktop / ~/Documents, which background agents can't read (TCC). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.cargo/bin/dj-sync</string>
+  </array>
+
+  <!-- Secrets come from ~/.dj-sync/.env, config from ~/.dj-sync/config.toml. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/.dj-sync</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd's default PATH is /usr/bin:/bin:/usr/sbin:/sbin. Config uses
+         absolute binary paths anyway; this is for their own helpers (deno). -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/Users/YOU/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>RUST_LOG</key>
+    <string>dj_sync=info</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Don't spin if the config is broken; retry every 30s. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/dj-sync.log</string>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/dj-sync.out.log</string>
+</dict>
+</plist>

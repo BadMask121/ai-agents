@@ -22,27 +22,38 @@ That's it. No cover art. No search in Phase 1. No sync direction in Phase 1.
 - No cover art rendering.
 - No fuzzy search (Phase 2).
 
-## Data source: Rekordbox XML auto-export
+## Data source: Rekordbox XML export
 
-Rekordbox has a first-party feature: **Preferences → Advanced → Database → "rekordbox xml"** with an *Auto-Export* toggle. When enabled, Rekordbox writes a `rekordbox.xml` file at a configurable path on every collection change.
+> **Correction (2026-10-28):** an earlier draft said Preferences → Advanced →
+> Database → "rekordbox xml" had an *Auto-Export* toggle. That was wrong.
+> That setting is **Imported Library**: a file Rekordbox *reads* and shows
+> under the *rekordbox xml* tree. The ChatGPT download lane now uses it for
+> `~/Music/rekordbox_import.xml` (see [41-chatgpt-mcp-setup.md](41-chatgpt-mcp-setup.md)).
+> The only automatic XML export found is an "XML Auto Export" option for Tribe
+> XR under Advanced → Others. It writes when Rekordbox exits, and whether it
+> works as a general export is unverified.
+
+The browser reads a **manual export**: File → Export Collection in xml format.
 
 **Why this beats decrypting `master.db`:**
 
 - Pioneer-supported, stable across Rekordbox versions.
-- Always fresh — Rekordbox re-writes on changes.
 - No SQLCipher key derivation, no encryption headaches.
 - Plain XML; trivial to parse.
 - Contains everything we need: full track metadata + playlist tree (including folders).
 
-**Setup the user does once:**
+The cost is freshness: the file is only as current as your last export.
 
-1. Open Rekordbox → Preferences → Advanced → Database → "rekordbox xml" section.
-2. Set the export path (recommend `~/Music/rekordbox.xml`).
-3. Toggle **Auto-export** ON.
-4. Save preferences. Rekordbox writes the file on next collection change (or immediately on save, depending on version).
-5. Add `xml_path = "/Users/jeffreysmith/Music/rekordbox.xml"` to `~/.dj-sync/config.toml` (new field).
+**Setup the user does once (and again whenever the library changes):**
 
-If at any point Pioneer breaks the auto-export feature, the fallback is **manual export** via File → Export Collection → in xml format. The bot doesn't care which path produced the file.
+1. Rekordbox → File → Export Collection in xml format → save it somewhere
+   stable, e.g. `~/Music/rekordbox.xml`.
+2. Add `xml_path = "/Users/<you>/Music/rekordbox.xml"` under `[rekordbox]` in
+   `~/.dj-sync/config.toml`. `/lib` shows how old the loaded file is, and the
+   bot reloads it when its modification time changes.
+
+Don't point *Imported Library* at this file. That's the download lane's
+`rekordbox_import.xml`, and the two files have different owners.
 
 ## XML schema (relevant subset)
 
@@ -204,7 +215,7 @@ The Spotify modules continue to compile and live in source. They're just not rea
 |---|---|---|
 | **1** | XML parser, `/playlists`, `/playlist <n|name>`, `/lib`, mtime reload | ~3h |
 | **2** *(deferred)* | `/track <query>` fuzzy search across all tracks | ~1h |
-| **3** *(deferred)* | If Pioneer drops auto-export, port pyrekordbox key derivation to read `master.db` directly | ~1d |
+| **3** *(deferred)* | If manual export gets too stale, port pyrekordbox key derivation to read `master.db` directly | ~1d |
 
 This spec covers Phase 1 only. Phases 2 and 3 are noted for the roadmap but not in scope here.
 

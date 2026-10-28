@@ -5,6 +5,7 @@ dj-sync has three lanes that should never blur into each other:
 | Lane | Component | Responsibility |
 |---|---|---|
 | Interface | Telegram bot | input + status reply only |
+| Interface | MCP / HTTP lane (`http.rs`, `mcp.rs`) | ChatGPT tool calls + iOS Shortcut, input + job status only |
 | Execution | `dj-sync` Rust core | metadata fetch, matching, file ops |
 | Performance | Rekordbox | BPM / key / grid analysis, USB export |
 
@@ -12,7 +13,16 @@ Keeping these separate is the single most important design decision. The bot nev
 
 ## Process model
 
-One Rust binary, two threads of work:
+One Rust binary with two **optional lanes**, run concurrently by `main.rs`
+(`tokio::join!`). A shared SIGINT/SIGTERM watch shuts both down:
+
+- **Telegram lane.** Starts when `TELEGRAM_BOT_TOKEN` is set. It's described below.
+- **HTTP lane.** Starts when `[mcp] enabled = true`: an axum server on
+  `127.0.0.1:8000` behind a Cloudflare Tunnel. It owns the **download queue**,
+  where a single worker runs spotdl / yt-dlp and is the only writer of
+  `~/Music/rekordbox_import.xml`. See [40-chatgpt-mcp-design.md](40-chatgpt-mcp-design.md).
+
+The Telegram lane has two threads of work:
 
 - **Bot loop** (teloxide) — long-polls Telegram, parses commands, hands work to the core via an async channel. Replies with status updates.
 - **Core executor** — owns the Spotify client, the local library index, and the Rekordbox import path. Single in-flight job at a time (a serial queue — DJ prep is not a high-concurrency problem).
@@ -34,7 +44,13 @@ apps/dj-sync/
 │   ├── matcher.rs        # ISRC → fuzzy → AI ladder
 │   ├── rekordbox.rs      # AutoImport folder writes
 │   ├── usb.rs            # optional USB drive sync
-│   └── config.rs         # env + ~/.dj-sync/config.toml loader
+│   ├── config.rs         # env + ~/.dj-sync/config.toml loader ([mcp], [download] too)
+│   ├── rekordbox_xml.rs  # read-only parser for Rekordbox's own XML export (browser)
+│   ├── http.rs           # HTTP lane: /health, /<secret>/mcp, /api/downloads
+│   ├── mcp.rs            # MCP JSON-RPC dispatch + the two tools
+│   ├── jobs.rs           # download queue + single worker
+│   ├── downloader.rs     # spotdl / yt-dlp child processes
+│   └── import_xml.rs     # writable rekordbox_import.xml (non-destructive upsert)
 └── tests/
     └── matcher_test.rs   # golden test for the matching ladder
 ```
@@ -87,6 +103,7 @@ Anything that falls off the ladder becomes a `Miss { reason: NotInLibrary }` and
 ```
 ~/.dj-sync/
 ├── config.toml           # paths, thresholds, feature flags
+├── .env                  # secrets (loaded before ./.env, so launchd works)
 ├── spotify-token.json    # refresh token cache
 ├── library.index.bin     # serialized library index (rebuilt on /scan)
 ├── state.json            # last_update_id, last_run_at
