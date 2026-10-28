@@ -139,6 +139,66 @@ async fn library_actions_refuse_browsers_and_need_the_feature() {
 }
 
 #[tokio::test]
+async fn shortcut_install_checks_the_link_before_signing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = format!(
+        r#"
+[library]
+roots = ["/tmp"]
+[rekordbox]
+autoimport_dir = "/tmp"
+[download]
+dir = "{d}/dl"
+import_xml = "{d}/import.xml"
+"#,
+        d = tmp.path().display()
+    );
+    let cfg: Config = toml::from_str(&raw).unwrap();
+    let (jobs, _) = JobQueue::start(cfg.download.clone(), Idle).unwrap();
+    std::fs::write(
+        tmp.path().join("links.json"),
+        r#"[{"id":"chat1","kind":"chatgpt","url":"https://djsync.jeffrey.build/t/s/mcp"},
+            {"id":"ios1","kind":"shortcut","api_url":"http://evil.example/api/downloads","token":"t.k"}]"#,
+    )
+    .unwrap();
+    let session =
+        dj_sync::cloud_v2::CloudSession::new("http://127.0.0.1:9", tmp.path().into()).unwrap();
+    let app = || {
+        router(
+            AppState::new(jobs.clone(), &cfg).with_session(Some(session.clone())),
+            SECRET,
+        )
+    };
+
+    // A web page can't make this Mac sign and upload anything.
+    let mut req = post("/local/links/ios1/install", json!({}));
+    req.headers_mut()
+        .insert("origin", "https://evil.example".parse().unwrap());
+    assert_eq!(send(app(), req).await.0, StatusCode::FORBIDDEN);
+
+    let (s, b) = send(app(), post("/local/links/nope/install", json!({}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{b}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&b).unwrap()["code"],
+        "unknown_link"
+    );
+
+    // Not a shortcut link, or one whose API isn't https: refused before signing.
+    for id in ["chat1", "ios1"] {
+        let (s, b) = send(
+            app(),
+            post(&format!("/local/links/{id}/install"), json!({})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{id}: {b}");
+        assert_eq!(
+            serde_json::from_str::<Value>(&b).unwrap()["code"],
+            "not_a_shortcut_link"
+        );
+    }
+}
+
+#[tokio::test]
 async fn link_routes_refuse_browsers_check_kinds_and_need_cloud_v2() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = format!(

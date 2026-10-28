@@ -696,27 +696,44 @@ private struct TelegramRow: View {
   }
 }
 
-/// The iPhone Share-sheet Shortcut: an API URL and a bearer key.
+/// The iPhone Share-sheet Shortcut: a QR code to install it in one tap, and
+/// (for setting it up by hand) its API URL and key.
 private struct ShortcutRow: View {
   let link: AssistantLink
   @Bindable var model: MenuModel
+  @State private var showManual = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    let setup = model.shortcutSetups[link.id] ?? .idle
+    VStack(alignment: .leading, spacing: 6) {
       LinkHeader(link: link, detail: usage(link), model: model, menu: [("New Key…", { model.rotate(link) })]) {
         EmptyView()
       }
       if let api = link.apiUrl, let token = link.token {
-        field("URL", shown: api, value: api, key: "\(link.id).url")
-        field(
-          "Key", shown: model.revealSecrets ? token : String(token.prefix(4)) + "…",
-          value: token, key: "\(link.id).key")
-        HStack {
-          Text("Build the Shortcut on your iPhone with these.")
+        ShortcutInstallView(
+          setup: setup, connected: link.isConnected, busy: model.linksBusy,
+          make: { model.prepareShortcut(link) }
+        )
+        .padding(.leading, 12)
+        DisclosureGroup(isExpanded: Binding(get: { showManual || setup.wantsManualSetup }, set: { showManual = $0 })) {
+          VStack(alignment: .leading, spacing: 4) {
+            field("URL", shown: api, value: api, key: "\(link.id).url")
+            field(
+              "Key", shown: model.revealSecrets ? token : String(token.prefix(4)) + "…",
+              value: token, key: "\(link.id).key")
+            HStack {
+              Text("To build the Shortcut yourself:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              Spacer(minLength: 4)
+              GuideLink(assistant: .iphone, model: model)
+            }
+          }
+          .padding(.top, 4)
+        } label: {
+          Text("Show key and URL")
             .font(.caption)
             .foregroundStyle(.secondary)
-          Spacer(minLength: 4)
-          GuideLink(assistant: .iphone, model: model)
         }
         .padding(.leading, 12)
       } else {
@@ -728,6 +745,7 @@ private struct ShortcutRow: View {
       }
     }
     .animation(.easeOut(duration: 0.15), value: model.copied)
+    .animation(.easeOut(duration: 0.2), value: setup)
   }
 
   private func field(_ title: String, shown: String, value: String, key: String) -> some View {
@@ -744,7 +762,80 @@ private struct ShortcutRow: View {
       Spacer(minLength: 4)
       CopyButton(value: value, key: key, help: "Copy the \(title.lowercased()) for the Shortcut", model: model)
     }
-    .padding(.leading, 12)
+  }
+}
+
+/// Scan-to-install: the QR code of the private page that adds "DJ Sync" to
+/// the iPhone, with its expiry and New QR.
+private struct ShortcutInstallView: View {
+  let setup: ShortcutSetup
+  let connected: Bool
+  var busy = false
+  let make: () -> Void
+
+  var body: some View {
+    switch setup {
+    case .idle:
+      HStack(spacing: 8) {
+        Text(connected ? "Share a Spotify or YouTube link → DJ Sync." : "Add DJ Sync to your iPhone in one scan.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: 4)
+        Button(connected ? "Add to Another iPhone" : "Show QR Code", action: make)
+          .controlSize(.small)
+          .disabled(busy)
+      }
+    case .preparing:
+      HStack(spacing: 8) {
+        ProgressView().controlSize(.small)
+        Text("Making your Shortcut…")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    case .failed(let message, _):
+      VStack(alignment: .leading, spacing: 6) {
+        Text(message)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        Button("Try Again", action: make).controlSize(.small).disabled(busy)
+      }
+    case .ready(let install):
+      TimelineView(.periodic(from: .now, by: 15)) { context in
+        let expired = install.expired(now: context.date)
+        HStack(alignment: .top, spacing: 12) {
+          QRCodeView(text: install.installUrl, label: "QR code to add DJ Sync to your iPhone")
+            .opacity(expired ? 0.25 : 1)
+            .overlay {
+              if expired {
+                Image(systemName: "clock.badge.xmark").font(.title2).foregroundStyle(.secondary)
+              }
+            }
+          VStack(alignment: .leading, spacing: 6) {
+            Text(expired ? "This code has expired." : "Scan with your iPhone camera, then tap Add Shortcut.")
+              .font(.caption)
+              .fixedSize(horizontal: false, vertical: true)
+            Button(expired ? "Get a New QR" : "New QR", action: make)
+              .controlSize(.small)
+              .disabled(busy)
+            if let note = expiryNote(install, now: context.date) {
+              Text(note)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.2), value: expired)
+      }
+    }
+  }
+
+  private func expiryNote(_ install: ShortcutInstall, now: Date) -> String? {
+    guard let expires = install.expires, expires > now else { return nil }
+    let minutes = Int((expires.timeIntervalSince(now) / 60).rounded(.up))
+    return minutes <= 1 ? "Expires in under a minute" : "Expires in \(minutes) min"
   }
 }
 

@@ -4,6 +4,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.2.0] — 2026-10-28 · one-scan iPhone setup
+
+### Changed
+- **Connect iPhone shows a QR code.**
+  - **Install:** scan it with the iPhone camera and tap Add Shortcut. DJ Sync
+    builds and signs a personal Shortcut, and the code lasts 10 minutes, with
+    New QR for a fresh one.
+  - **New Key** makes a new code automatically, since the old Shortcut has the
+    old key.
+  - **Building by hand:** the URL and key move under "Show key and URL". That
+    section opens by itself when this Mac can't sign Shortcuts (not signed
+    into iCloud), with the setup guide.
+
 ## [1.1.0] — 2026-10-28 · connect from anywhere
 
 ### Added

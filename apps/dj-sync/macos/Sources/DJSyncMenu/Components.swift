@@ -204,6 +204,7 @@ extension AnyTransition {
 struct QRCodeView: View {
   let text: String
   var size: CGFloat = 112
+  var label = "QR code to pair Telegram"
 
   var body: some View {
     Group {
@@ -223,7 +224,7 @@ struct QRCodeView: View {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
         .strokeBorder(.black.opacity(0.08), lineWidth: 0.5)
     }
-    .accessibilityLabel("QR code to pair Telegram")
+    .accessibilityLabel(label)
   }
 }
 

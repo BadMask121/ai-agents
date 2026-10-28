@@ -7,6 +7,8 @@
 //! - `GET  /api/downloads/{id}`  — job status for the Shortcut
 //! - `GET  /local/status`        — for the menu bar app on this Mac only
 //! - `POST /local/rekordbox/{apply,restore,retry,dismiss}` — library actions from the app
+//! - `POST /local/links/{id}/install` — build, sign and upload the iPhone
+//!   Shortcut for a shortcut link; returns the install page for the QR code
 //! - `GET|POST /local/links`, `POST /local/links/{id}/rotate`,
 //!   `DELETE /local/links/{id}` — assistant links (cloud v2), from the app
 //! - anything else               — 404 (including `/api/*` when no key is set)
@@ -124,6 +126,7 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
         .route("/local/toolbox/install", post(local_toolbox_install))
         .route("/local/links", get(local_links).post(local_create_link))
         .route("/local/links/{id}/rotate", post(local_rotate_link))
+        .route("/local/links/{id}/install", post(local_install_shortcut))
         .route("/local/links/{id}", delete(local_delete_link))
         .route("/local/rekordbox/dismiss", post(local_dismiss));
     if !secret.is_empty() {
@@ -730,6 +733,71 @@ async fn local_delete_link(
     };
     match session.delete_link(&id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => cloud_error(e),
+    }
+}
+
+/// One-scan iPhone setup: build the DJ's Shortcut with this link's key,
+/// have macOS sign it (needs iCloud), upload it, and return the install page.
+async fn local_install_shortcut(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let session = match session_for(&state, &headers, true) {
+        Ok(s) => s,
+        Err(code) => return code.into_response(),
+    };
+    let refuse = |status: StatusCode, error: &str, message: String| {
+        (
+            status,
+            Json(json!({ "ok": false, "error": message, "code": error })),
+        )
+            .into_response()
+    };
+    let Some(link) = session.saved_link(&id).await else {
+        return refuse(
+            StatusCode::NOT_FOUND,
+            "unknown_link",
+            "This Mac doesn't know that link.".into(),
+        );
+    };
+    let (Some(token), Some(base)) = (
+        link.token.as_deref().filter(|_| link.kind == "shortcut"),
+        link.api_url.as_deref().and_then(crate::shortcut::base_of),
+    ) else {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "not_a_shortcut_link",
+            "Only iPhone (shortcut) links can make a Shortcut.".into(),
+        );
+    };
+    let unsigned = match crate::shortcut::unsigned_bytes(&base, token) {
+        Ok(b) => b,
+        Err(e) => {
+            return refuse(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "shortcut_build_failed",
+                format!("{e:#}"),
+            )
+        }
+    };
+    let signed = match crate::shortcut::sign(&unsigned).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "couldn't sign the iPhone Shortcut");
+            return refuse(
+                StatusCode::CONFLICT,
+                "shortcut_signing_failed",
+                format!(
+                    "{e:#}. Make sure this Mac is signed into iCloud (System Settings → Apple Account), \
+                     or set up the Shortcut by hand with the URL and key."
+                ),
+            );
+        }
+    };
+    match session.upload_shortcut(&id, signed).await {
+        Ok(install) => Json(json!(install)).into_response(),
         Err(e) => cloud_error(e),
     }
 }

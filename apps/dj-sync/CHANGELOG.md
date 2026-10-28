@@ -11,6 +11,22 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.2.0] — 2026-10-28 · one-scan iPhone setup
+
+### Added
+- **`POST /local/links/{id}/install`** (local only, shortcut links). It builds
+  the DJ's "DJ Sync" Shortcut (`shortcut.rs`) with the API origin and key
+  baked in.
+  - **What it does:** from the Share sheet, it gets `/api/playlists` →
+    `names`, then Choose from List, then POSTs `/api/downloads`
+    `{text, playlist_name}` and shows the reply's `message`.
+  - **Signing:** with `/usr/bin/shortcuts sign --mode anyone` (the DJ's
+    Apple ID), in a private temp dir.
+  - **Upload:** to `PUT /v2/agent/links/{id}/install`; the reply is
+    `{install_url, expires_at}`.
+  - **Failure:** 409 `shortcut_signing_failed` when macOS can't sign it
+    (e.g. not signed into iCloud).
+
 ## [1.1.0] — 2026-10-28 · connect from anywhere
 
 ### Added
