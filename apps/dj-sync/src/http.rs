@@ -162,7 +162,9 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
         .map(|(v, _)| v.to_string());
     let recent: Vec<Value> = state
         .jobs
-        .recent(3)
+        // Enough history for the app to notice every new or finished job
+        // between its polls; it shows only the newest few.
+        .recent(10)
         .into_iter()
         .map(|j| {
             json!({
@@ -172,6 +174,10 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
                 "message": j.message,
                 "created_at": j.created_at,
                 "finished_at": j.finished_at,
+                "links": j.urls.len(),
+                "tracks": j.tracks.len(),
+                "errors": j.errors.len(),
+                "xml_version": j.xml_version,
             })
         })
         .collect();

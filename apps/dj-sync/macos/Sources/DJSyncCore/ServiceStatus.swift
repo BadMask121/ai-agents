@@ -14,6 +14,11 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     public var message: String
     public var createdAt: String?
     public var finishedAt: String?
+    /// Counts and version (dj-sync ≥ 0.5; optional for older versions).
+    public var links: Int?
+    public var tracks: Int?
+    public var errors: Int?
+    public var xmlVersion: String?
     public var id: String { jobId }
 
     /// When it finished, else when it was queued.

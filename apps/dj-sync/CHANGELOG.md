@@ -11,6 +11,13 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [0.5.0] — 2026-10-28
+
+### Added
+- `GET /local/status` lists the last 10 jobs (was 3), each with `links`,
+  `tracks`, `errors` and `xml_version`, so the menu bar app can notify about
+  new requests and finished downloads.
+
 ## [0.4.0] — 2026-10-28
 
 ### Added

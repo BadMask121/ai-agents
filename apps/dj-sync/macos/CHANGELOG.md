@@ -4,6 +4,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [0.5.0] — 2026-10-28
+### Added
+- macOS notifications. **New download request** fires as soon as a request
+  reaches this Mac (including ones queued while it was offline, once they're
+  claimed). **Added to Rekordbox** or **Download failed** fires when a job
+  finishes, with track count and XML version. Clicking a notification opens
+  DJ Sync.
+  - It works even with the panel closed: dj-sync is checked every 4 s.
+  - Launching the app doesn't replay old jobs.
+  - A job that's new and already finished produces one notification, not two.
+  - Muted or restyled in System Settings → Notifications → DJ Sync.
+  - Every notification is logged to `~/.dj-sync/notifications.log`.
+
 ## [0.4.2] — 2026-10-28
 ### Changed
 - Compact everywhere: the window now uses the same single 340 pt column as

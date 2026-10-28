@@ -15,11 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: NSStatusItem?
   private let popover = NSPopover()
   private var window: NSWindow?
+  private let notifier = Notifier()
+  private var watcher = JobWatcher()
 
   private static let autosaveName = "DJSyncStatusItem"
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     installStatusItem()
+    startNotifications()
     // Login-item launches happen right after boot; stay in the menu bar then.
     if ProcessInfo.processInfo.systemUptime > 300 {
       showWindow()
@@ -117,6 +120,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     placement.write(to: FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".dj-sync/menu-bar.json"))
     log.notice("menu bar icon: \(String(describing: placement.visibility), privacy: .public)")
+  }
+
+  // MARK: Notifications
+
+  /// Watch dj-sync in the background (the panel's own polling only runs
+  /// while it's open) and notify about new requests and finished jobs.
+  private func startNotifications() {
+    notifier.onOpen = { [weak self] in self?.showWindow() }
+    notifier.start()
+    Task { [weak self] in
+      let client = StatusClient()
+      while !Task.isCancelled {
+        if let status = await client.fetch(), let self {
+          for event in self.watcher.update(status.recentJobs) {
+            self.notifier.post(event)
+          }
+        }
+        try? await Task.sleep(for: .seconds(4))
+      }
+    }
   }
 
   // MARK: Window

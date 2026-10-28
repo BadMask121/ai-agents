@@ -29,7 +29,7 @@ struct MenuView: View {
       RekordboxCard(model: model)
       ConnectionsCard(model: model)
       if let jobs = model.status?.recentJobs, !jobs.isEmpty {
-        RecentCard(jobs: jobs)
+        RecentCard(jobs: Array(jobs.prefix(3)))
           .transition(.enter(reduceMotion))
       }
       FooterActions(model: model)

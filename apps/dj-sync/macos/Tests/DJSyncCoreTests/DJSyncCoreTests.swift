@@ -179,3 +179,51 @@ struct ConnectionsTests {
     #expect(h.protocol == "1.0.0")
   }
 }
+
+struct JobWatcherTests {
+  func job(_ id: String, _ state: String, playlist: String = "Friday") -> ServiceStatus.Job {
+    ServiceStatus.Job(jobId: id, state: state, playlist: playlist, message: "", createdAt: nil, finishedAt: nil)
+  }
+
+  @Test func `launching doesn't replay existing jobs`() {
+    var w = JobWatcher()
+    #expect(w.update([job("a", "done"), job("b", "running")]).isEmpty)
+  }
+
+  @Test func `a new request, then its completion`() {
+    var w = JobWatcher()
+    _ = w.update([])
+    #expect(w.update([job("a", "queued")]) == [.requested(job("a", "queued"))])
+    #expect(w.update([job("a", "running")]).isEmpty, "running isn't news")
+    #expect(w.update([job("a", "done")]) == [.finished(job("a", "done"))])
+    #expect(w.update([job("a", "done")]).isEmpty, "only once")
+  }
+
+  @Test func `a job waiting in the queue is announced once`() {
+    var w = JobWatcher()
+    _ = w.update([])
+    #expect(w.update([job("q", "queued")]).count == 1)
+    #expect(w.update([job("q", "queued")]).isEmpty)
+    #expect(w.update([job("q", "queued")]).isEmpty)
+  }
+
+  @Test func `new and already over is one event`() {
+    var w = JobWatcher()
+    _ = w.update([])
+    #expect(w.update([job("x", "failed")]) == [.failed(job("x", "failed"))])
+  }
+
+  @Test func `several at once are announced oldest first`() {
+    var w = JobWatcher()
+    _ = w.update([job("old", "done")])
+    let events = w.update([job("c", "queued"), job("b", "running"), job("old", "done")])
+    #expect(events == [.requested(job("b", "running")), .requested(job("c", "queued"))])
+  }
+
+  @Test func `jobs from a restarted dj-sync are new`() {
+    var w = JobWatcher()
+    _ = w.update([job("a", "done")])
+    _ = w.update([])  // dj-sync restarted: history gone
+    #expect(w.update([job("z", "queued")]) == [.requested(job("z", "queued"))])
+  }
+}
