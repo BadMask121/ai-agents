@@ -12,7 +12,7 @@ import { tokensOf, type UsageEvent } from "./usage";
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-latest";
 
-export type RouteAction = "download" | "list_playlists" | "search_tracks" | "other";
+export type RouteAction = "download" | "link_task" | "list_playlists" | "search_tracks" | "other";
 export const NO_PLAYLIST = "(none)";
 export const ALL_FOLDERS = "(all)";
 
@@ -37,8 +37,20 @@ export interface JevClient {
 
 const ACTIONS: Record<RouteAction, unknown> = {
   download: {
-    what: "The message has a Spotify or YouTube link: get that song/album/playlist into Rekordbox, optionally into a named playlist",
-    examples: ["add this to Gqom <link>", "<link> amapiano", "put this song in my wedding playlist <link>", "<link>"],
+    what:
+      "The message has a Spotify or YouTube link and only asks to get that song/album/playlist into Rekordbox, " +
+      "optionally into a named playlist",
+    examples: ["add this to Gqom <link>", "<link> amapiano", "put this song in my wedding playlist <link>", "<link>", "download this playlist <link>"],
+  },
+  link_task: {
+    what:
+      "The message has a link but asks for more than downloading it: check or compare its songs with the library " +
+      "or a playlist, copy or move songs, make a new playlist with a name, or a question about it",
+    examples: [
+      "check which songs in this playlist we already have <link>",
+      "<link> find these in shayo 29 and copy them to oct 29",
+      "<link> into a new playlist called Lagos Nights",
+    ],
   },
   list_playlists: { what: "No link. Show or list their playlists, optionally filtered by a folder or words" },
   search_tracks: { what: "No link. Find songs already in their library by title, artist or genre" },

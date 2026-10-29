@@ -40,6 +40,9 @@ describe("router layer 1: code", () => {
     expect(namesAfterPreposition("Add this song to Afrobeat - Wa")).toEqual(["Afrobeat - Wa"]);
     expect(namesAfterPreposition("put this in my amapiano chill playlist")).toEqual(["amapiano chill"]);
     expect(namesAfterPreposition("gqom")).toEqual([]);
+    // Only after download words: a question about a playlist isn't a download into it.
+    expect(namesAfterPreposition("which of these do I already have in friday")).toEqual([]);
+    expect(namesAfterPreposition("should go in road trip")).toEqual(["road trip"]);
   });
 
   it("matches exactly, and gives up when the readings disagree or a name is shared", () => {
@@ -76,6 +79,14 @@ describe("router layer 2: Jev's answer is trusted only when it's sure and the na
     // Sure, but the name isn't in the message: still a question.
     const wrong = route({ playlist: byId("w1"), playlistConfidence: JEV_ACT_CONFIDENCE });
     expect(decideLink(wrong, "wedding", LIB).kind).toBe("buttons");
+  });
+
+  it("sends a whole instruction around a link to the assistant, whatever Jev says", () => {
+    const msg = "Check the songs we have in this playlist And make sure we find the songs in shayo 29 and copy it to the another playlist named oct 29";
+    expect(decideLink(route({ playlist: byId("a1"), playlistConfidence: 0.99, ranked: [{ playlist: byId("a1"), p: 0.99 }] }), msg, LIB)).toEqual({ kind: "assistant" });
+    expect(decideLink(route({ action: "link_task", actionConfidence: 0.6 }), "check these against friday", LIB)).toEqual({ kind: "assistant" });
+    // Little words don't count: still a playlist phrase.
+    expect(decideLink(route({ playlist: byId("c1"), playlistConfidence: 0.95 }), "chuck it on the chill amapiano one", LIB).kind).toBe("queue");
   });
 
   it("sends 'other' and new-playlist wording to the assistant", () => {

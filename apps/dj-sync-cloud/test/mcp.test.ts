@@ -56,6 +56,7 @@ describe("protocol", () => {
       "add_tracks_to_playlist",
       "remove_tracks_from_playlist",
       "move_tracks",
+      "copy_tracks",
       "rename_playlist",
       "delete_playlist",
     ]);
@@ -65,7 +66,7 @@ describe("protocol", () => {
     for (const n of ["get_download_status", "list_playlists", "search_tracks", "get_playlist"]) {
       expect(byName[n].annotations.readOnlyHint, n).toBe(true);
     }
-    for (const n of ["create_playlist", "add_tracks_to_playlist", "remove_tracks_from_playlist", "move_tracks", "rename_playlist"]) {
+    for (const n of ["create_playlist", "add_tracks_to_playlist", "remove_tracks_from_playlist", "move_tracks", "copy_tracks", "rename_playlist"]) {
       expect(byName[n].annotations, n).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     }
     expect(byName.delete_playlist.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });

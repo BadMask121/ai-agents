@@ -24,6 +24,15 @@ const words = (s: string) => normalizeName(s).split(" ").filter(Boolean);
 // ---------- 1. code ----------
 
 const PLAYLIST_LEAD = new Set(["my", "the", "a", "playlist"]);
+/**
+ * What may come before "to" / "into" / "in" for the rest to be a playlist
+ * name: "add this song to …", "throw it in …", "should go in …". Anything
+ * else ("which of these do I have in Friday") isn't a download into it.
+ */
+const BEFORE_NAME_OK = new Set(
+  ("add put save send download throw chuck drop get grab move copy this that it these them those both all and " +
+    "song songs track tracks tune tunes one the my please pls can you should go goes must also too").split(" "),
+);
 const PLAYLIST_TAIL = new Set(["playlist", "please", "one", "pls", "thanks"]);
 const BEFORE_NAME = new Set(["to", "into", "in", "onto"]);
 
@@ -38,6 +47,7 @@ export function namesAfterPreposition(text: string): string[] {
   const out: string[] = [];
   for (const i of [...new Set([at[0], at.at(-1)])]) {
     if (i === undefined) continue;
+    if (!raw.slice(0, i).every((w) => BEFORE_NAME_OK.has(normalizeName(w)) || normalizeName(w) === "")) continue;
     const rest = raw.slice(i + 1);
     while (rest.length > 0 && PLAYLIST_LEAD.has(rest[0]!.toLocaleLowerCase())) rest.shift();
     while (rest.length > 0 && PLAYLIST_TAIL.has(rest.at(-1)!.toLocaleLowerCase())) rest.pop();
@@ -63,6 +73,36 @@ export function exactPlaylist(playlists: LibPlaylist[], full: string, hint: stri
     if (m.kind === "one") found.set(m.playlist.id, m.playlist);
   }
   return found.size === 1 ? [...found.values()][0]! : null;
+}
+
+/** "rename Friday to Friday Night" (also "please rename my Friday playlist as Friday Night"). */
+const RENAME = /^\s*(?:(?:please|pls|can you|could you)\s+)?rename\s+(.+?)[\s.!]*$/iu;
+const RENAME_SPLIT = /\s+(?:to|as|into)\s+/giu;
+const unquote = (s: string) => s.trim().replace(/^["“'‘]+|["”'’]+$/gu, "").trim();
+
+export type RenameRequest = { kind: "rename"; playlist: LibPlaylist; newName: string } | { kind: "unknown"; from: string } | null;
+
+/**
+ * A rename asked in plain words. Names can contain "to" ("Road to Lagos"), so
+ * each "to" is tried, last first, and the reading whose old name is exactly
+ * one playlist wins. `unknown` when none is; null when it isn't a rename.
+ */
+export function renameRequest(text: string, playlists: LibPlaylist[]): RenameRequest {
+  const rest = RENAME.exec(text)?.[1];
+  if (!rest) return null;
+  const splits = [...rest.matchAll(RENAME_SPLIT)].reverse();
+  if (splits.length === 0) return null;
+  let firstFrom = "";
+  for (const m of splits) {
+    let from = unquote(rest.slice(0, m.index));
+    from = from.replace(/^(?:the|my)\s+/iu, "").replace(/^playlist\s+/iu, "").replace(/\s+playlist$/iu, "");
+    const newName = unquote(rest.slice(m.index! + m[0].length));
+    if (from === "" || newName === "") continue;
+    firstFrom ||= from;
+    const found = resolvePlaylist(playlists, from);
+    if (found.kind === "one") return { kind: "rename", playlist: found.playlist, newName };
+  }
+  return firstFrom ? { kind: "unknown", from: firstFrom } : null;
 }
 
 // ---------- 2. Jev ----------
@@ -97,8 +137,29 @@ export function namedIn(playlist: LibPlaylist, text: string, playlists: LibPlayl
 /** Jev's likely playlists, best first, for buttons. */
 const suggestions = (r: JevRoute) => r.ranked.filter((x) => x.p >= 0.05).map((x) => x.playlist);
 
+/** Playlist names are short; more words around a link than this is an instruction. */
+const NAME_WORDS_MAX = 6;
+
+/** Little words that don't make a phrase more of an instruction ("chuck it on the chill one"). */
+const SMALL_WORDS = new Set(
+  "a an the it its this that these those one ones on in into to onto for of my our me us please pls thanks tune song songs track tracks".split(" "),
+);
+
+const QUESTION = /\?|^\s*(?:which|what|whats|what's|how|do|does|did|is|are|can|could|have|has|why|where|when)\b/iu;
+
+/**
+ * Words around a link that read as an instruction or a question, not a
+ * playlist name: the assistant's job.
+ */
+export function looksLikeInstruction(hint: string): boolean {
+  return QUESTION.test(hint) || words(hint).filter((w) => !SMALL_WORDS.has(w)).length > NAME_WORDS_MAX;
+}
+
 /** A message with links whose playlist code couldn't pin down. */
 export function decideLink(r: JevRoute, hint: string, playlists: LibPlaylist[]): Decision {
+  if (looksLikeInstruction(hint)) return { kind: "assistant" };
+  // "A link and something else": the assistant reads it (it's safe to send there when only fairly sure).
+  if (r.action === "link_task" && r.actionConfidence >= 0.5) return { kind: "assistant" };
   if (sure(r.actionConfidence) && r.action === "other") return { kind: "assistant" };
   if (
     r.action === "download" &&

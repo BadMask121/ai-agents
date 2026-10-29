@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { jevClient, type JevRoute } from "../src/jev.ts";
-import { decideLink, decideText, exactPlaylist, type Decision } from "../src/routing.ts";
+import { decideLink, decideText, exactPlaylist, looksLikeInstruction, renameRequest, type Decision } from "../src/routing.ts";
 import type { LibPlaylist } from "../src/store.ts";
 import { splitMessage } from "../src/telegram-bot.ts";
 
@@ -32,10 +32,13 @@ const label = (d: Decision) =>
 async function decide(text: string): Promise<{ decision: string; layer: string; route: JevRoute | null }> {
   const { links, full, hint } = splitMessage(text);
   if (links.length === 0) {
+    const rename = renameRequest(text, playlists);
+    if (rename?.kind === "rename") return { decision: `rename:${rename.playlist.id}`, layer: "code", route: null };
     const route = await jev.route(text, [], playlists);
     return { decision: label(decideText(route, text)), layer: "jev", route };
   }
   if (hint === "") return { decision: "buttons", layer: "code", route: null };
+  if (looksLikeInstruction(hint)) return { decision: "assistant", layer: "code", route: null };
   const exact = exactPlaylist(playlists, full, hint);
   if (exact) return { decision: `queue:${exact.id}`, layer: "code", route: null };
   const route = await jev.route(text, links, playlists);

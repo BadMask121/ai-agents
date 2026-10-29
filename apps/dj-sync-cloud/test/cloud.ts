@@ -28,6 +28,8 @@ export interface CloudOptions {
   ai?: AiRunner;
   /** A fake Jev for every Tenant (the Telegram router). */
   router?: JevClient;
+  /** Playlist names for links (oEmbed); default: none, so tests never reach Spotify / YouTube. */
+  titles?: Record<string, string>;
 }
 
 export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
@@ -39,6 +41,7 @@ export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {
     if (opts.telegram) t.telegramApi = opts.telegram;
     if (opts.ai) t.aiRunner = opts.ai;
     if (opts.router) t.jevRouter = opts.router;
+    t.titleLookup = async (url) => opts.titles?.[url] ?? null;
   });
   const REGISTRY = new FakeNamespace(Registry, () => env, (r) => (r.clock = clock));
   env.TENANT = TENANT;

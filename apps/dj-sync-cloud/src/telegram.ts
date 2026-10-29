@@ -218,6 +218,7 @@ async function pair(code: string, chatId: string, user: TgUser, ns: Namespaces, 
 export const BOT_COMMANDS = [
   { command: "playlists", description: "Your Rekordbox playlists (add words to filter)" },
   { command: "search", description: "Find tracks in your library" },
+  { command: "rename", description: "Rename a playlist: /rename Friday to Friday Night" },
   { command: "status", description: "Your latest downloads and changes" },
   { command: "help", description: "How to use DJ Sync here" },
   { command: "stop", description: "Disconnect this chat from DJ Sync" },

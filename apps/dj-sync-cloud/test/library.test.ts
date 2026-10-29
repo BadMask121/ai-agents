@@ -696,3 +696,40 @@ describe("move_tracks (connect-anywhere spec §1b)", () => {
     expect(text(self)).toContain("both the source and the target");
   });
 });
+
+describe("copy_tracks", () => {
+  const jobOps = async (deps: Deps, jobId: string) => (await deps.store.getJob(jobId))!.ops;
+
+  it("copies a whole playlist, leaving the source alone and skipping tracks already there", async () => {
+    const { deps } = await withLibrary();
+    // Amapiano Bangers = t1, t3, t4; Warmup already has t1.
+    const r = await call(deps, "copy_tracks", { from_playlist: "amapiano bangers", to_playlist: "warm up", all: true });
+    expect(r.isError).toBe(false);
+    expect(r.structuredContent.summary).toBe('Copy 2 tracks from "Amapiano Bangers" to "Warmup" (1 already there)');
+    expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
+      { op: "add_to_playlist", playlist: "Warmup", content_id: "t3", playlist_id: "p3" },
+      { op: "add_to_playlist", playlist: "Warmup", content_id: "t4", playlist_id: "p3" },
+    ]);
+  });
+
+  it("copies chosen tracks into a new playlist when asked", async () => {
+    const { deps } = await withLibrary();
+    const no = await call(deps, "copy_tracks", { from_playlist: "Warmup", to_playlist: "Oct 29", track_ids: ["t2"] });
+    expect(no.isError).toBe(true);
+    expect(text(no)).toContain("To copy them into a new playlist, call again with create_playlist: true");
+    const r = await call(deps, "copy_tracks", { from_playlist: "Warmup", to_playlist: "Oct 29", track_ids: ["t2"], create_playlist: true });
+    expect(await jobOps(deps, r.structuredContent.job_id)).toEqual([
+      { op: "ensure_playlist", name: "Oct 29" },
+      { op: "add_to_playlist", playlist: "Oct 29", content_id: "t2" },
+    ]);
+  });
+
+  it("says so when there's nothing to copy", async () => {
+    const { deps } = await withLibrary();
+    const same = await call(deps, "copy_tracks", { from_playlist: "Warmup", to_playlist: "Warmup", all: true });
+    expect(text(same)).toContain("both the source and the target");
+    const already = await call(deps, "copy_tracks", { from_playlist: "Warmup", to_playlist: "Amapiano Bangers", track_ids: ["t1"] });
+    expect(text(already)).toContain('already in "Amapiano Bangers"; nothing to copy');
+    expect(text(await call(deps, "copy_tracks", { from_playlist: "Warmup", to_playlist: "Closing" }))).toContain("Say which tracks to copy");
+  });
+});
