@@ -11,7 +11,8 @@ import { decideLink, decideText, exactPlaylist } from "./routing";
 import { sha256Hex } from "./bytes";
 import { TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
-import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, searchTracks, sortPlaylists } from "./library";
+import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, sortPlaylists } from "./library";
+import { libraryIndex, searchIndex } from "./search";
 import { asLink, extractMediaRef, type MediaRef } from "./links";
 import type { SqlStore } from "./sqlstore";
 import type { LibPlaylist } from "./store";
@@ -429,9 +430,11 @@ async function playlistsText(host: BotHost, words: string): Promise<string> {
 
 async function searchText(host: BotHost, words: string): Promise<string> {
   if (words === "") return "Usage: /search <words>, e.g. /search burna boy";
-  const [tracks, playlists] = await Promise.all([host.store.getLibraryTracks(), host.store.getLibraryPlaylists()]);
-  if (!tracks) return NO_LIBRARY;
-  const hits = searchTracks(tracks, { query: words });
+  const [index, playlists] = await Promise.all([libraryIndex(host.store), host.store.getLibraryPlaylists()]);
+  if (!index) return NO_LIBRARY;
+  const result = searchIndex(index, { query: words });
+  host.deps.onSearch?.(result.match);
+  const hits = result.tracks;
   if (hits.length === 0) return `No tracks match “${words}”.`;
   const lines = hits.slice(0, SEARCH_SHOWN).map((t) => {
     const extra = [t.bpm !== null ? `${Math.round(t.bpm * 10) / 10} BPM` : null, t.key].filter(Boolean).join(" · ");
@@ -439,7 +442,12 @@ async function searchText(host: BotHost, words: string): Promise<string> {
     const where = inPl.length === 0 ? "" : `\n   in ${inPl.slice(0, 3).join(", ")}${inPl.length > 3 ? ` +${inPl.length - 3} more` : ""}`;
     return `• ${t.artist ? `${t.artist} — ` : ""}${t.title}${extra ? ` · ${extra}` : ""}${where}`;
   });
-  return `${plural(hits.length, "track")} match${hits.length > SEARCH_SHOWN ? ` (showing ${SEARCH_SHOWN})` : ""}:\n${lines.join("\n")}`;
+  const more = hits.length > SEARCH_SHOWN ? ` (showing ${SEARCH_SHOWN})` : "";
+  const head =
+    result.match === "close"
+      ? `No exact match for “${words}”. Closest${more}:`
+      : `${plural(hits.length, "track")} match${more}:`;
+  return `${head}\n${lines.join("\n")}`;
 }
 
 async function statusText(host: BotHost): Promise<string> {

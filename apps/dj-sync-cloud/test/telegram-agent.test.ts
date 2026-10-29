@@ -325,3 +325,43 @@ describe("Telegram assistant (connect-anywhere spec §1c)", () => {
     expect(store.takeAgentConfirm("abcdefgh")).toBeNull();
   });
 });
+
+describe("Telegram assistant: songs found only as close matches", () => {
+  it("asks before adding a close match to a playlist, and adds it on Yes", async () => {
+    const { c, tg, t, ai } = await setup();
+    // A typo in the artist: search forgives it, but only as a close match.
+    ai.script(
+      { calls: [{ name: "search_tracks", args: { query: "burnaa boy ye" } }] },
+      (inputs) => {
+        const result = inputs.messages.at(-1).content as string;
+        expect(result).toContain("No exact match for “burnaa boy ye”");
+        return { calls: [{ name: "add_tracks_to_playlist", args: { playlist: "Friday", track_ids: ["t1"] } }] };
+      },
+    );
+    await say(c, "add ye by burnaa boy to friday");
+    const ask = tg.last(CHAT);
+    expect(ask.text).toBe("Add “Ye” by Burna Boy to “Friday”? I found it as a close match, not an exact one.");
+    expect(await jobs(c, t)).toHaveLength(0);
+
+    await hook(c, tap(CHAT, ask.reply_markup.inline_keyboard[0][0].callback_data, 80));
+    const [job] = await jobs(c, t);
+    expect(job.ops).toEqual([{ op: "add_to_playlist", playlist: "Friday", content_id: "t1", playlist_id: "p3" }]);
+
+    // The next message still remembers it was a close match.
+    ai.script({ calls: [{ name: "remove_tracks_from_playlist", args: { playlist: "Friday", track_ids: ["t1"] } }] });
+    await say(c, "actually take it out again");
+    expect(tg.last(CHAT).text).toContain("I found it as a close match");
+  });
+
+  it("doesn't ask when the search was exact", async () => {
+    const { c, tg, t, ai } = await setup();
+    ai.script(
+      { calls: [{ name: "search_tracks", args: { query: "burna boy ye" } }] },
+      { calls: [{ name: "add_tracks_to_playlist", args: { playlist: "Friday", track_ids: ["t1"] } }] },
+      { text: "Added Ye to Friday." },
+    );
+    await say(c, "add ye by burna boy to friday");
+    expect(tg.last(CHAT).text).toBe("Added Ye to Friday.");
+    expect(await jobs(c, t)).toHaveLength(1);
+  });
+});

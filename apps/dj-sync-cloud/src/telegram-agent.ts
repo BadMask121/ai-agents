@@ -54,9 +54,32 @@ export const agentLimited = () =>
   `That's today's limit of ${AGENT_MESSAGES_PER_DAY} questions to DJ Sync's assistant — commands and links still ` +
   "work: /playlists, /search <words>, /status, or send a link.";
 
-/** The tools that change a lot at once and need a tap first. */
-function needsConfirmation(name: string, args: Record<string, unknown>): boolean {
-  return name === "delete_playlist" || (name === "move_tracks" && args.all === true);
+const TRACK_CHANGES = new Set(["add_tracks_to_playlist", "remove_tracks_from_playlist", "move_tracks"]);
+
+/**
+ * The changes that need a tap first: ones that change a lot at once, and
+ * ones about songs a search only found as close matches (a typo forgiven or
+ * a word missing), so a near-miss never lands in a playlist unasked.
+ */
+function needsConfirmation(name: string, args: Record<string, unknown>, close: Set<string>): boolean {
+  if (name === "delete_playlist" || (name === "move_tracks" && args.all === true)) return true;
+  return TRACK_CHANGES.has(name) && Array.isArray(args.track_ids) && args.track_ids.some((id) => close.has(String(id)));
+}
+
+/** Track ids this chat's searches only found as close matches (kept as long as the chat's memory). */
+function closeIds(host: AgentHost): Set<string> {
+  const raw = host.store.meta(`agent_close:${host.chatId}`);
+  if (!raw) return new Set();
+  try {
+    const { at, ids } = JSON.parse(raw) as { at: string; ids: string[] };
+    return at >= addSeconds(host.now(), -AGENT_MEMORY_SECONDS).toISOString() ? new Set(ids) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberClose(host: AgentHost, ids: Set<string>): void {
+  host.store.setMeta(`agent_close:${host.chatId}`, JSON.stringify({ at: host.now().toISOString(), ids: [...ids].slice(-100) }));
 }
 
 export function systemPrompt(today: string): string {
@@ -76,6 +99,7 @@ export function systemPrompt(today: string): string {
       "playlist set create_playlist: true.",
     "- Copy tracks = add_tracks_to_playlist; move them = move_tracks.",
     "- \"Which playlist has <song>?\" = one search_tracks call: each track it finds lists the playlists it's in.",
+    "- If search_tracks says \"No exact match\", say which song you found and ask before changing a playlist with it.",
     "- If the request is unclear, ask one short question instead of guessing.",
     "- Never mention tool names, job ids, files (XML, databases) or other internals in a reply. Say what happened " +
       "in plain words, e.g. \"Added to Afrobeat - Wa.\"",
@@ -191,16 +215,23 @@ export function tidy(text: string): string {
 }
 
 /** Run one tool through the MCP dispatcher; the text the model sees, truncated. */
-async function runTool(deps: Deps, name: string, args: Record<string, unknown>): Promise<{ text: string; jobId: string | null }> {
+async function runTool(
+  deps: Deps,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ text: string; jobId: string | null; closeIds: string[] }> {
   const reply = (await dispatch({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, deps)) as {
     result?: { content?: { text?: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
     error?: { message?: string };
   };
-  if (reply.error) return { text: `Error: ${reply.error.message ?? "the tool failed"}`, jobId: null };
+  if (reply.error) return { text: `Error: ${reply.error.message ?? "the tool failed"}`, jobId: null, closeIds: [] };
   const text = reply.result?.content?.[0]?.text ?? "";
   const jobId = typeof reply.result?.structuredContent?.job_id === "string" ? reply.result.structuredContent.job_id : null;
   const clipped = text.length > AGENT_TOOL_RESULT_CHARS ? `${text.slice(0, AGENT_TOOL_RESULT_CHARS)}\n…(truncated)` : text;
-  return { text: (reply.result?.isError ? "Error: " : "") + clipped, jobId };
+  const sc = reply.result?.structuredContent;
+  const closeIds =
+    sc?.match === "close" && Array.isArray(sc.tracks) ? (sc.tracks as { track_id?: unknown }[]).map((t) => String(t.track_id)) : [];
+  return { text: (reply.result?.isError ? "Error: " : "") + clipped, jobId, closeIds };
 }
 
 /**
@@ -217,6 +248,7 @@ export async function runAgent(host: AgentHost, userText: string, onJob: (jobId:
     { role: "user", content: userText },
   ];
   const results: string[] = [];
+  const close = closeIds(host);
   try {
     const tools = await agentTools(host.deps);
     for (let round = 0; round < AGENT_MAX_ROUNDS; round++) {
@@ -251,8 +283,8 @@ export async function runAgent(host: AgentHost, userText: string, onJob: (jobId:
           messages.push({ role: "tool", tool_call_id: call.id, content: "Error: arguments must be a JSON object." });
           continue;
         }
-        if (needsConfirmation(call.name, args)) {
-          const confirm = await confirmation(host, call.name, args);
+        if (needsConfirmation(call.name, args, close)) {
+          const confirm = await confirmation(host, call.name, args, close);
           if (confirm) {
             remember(host, "user", userText);
             remember(host, "assistant", confirm.text);
@@ -260,7 +292,11 @@ export async function runAgent(host: AgentHost, userText: string, onJob: (jobId:
           }
           // The playlist isn't clear: run it, so the model gets the suggestions.
         }
-        const { text, jobId } = await runTool(host.deps, call.name, args);
+        const { text, jobId, closeIds: near } = await runTool(host.deps, call.name, args);
+        if (near.length > 0) {
+          for (const id of near) close.add(id);
+          rememberClose(host, close);
+        }
         if (jobId) onJob(jobId);
         results.push(text);
         messages.push({ role: "tool", tool_call_id: call.id, content: text });
@@ -279,9 +315,15 @@ export async function runAgent(host: AgentHost, userText: string, onJob: (jobId:
 // ---------- confirmations ----------
 
 /** Store the change and the question; null when the playlist(s) don't resolve to one (let the tool explain). */
-async function confirmation(host: AgentHost, tool: string, args: Record<string, unknown>): Promise<AgentOutcome | null> {
+async function confirmation(
+  host: AgentHost,
+  tool: string,
+  args: Record<string, unknown>,
+  close: Set<string> = new Set(),
+): Promise<AgentOutcome | null> {
   const playlists = await host.store.getLibraryPlaylists();
   if (!playlists) return null;
+  if (TRACK_CHANGES.has(tool) && !(tool === "move_tracks" && args.all === true)) return closeMatchConfirmation(host, tool, args, close);
   const pick = (name: unknown, id: unknown): LibPlaylist | null => {
     if (typeof id === "string" && id !== "") return playlists.find((p) => p.id === id) ?? null;
     if (typeof name !== "string") return null;
@@ -315,6 +357,34 @@ async function confirmation(host: AgentHost, tool: string, args: Record<string, 
   const id = randomBase64url(6);
   host.store.addAgentConfirm({ id, chat_id: host.chatId, tool, args: pinned, prompt: text, created_at: host.now().toISOString() });
   return { kind: "confirm", text, id, button };
+}
+
+/** "Add “Jealous” by Fireboy DML to Friday? I found it as a close match…" — the args run unchanged on Yes. */
+async function closeMatchConfirmation(
+  host: AgentHost,
+  tool: string,
+  args: Record<string, unknown>,
+  close: Set<string>,
+): Promise<AgentOutcome | null> {
+  const tracks = (await host.store.getLibraryTracks()) ?? [];
+  const ids = (Array.isArray(args.track_ids) ? args.track_ids : []).map(String);
+  const named = ids.map((id) => tracks.find((t) => t.id === id)).filter((t) => t !== undefined);
+  if (named.length === 0) return null; // unknown ids: let the tool explain
+  const songs =
+    named.length === 1
+      ? `“${named[0]!.title}”${named[0]!.artist ? ` by ${named[0]!.artist}` : ""}`
+      : `${named.length} songs (${named.slice(0, 3).map((t) => `“${t.title}”`).join(", ")}${named.length > 3 ? ", …" : ""})`;
+  const where =
+    tool === "add_tracks_to_playlist"
+      ? `Add ${songs} to “${String(args.playlist)}”`
+      : tool === "remove_tracks_from_playlist"
+        ? `Remove ${songs} from “${String(args.playlist)}”`
+        : `Move ${songs} from “${String(args.from_playlist)}” to “${String(args.to_playlist)}”`;
+  const nearCount = ids.filter((id) => close.has(id)).length;
+  const text = `${where}? I found ${nearCount === 1 && named.length === 1 ? "it" : "them"} as a close match, not an exact one.`;
+  const id = randomBase64url(6);
+  host.store.addAgentConfirm({ id, chat_id: host.chatId, tool, args, prompt: text, created_at: host.now().toISOString() });
+  return { kind: "confirm", text, id, button: "Yes" };
 }
 
 /** The Confirm / Cancel tap. Returns what to show, or null when it expired. */

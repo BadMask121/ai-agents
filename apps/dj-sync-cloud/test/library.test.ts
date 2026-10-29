@@ -307,7 +307,12 @@ describe("read tools", () => {
     expect(text).toContain("[track_id t3] · in Amapiano Bangers");
 
     expect((await s({ query: "amapiano tyl" })).tracks.map((t: Any) => t.track_id)).toEqual(["t2", "t1"]);
-    expect((await s({ query: "water zoo" })).total_matches).toBe(0);
+    // Not every word found: a close match, and the text says to check before acting on it.
+    const near = await s({ query: "water zoo" });
+    expect([near.match, near.tracks.map((t: Any) => t.track_id)]).toEqual(["close", ["t2"]]);
+    const nearText = (await call(deps, "search_tracks", { query: "water zoo" })).content[0].text as string;
+    expect(nearText).toContain("No exact match for “water zoo”. 1 close match (check with the DJ before changing a playlist with these)");
+    expect((await s({ query: "zzzz qqqq" })).match).toBe("none");
     expect((await s({ query: "jerusalema (album)" })).tracks.map((t: Any) => t.track_id)).toEqual(["t4"]);
     expect((await s({ artist: "TYL" })).tracks.map((t: Any) => t.track_id)).toEqual(["t2", "t1"]);
     expect((await s({ genre: "house" })).tracks.map((t: Any) => t.track_id)).toEqual(["t4"]);

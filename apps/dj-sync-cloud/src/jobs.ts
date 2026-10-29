@@ -21,6 +21,8 @@ export interface Deps {
    * Returns why it's refused, or null. Per-DJ limits (spec §3.7); v1 has none.
    */
   admit?: () => Promise<string | null>;
+  /** Hears how each track search went (the owner's /metrics); optional. */
+  onSearch?: (match: "exact" | "close" | "none") => void;
 }
 
 export interface AgentStatus {

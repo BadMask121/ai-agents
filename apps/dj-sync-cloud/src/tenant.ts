@@ -241,6 +241,7 @@ export class Tenant extends DurableObject<TenantEnv> {
         }
         return null;
       },
+      onSearch: (match) => this.recordUsage({ kind: "search", name: match, ok: match !== "none", ms: 0, tokensIn: 0, tokensOut: 0 }),
     };
   }
 
@@ -351,7 +352,9 @@ export class Tenant extends DurableObject<TenantEnv> {
     if (!(await this.authenticate(req, store))) return empty(404);
     if (req.method !== "POST") return empty(405, { allow: "POST" });
     this.cleanupDaily(store);
-    return mcpPost(req, this.deps(store), async (msg) => this.rateLimit(msg));
+    const res = await mcpPost(req, this.deps(store), async (msg) => this.rateLimit(msg));
+    await this.flushUsage(); // ChatGPT / Claude searches count in /metrics too
+    return res;
   }
 
   /** Over 600 tool calls an hour: answer with a tool error instead (spec §3.7). */
@@ -451,6 +454,8 @@ export class Tenant extends DurableObject<TenantEnv> {
       library_generated_at: parsed.generated_at,
       library_version: parsed.library_version,
     });
+    // So the first search after an upload finds the index ready.
+    this.ctx.waitUntil(store.getSearchIndex().then(() => {}, () => {}));
     return json({ ok: true, playlists: parsed.playlists.length, tracks: parsed.tracks.length });
   }
 
