@@ -300,7 +300,11 @@ describe("read tools", () => {
       bpm: 113,
       key: "Am",
       duration_secs: 300,
+      playlists: ["Amapiano Bangers"],
     });
+    // "Which playlist has Abalele?" in one call: the text says where each track is.
+    const text = (await call(deps, "search_tracks", { query: "abalele" })).content[0].text as string;
+    expect(text).toContain("[track_id t3] · in Amapiano Bangers");
 
     expect((await s({ query: "amapiano tyl" })).tracks.map((t: Any) => t.track_id)).toEqual(["t2", "t1"]);
     expect((await s({ query: "water zoo" })).total_matches).toBe(0);

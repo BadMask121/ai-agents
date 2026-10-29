@@ -16,6 +16,9 @@
 //   GET  /__/telegram/chat?id=    → {tenant_id, link_id} | 404
 //   POST /__/telegram/forget_link {tenant_id, link_id} → {chat_ids}
 //   POST /__/telegram/forget_chat {chat_id, tenant_id}
+//   The owner's /metrics (usage.ts): model calls and how messages were handled, per day —
+//   POST /__/usage {day, events: UsageEvent[]}
+//   GET  /__/usage?since=YYYY-MM-DD → UsageRow[]
 
 import { DurableObject } from "cloudflare:workers";
 import { TENANT_ID, newAgentToken, newTenantId, randomBase64url, sha256Hex, utcDay } from "./bytes";
@@ -24,6 +27,8 @@ import {
   REGISTRATIONS_PER_DAY,
   REGISTRATIONS_PER_IP_PER_DAY,
   SWEEP_BATCH,
+  USAGE_DAYS,
+  USAGE_EVENTS_MAX,
   WORKER_VERSION,
 } from "./constants";
 import { addSeconds, json } from "./util";
@@ -40,7 +45,10 @@ CREATE TABLE IF NOT EXISTS registrations (ip_hash TEXT NOT NULL, day TEXT NOT NU
 CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, registrations INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS pairing_codes (code TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, link_id TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_chats (chat_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, link_id TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS telegram_chats_link ON telegram_chats (tenant_id, link_id)
+CREATE INDEX IF NOT EXISTS telegram_chats_link ON telegram_chats (tenant_id, link_id);
+CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL,
+  calls INTEGER NOT NULL, ms INTEGER NOT NULL, tokens_in INTEGER NOT NULL, tokens_out INTEGER NOT NULL,
+  PRIMARY KEY (day, kind, name, ok))
 `;
 
 type Row = Record<string, ArrayBuffer | string | number | null>;
@@ -76,7 +84,33 @@ export class Registry extends DurableObject<RegistryEnv> {
       return new Response(null, { status: 204 });
     }
     if (path.startsWith("/__/telegram/")) return this.telegram(req, path);
+    if (path === "/__/usage" && req.method === "POST") return this.addUsage((await req.json()) as Record<string, unknown>);
+    if (path === "/__/usage" && req.method === "GET") {
+      const since = new URL(req.url).searchParams.get("since") ?? "";
+      return json(this.rows("SELECT day, kind, name, ok, calls, ms, tokens_in, tokens_out FROM usage WHERE day >= ? ORDER BY day", since));
+    }
     return new Response(null, { status: 404 });
+  }
+
+  // ---------- usage (the owner's /metrics) ----------
+
+  private addUsage(b: Record<string, unknown>): Response {
+    const day = typeof b.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.day) ? b.day : null;
+    if (!day || !Array.isArray(b.events) || b.events.length > USAGE_EVENTS_MAX) return json({ error: "invalid_body" }, 400);
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : 0);
+    this.ctx.storage.transactionSync(() => {
+      for (const e of b.events as Record<string, unknown>[]) {
+        if ((e.kind !== "model" && e.kind !== "route") || typeof e.name !== "string" || e.name === "" || e.name.length > 100) continue;
+        this.ctx.storage.sql.exec(
+          `INSERT INTO usage (day, kind, name, ok, calls, ms, tokens_in, tokens_out) VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+           ON CONFLICT (day, kind, name, ok) DO UPDATE SET calls = calls + 1, ms = ms + excluded.ms,
+             tokens_in = tokens_in + excluded.tokens_in, tokens_out = tokens_out + excluded.tokens_out`,
+          day, e.kind, e.name, e.ok === false ? 0 : 1, n(e.ms), n(e.tokensIn), n(e.tokensOut),
+        );
+      }
+      this.ctx.storage.sql.exec("DELETE FROM usage WHERE day < ?", addSeconds(new Date(`${day}T00:00:00Z`), -USAGE_DAYS * 86400).toISOString().slice(0, 10));
+    });
+    return new Response(null, { status: 204 });
   }
 
   // ---------- Telegram ----------

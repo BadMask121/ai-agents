@@ -75,6 +75,7 @@ export function systemPrompt(today: string): string {
       "download to the default and add later. Omit playlist_name only when the user named none. For a new " +
       "playlist set create_playlist: true.",
     "- Copy tracks = add_tracks_to_playlist; move them = move_tracks.",
+    "- \"Which playlist has <song>?\" = one search_tracks call: each track it finds lists the playlists it's in.",
     "- If the request is unclear, ask one short question instead of guessing.",
     "- Never mention tool names, job ids, files (XML, databases) or other internals in a reply. Say what happened " +
       "in plain words, e.g. \"Added to Afrobeat - Wa.\"",

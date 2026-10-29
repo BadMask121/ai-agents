@@ -35,6 +35,8 @@ export interface BotHost {
   onAgentEvent?(e: AgentEvent): void | Promise<void>;
   /** The owner's private /stats: null for everyone else (then /stats isn't a command). */
   ownerStats?(chatId: string): Promise<string> | null;
+  /** The owner's private /metrics (Telegram HTML): null for everyone else. */
+  ownerMetrics?(chatId: string): Promise<string> | null;
   /** Jev, the fast router; null when it isn't configured (then code, then the assistant). */
   router?: JevClient | null;
   /** Hears what the router decided and which button the DJ picked (logs); optional. */
@@ -398,6 +400,11 @@ async function onCommand(host: BotHost, chatId: string, linkId: string, text: st
       if (stats) return void (await send(host.api, chatId, await stats));
       return void (await send(host.api, chatId, `I don't know /${command}.\n\n${HELP}`));
     }
+    case "metrics": {
+      const report = host.ownerMetrics?.(chatId);
+      if (report) return void (await send(host.api, chatId, await report, { parse_mode: "HTML" }));
+      return void (await send(host.api, chatId, `I don't know /${command}.\n\n${HELP}`));
+    }
     case "stop":
       await send(host.api, chatId, "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.");
       return host.disconnect(linkId);
@@ -422,13 +429,15 @@ async function playlistsText(host: BotHost, words: string): Promise<string> {
 
 async function searchText(host: BotHost, words: string): Promise<string> {
   if (words === "") return "Usage: /search <words>, e.g. /search burna boy";
-  const tracks = await host.store.getLibraryTracks();
+  const [tracks, playlists] = await Promise.all([host.store.getLibraryTracks(), host.store.getLibraryPlaylists()]);
   if (!tracks) return NO_LIBRARY;
   const hits = searchTracks(tracks, { query: words });
   if (hits.length === 0) return `No tracks match “${words}”.`;
   const lines = hits.slice(0, SEARCH_SHOWN).map((t) => {
     const extra = [t.bpm !== null ? `${Math.round(t.bpm * 10) / 10} BPM` : null, t.key].filter(Boolean).join(" · ");
-    return `• ${t.artist ? `${t.artist} — ` : ""}${t.title}${extra ? ` · ${extra}` : ""}`;
+    const inPl = (playlists ?? []).filter((p) => p.track_ids.includes(t.id)).map(playlistPath);
+    const where = inPl.length === 0 ? "" : `\n   in ${inPl.slice(0, 3).join(", ")}${inPl.length > 3 ? ` +${inPl.length - 3} more` : ""}`;
+    return `• ${t.artist ? `${t.artist} — ` : ""}${t.title}${extra ? ` · ${extra}` : ""}${where}`;
   });
   return `${plural(hits.length, "track")} match${hits.length > SEARCH_SHOWN ? ` (showing ${SEARCH_SHOWN})` : ""}:\n${lines.join("\n")}`;
 }

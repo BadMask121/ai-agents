@@ -7,6 +7,7 @@
 import { JEV_MAX_CHOICES, JEV_TIMEOUT_MS } from "./constants";
 import { closestPlaylists, playlistPath, sortPlaylists } from "./library";
 import type { LibPlaylist } from "./store";
+import { tokensOf, type UsageEvent } from "./usage";
 
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-latest";
@@ -76,7 +77,12 @@ interface JevAnswer {
   probabilities?: Record<string, number>;
 }
 
-export function jevClient(apiKey: string, fetcher: typeof fetch = fetch, timeoutMs = JEV_TIMEOUT_MS): JevClient {
+export function jevClient(
+  apiKey: string,
+  fetcher: typeof fetch = fetch,
+  timeoutMs = JEV_TIMEOUT_MS,
+  onCall: (e: UsageEvent) => void = () => {},
+): JevClient {
   return {
     async route(text, links, playlists) {
       const byLabel = playlistChoices(playlists, text);
@@ -98,14 +104,21 @@ export function jevClient(apiKey: string, fetcher: typeof fetch = fetch, timeout
         },
       };
       const started = Date.now();
-      const res = await fetcher(JEV_URL, {
-        method: "POST",
-        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ model: JEV_MODEL, state: { message: text, links }, questions }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!res.ok) throw new Error(`jev ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      const body = (await res.json()) as { model?: string; answers?: Record<string, JevAnswer> };
+      let body: { model?: string; answers?: Record<string, JevAnswer>; usage?: Record<string, unknown> };
+      try {
+        const res = await fetcher(JEV_URL, {
+          method: "POST",
+          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify({ model: JEV_MODEL, state: { message: text, links }, questions }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!res.ok) throw new Error(`jev ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        body = (await res.json()) as typeof body;
+      } catch (e) {
+        onCall({ kind: "model", name: JEV_MODEL, ok: false, ms: Date.now() - started, tokensIn: 0, tokensOut: 0 });
+        throw e;
+      }
+      onCall({ kind: "model", name: body.model ?? JEV_MODEL, ok: true, ms: Date.now() - started, ...tokensOf(body) });
       const a = body.answers ?? {};
       const action = a.action?.choice;
       if (!action || !(action in ACTIONS)) throw new Error("jev: no action in the answer");
