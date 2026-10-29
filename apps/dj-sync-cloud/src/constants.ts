@@ -92,6 +92,10 @@ export const JEV_TIMEOUT_MS = 1500;
 export const JEV_MAX_CHOICES = 255;
 /** Act on Jev's answer only at or above this confidence; below, ask (buttons or the assistant). */
 export const JEV_ACT_CONFIDENCE = 0.9;
+/** The owner's /metrics keeps this many days of counts (in the Registry). */
+export const USAGE_DAYS = 90;
+/** Usage events one Telegram message may report at once. */
+export const USAGE_EVENTS_MAX = 50;
 /** Each assistant model call gives up after this (then the next model is tried). */
 export const AGENT_CALL_TIMEOUT_MS = 15_000;
 

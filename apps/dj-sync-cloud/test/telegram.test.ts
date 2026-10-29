@@ -200,7 +200,7 @@ describe("Telegram bot", () => {
     await hook(c, msg(CHAT, "/playlists amapiano"));
     expect(tg.last(CHAT).text.split("\n")).toHaveLength(3);
     await hook(c, msg(CHAT, "/search burna"));
-    expect(tg.last(CHAT).text).toBe("1 track match:\n• Burna Boy — Ye · 102 BPM · 8A");
+    expect(tg.last(CHAT).text).toBe("1 track match:\n• Burna Boy — Ye · 102 BPM · 8A\n   in GQOM/Gqom, DJ Sync/Friday");
     await hook(c, msg(CHAT, "/search"));
     expect(tg.last(CHAT).text).toContain("Usage");
     await hook(c, msg(CHAT, "/status"));

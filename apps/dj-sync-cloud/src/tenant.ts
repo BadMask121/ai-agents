@@ -18,12 +18,15 @@
 import { downloadStatsText, type StatsBucket } from "./download-stats";
 import { chainRunner, fireworksRunner } from "./fireworks";
 import { jevClient, type JevClient } from "./jev";
+import { meteredRunner, usageReport, type UsageEvent, type UsageRow } from "./usage";
 import { recordAgentEvent, recordRouterEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
 import { LINK_SECRET, gunzip, isGzip, newLinkSecret, randomBase64url, sha256Hex, utcDay } from "./bytes";
 import {
   AGENT_MODEL,
+  JEV_TIMEOUT_MS,
+  USAGE_EVENTS_MAX,
   AGENT_PROTOCOL_V2,
   CLOSE_INCOMPATIBLE,
   CLOSE_OVER_LIMITS,
@@ -122,21 +125,66 @@ export class Tenant extends DurableObject<TenantEnv> {
    * keyed) with Workers AI behind it if it fails, else Workers AI alone.
    */
   private agent(): { ai: AiRunner; model?: string } | null {
-    if (this.aiRunner) return { ai: this.aiRunner, model: this.env.AI_MODEL };
+    const metered = (ai: AiRunner, model: string) => ({ ai: meteredRunner(ai, model, this.recordUsage), model });
+    if (this.aiRunner) return { ...metered(this.aiRunner, this.env.AI_MODEL || AGENT_MODEL), model: this.env.AI_MODEL };
     const chain: { ai: AiRunner; model: string }[] = [];
     if (this.env.FIREWORKS_API_KEY && this.env.AI_MODEL) {
-      chain.push({ ai: fireworksRunner(this.env.FIREWORKS_API_KEY), model: this.env.AI_MODEL });
+      chain.push(metered(fireworksRunner(this.env.FIREWORKS_API_KEY), this.env.AI_MODEL));
     }
-    if (this.env.AI) chain.push({ ai: this.env.AI, model: this.env.FIREWORKS_API_KEY ? AGENT_MODEL : this.env.AI_MODEL || AGENT_MODEL });
+    if (this.env.AI) chain.push(metered(this.env.AI, this.env.FIREWORKS_API_KEY ? AGENT_MODEL : this.env.AI_MODEL || AGENT_MODEL));
     if (chain.length === 0) return null;
     return { ai: chain.length === 1 ? chain[0]!.ai : chainRunner(chain), model: chain[0]!.model };
   }
   private router(): JevClient | null {
-    return this.jevRouter ?? (this.env.TYPESAFE_API_KEY ? jevClient(this.env.TYPESAFE_API_KEY) : null);
+    return this.jevRouter ?? (this.env.TYPESAFE_API_KEY ? jevClient(this.env.TYPESAFE_API_KEY, fetch, JEV_TIMEOUT_MS, this.recordUsage) : null);
+  }
+
+  /** Model calls and handling layers from the current Telegram message, sent to the Registry after it. */
+  private usageBuffer: UsageEvent[] = [];
+  private recordUsage = (e: UsageEvent): void => {
+    if (this.usageBuffer.length < USAGE_EVENTS_MAX) this.usageBuffer.push(e);
+  };
+  /** Which layer handled a message, from a router event (code / jev / buttons). */
+  private routeUsage(e: Record<string, unknown>): void {
+    const layer =
+      e.layer === "code" ? "code"
+      : e.layer === "jev" && ["queue", "list", "search"].includes(String(e.decision)) ? "jev"
+      : e.layer === "buttons" ? "buttons"
+      : null;
+    if (layer) this.recordUsage({ kind: "route", name: layer, ok: true, ms: typeof e.ms === "number" ? e.ms : 0, tokensIn: 0, tokensOut: 0 });
+  }
+  private async flushUsage(): Promise<void> {
+    const events = this.usageBuffer.splice(0);
+    if (events.length === 0) return;
+    try {
+      await this.registryStub()?.fetch("https://registry/__/usage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ day: utcDay(this.clock()), events }),
+      });
+    } catch (e) {
+      console.error(`usage not recorded: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  /** The owner's /metrics: null for everyone else. */
+  private ownerMetrics(chat: string): Promise<string> | null {
+    if (!this.env.ALERT_CHAT_ID || chat !== this.env.ALERT_CHAT_ID) return null;
+    return (async () => {
+      const today = utcDay(this.clock());
+      const since = addSeconds(new Date(`${today}T00:00:00Z`), -6 * 86400).toISOString().slice(0, 10);
+      try {
+        const res = await this.registryStub()?.fetch(`https://registry/__/usage?since=${since}`);
+        if (!res?.ok) return "Couldn't read the metrics.";
+        return usageReport((await res.json()) as UsageRow[], today);
+      } catch {
+        return "Couldn't read the metrics.";
+      }
+    })();
   }
   /** Log + optionally count each assistant call; alert the owner at most once an hour when it fails. */
   private async onAgentEvent(e: AgentEvent, api: TelegramApi | null): Promise<void> {
     recordAgentEvent(e, this.env.ANALYTICS);
+    this.recordUsage({ kind: "route", name: "assistant", ok: e.outcome !== "unavailable", ms: e.ms, tokensIn: 0, tokensOut: 0 });
     const to = this.env.ALERT_CHAT_ID;
     if (e.outcome !== "unavailable" || !to || !api) return;
     const store = this.store;
@@ -603,7 +651,11 @@ export class Tenant extends DurableObject<TenantEnv> {
           agent: this.agent(),
           onAgentEvent: (e) => this.onAgentEvent(e, api),
           router: this.router(),
-          onRouterEvent: (e) => recordRouterEvent(e, this.env.ANALYTICS),
+          onRouterEvent: (e) => {
+            recordRouterEvent(e, this.env.ANALYTICS);
+            this.routeUsage(e);
+          },
+          ownerMetrics: (chat) => this.ownerMetrics(chat),
           ownerStats: (chat) =>
             this.env.ALERT_CHAT_ID && chat === this.env.ALERT_CHAT_ID
               ? downloadStatsText(this.env.DOWNLOADS, this.clock().toISOString().slice(0, 10))
@@ -612,6 +664,7 @@ export class Tenant extends DurableObject<TenantEnv> {
         b.update as TgUpdate,
         link.id,
       );
+      await this.flushUsage();
       return handled ? json({ ok: true }) : json({ error: "not_paired" }, 404);
     }
     return empty(404);

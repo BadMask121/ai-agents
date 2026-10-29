@@ -249,8 +249,9 @@ function libraryToolDefinitions(): Json[] {
       title: "Search Rekordbox tracks",
       description:
         "Search the DJ's Rekordbox library. Every word of `query` must appear in the title, artist, " +
-        "album or genre; narrow with artist, genre, key and a BPM range. Returns track_ids to use " +
-        "with the playlist tools.",
+        "album or genre; narrow with artist, genre, key and a BPM range. Each track lists the " +
+        "playlists it's in, so this also answers \"which playlist has <song>\". Returns track_ids to " +
+        "use with the playlist tools.",
       inputSchema: {
         type: "object",
         properties: {
@@ -641,6 +642,18 @@ const trackLine = (t: ReturnType<typeof trackView>) =>
     .join("") +
   ` [track_id ${t.track_id}]`;
 
+/** Playlists named in a search result line; the rest are counted. */
+const TRACK_PLAYLISTS_SHOWN = 5;
+
+/** track_id → the "Folder/Name" of every playlist it's in. */
+function playlistsByTrack(playlists: LibPlaylist[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const p of sortPlaylists(playlists)) {
+    for (const id of new Set(p.track_ids)) out.set(id, [...(out.get(id) ?? []), playlistPath(p)]);
+  }
+  return out;
+}
+
 async function callListPlaylists(args: Obj | undefined, deps: Deps): Promise<Json> {
   const playlists = await deps.store.getLibraryPlaylists();
   if (!playlists) return toolError(NO_LIBRARY);
@@ -684,7 +697,7 @@ async function callSearchTracks(args: Obj | undefined, deps: Deps): Promise<Json
     limit = rawLimit;
   }
 
-  const tracks = await deps.store.getLibraryTracks();
+  const [tracks, playlists] = await Promise.all([deps.store.getLibraryTracks(), deps.store.getLibraryPlaylists()]);
   if (!tracks) return toolError(NO_LIBRARY);
   const hits = searchTracks(tracks, {
     query: str(args?.query),
@@ -694,14 +707,20 @@ async function callSearchTracks(args: Obj | undefined, deps: Deps): Promise<Json
     bpmMin: bpm.bpm_min,
     bpmMax: bpm.bpm_max,
   });
-  const shown = hits.slice(0, limit).map(trackView);
+  const inPlaylists = playlistsByTrack(playlists ?? []);
+  const shown = hits.slice(0, limit).map((t) => ({ ...trackView(t), playlists: inPlaylists.get(t.id) ?? [] }));
   const f = await freshness(deps);
+  const where = (names: string[]) =>
+    names.length === 0
+      ? " · in no playlist"
+      : ` · in ${names.slice(0, TRACK_PLAYLISTS_SHOWN).join(", ")}` +
+        (names.length > TRACK_PLAYLISTS_SHOWN ? ` (+${names.length - TRACK_PLAYLISTS_SHOWN} more)` : "");
   let text =
     hits.length === 0
       ? "No tracks match."
       : `${plural(hits.length, "track")} match` +
         (hits.length > shown.length ? ` (showing ${shown.length})` : "") +
-        `:\n${shown.map((t) => `- ${trackLine(t)}`).join("\n")}`;
+        `:\n${shown.map((t) => `- ${trackLine(t)}${where(t.playlists)}`).join("\n")}`;
   text += f.note;
   return toolResult(text, { tracks: shown, total_matches: hits.length, ...freshnessFields(f) }, false);
 }
