@@ -1,7 +1,7 @@
 {
   "name": "DJ Sync",
   "short_name": "DJ Sync",
-  "description": "Spotify and YouTube links to Rekordbox, from any chat. Free Mac app.",
+  "description": "Spotify, YouTube and SoundCloud links to Rekordbox, from any chat. Free Mac app.",
   "start_url": "/",
   "scope": "/",
   "display": "browser",

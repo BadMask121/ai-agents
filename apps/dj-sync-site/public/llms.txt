@@ -1,6 +1,6 @@
 # DJ Sync
 
-> DJ Sync is a free Mac menu bar app for DJs who use Rekordbox 6 or 7. You send a Spotify or YouTube link (or a plain request) from Telegram, Claude, ChatGPT or your iPhone, and the track downloads on your Mac straight into your Rekordbox library and the playlist you choose. It can also list, search, create, rename, delete and reorganise Rekordbox playlists, including moving tracks between playlists. Your library is backed up before every change.
+> DJ Sync is a free Mac menu bar app for DJs who use Rekordbox 6 or 7. You send a Spotify, YouTube or SoundCloud link (or a plain request) from Telegram, Claude, ChatGPT or your iPhone, and the track downloads on your Mac straight into your Rekordbox library and the playlist you choose. It can also list, search, create, rename, delete and reorganise Rekordbox playlists, including moving tracks between playlists. Your library is backed up before every change.
 
 - Price: free. No account, email or password.
 - Requirements: a Mac with macOS 14 Sonoma or later (Apple silicon or Intel) and Rekordbox 6 or 7. Windows is planned.
@@ -12,7 +12,7 @@
 
 - [Telegram](https://djsync.jeffrey.build/connect/telegram/): free on any phone. Pair the DJ Sync bot by QR code, then share a link and pick a playlist.
 - [Claude](https://djsync.jeffrey.build/connect/claude/): free plans include one custom connector (MCP). Ask Claude to download tracks or manage playlists.
-- [iPhone Shortcut](https://djsync.jeffrey.build/connect/iphone/): free. Scan a QR code, add the Shortcut, then Share → DJ Sync from Spotify or YouTube.
+- [iPhone Shortcut](https://djsync.jeffrey.build/connect/iphone/): free. Scan a QR code, add the Shortcut, then Share → DJ Sync from Spotify, YouTube or SoundCloud.
 - [ChatGPT](https://djsync.jeffrey.build/connect/chatgpt/): needs a paid ChatGPT plan (Plus or higher) to add a custom MCP connector. Refresh the connector after DJ Sync updates.
 
 ## Pages

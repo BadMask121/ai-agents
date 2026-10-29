@@ -109,7 +109,7 @@ def steps(items):
 
 CARDS = {
  "home": page("Free Mac app", 'Ask your AI.<br><em>It lands in Rekordbox.</em>',
-   "Send a Spotify or YouTube link from any chat. It downloads into your playlists.", LINK_TO_PLAYLIST),
+   "Send a Spotify, YouTube or SoundCloud link from any chat. It downloads into your playlists.", LINK_TO_PLAYLIST),
  "install": page("Install guide", 'Set up DJ Sync<br><em>in five minutes.</em>',
    "Free for Mac with Rekordbox&nbsp;6 or&nbsp;7. No account needed.",
    steps([("Download", "DJ-Sync-latest.dmg"), ("Open Anyway", "One time, in System Settings"), ("Connect", "Telegram, Claude, ChatGPT or iPhone")])),
@@ -131,7 +131,7 @@ CARDS = {
    + ''.join(f'<div class="app{" on" if n=="DJ Sync" else ""}"><i>{LOGO if n=="DJ Sync" else ""}</i>{n}</div>' for n in ["Messages", "DJ Sync", "Notes", "Mail"])
    + '</div><div class="label" style="margin-bottom:10px">Add to which playlist?</div><div class="list">'
    + track("Gqom", "109 tracks", picked=True) + track("Afro House", "86 tracks") + '</div>'),
- "default": page("Free Mac app", 'Spotify &amp; YouTube<br><em>to Rekordbox.</em>',
+ "default": page("Free Mac app", 'Spotify, YouTube<br><em>&amp; SoundCloud to Rekordbox.</em>',
    "From Telegram, Claude, ChatGPT or your iPhone. Free for Mac.", LINK_TO_PLAYLIST),
 }
 for name, doc in CARDS.items():

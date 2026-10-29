@@ -14,9 +14,9 @@ SUPPORT = "jeff.emakpor@gmail.com"
 
 PAGES = {
   "index.html": dict(path="/", og="home", type="website",
-    title="Spotify & YouTube to Rekordbox, from any chat · DJ Sync",
+    title="Spotify, YouTube & SoundCloud to Rekordbox, from any chat · DJ Sync",
     og_title="DJ Sync: ask your AI, it lands in Rekordbox",
-    desc="Free Mac app: send a Spotify or YouTube link from Telegram, Claude, ChatGPT or your iPhone and it lands in your Rekordbox library and playlists.",
+    desc="Free Mac app: send a Spotify, YouTube or SoundCloud link from Telegram, Claude, ChatGPT or your iPhone and it lands in your Rekordbox library and playlists.",
     alt="DJ Sync: a Spotify link becomes a new track in a Rekordbox playlist. Works from Telegram, Claude, ChatGPT and iPhone."),
   "install/index.html": dict(path="/install/", og="install", type="article", crumb="Install", howto=True,
     title="Install the free Mac app for Rekordbox · DJ Sync",
@@ -28,7 +28,7 @@ PAGES = {
     alt="DJ Sync FAQ: Rekordbox open or closed, library safety, offline Macs, pricing."),
   "connect/telegram/index.html": dict(path="/connect/telegram/", og="connect-telegram", type="article", crumb="Connect Telegram", howto=True,
     title="Telegram bot for Rekordbox downloads (free) · DJ Sync",
-    desc="Pair the free DJ Sync Telegram bot by QR code, then share Spotify or YouTube links and they land in your Rekordbox playlists. Any phone.",
+    desc="Pair the free DJ Sync Telegram bot by QR code, then share Spotify, YouTube or SoundCloud links and they land in your Rekordbox playlists. Any phone.",
     alt="DJ Sync in Telegram: share a link, pick a playlist, it's added to Rekordbox."),
   "connect/claude/index.html": dict(path="/connect/claude/", og="connect-claude", type="article", crumb="Connect Claude", howto=True,
     title="Use Claude to download into Rekordbox (free) · DJ Sync",
@@ -36,7 +36,7 @@ PAGES = {
     alt="Claude moves tracks between Rekordbox playlists with DJ Sync."),
   "connect/iphone/index.html": dict(path="/connect/iphone/", og="connect-iphone", type="article", crumb="Connect iPhone", howto=True,
     title="iPhone Share to Rekordbox in one tap · DJ Sync",
-    desc="Scan one QR code, tap Add Shortcut, then share any Spotify or YouTube song to DJ Sync. It lands in your Rekordbox playlist. Free.",
+    desc="Scan one QR code, tap Add Shortcut, then share any Spotify, YouTube or SoundCloud song to DJ Sync. It lands in your Rekordbox playlist. Free.",
     alt="iPhone Share sheet with DJ Sync, then picking a Rekordbox playlist."),
   "connect/chatgpt/index.html": dict(path="/connect/chatgpt/", og="connect-chatgpt", type="article", crumb="Connect ChatGPT", howto=True,
     title="Use ChatGPT to download into Rekordbox · DJ Sync",
@@ -45,15 +45,15 @@ PAGES = {
   "privacy/index.html": dict(path="/privacy/", og="default", type="website", crumb="Privacy",
     title="Privacy: what the DJ Sync cloud stores · DJ Sync",
     desc="What the DJ Sync cloud stores and never stores, how long it keeps it, and what Telegram, Claude, ChatGPT and your iPhone can see.",
-    alt="DJ Sync: Spotify and YouTube to Rekordbox, from any chat."),
+    alt="DJ Sync: Spotify, YouTube and SoundCloud to Rekordbox, from any chat."),
   "terms/index.html": dict(path="/terms/", og="default", type="website", crumb="Terms",
     title="Terms of use · DJ Sync",
-    desc="Plain-language terms for using DJ Sync, the free Mac app that sends Spotify and YouTube links to Rekordbox, and the DJ Sync cloud.",
-    alt="DJ Sync: Spotify and YouTube to Rekordbox, from any chat."),
+    desc="Plain-language terms for using DJ Sync, the free Mac app that sends Spotify, YouTube and SoundCloud links to Rekordbox, and the DJ Sync cloud.",
+    alt="DJ Sync: Spotify, YouTube and SoundCloud to Rekordbox, from any chat."),
   "404.html": dict(path=None, og="default", type="website", noindex=True,
     title="Page not found · DJ Sync",
-    desc="This page doesn't exist. DJ Sync is a free Mac app that sends Spotify and YouTube links from any chat to Rekordbox.",
-    alt="DJ Sync: Spotify and YouTube to Rekordbox, from any chat."),
+    desc="This page doesn't exist. DJ Sync is a free Mac app that sends Spotify, YouTube and SoundCloud links from any chat to Rekordbox.",
+    alt="DJ Sync: Spotify, YouTube and SoundCloud to Rekordbox, from any chat."),
 }
 
 # ---------- tiny DOM ----------
@@ -199,7 +199,7 @@ for name, meta in PAGES.items():
 # manifest
 (P / "site.webmanifest").write_text(json.dumps({
   "name": "DJ Sync", "short_name": "DJ Sync",
-  "description": "Spotify and YouTube links to Rekordbox, from any chat. Free Mac app.",
+  "description": "Spotify, YouTube and SoundCloud links to Rekordbox, from any chat. Free Mac app.",
   "start_url": "/", "scope": "/", "display": "browser",
   "background_color": "#0a0a0c", "theme_color": "#0a0a0c",
   "icons": [
