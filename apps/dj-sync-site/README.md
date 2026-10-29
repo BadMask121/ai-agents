@@ -7,7 +7,7 @@ Spec: `docs/superpowers/specs/2026-10-28-dj-sync-public-distribution-design.md` 
 ## What it is
 
 - **Static files only**: plain HTML and CSS, plus one tiny script. There's no
-  framework, no build step, no cookies and no analytics, and no third-party
+  framework, no build step, no cookies, no visitor analytics (only an anonymous per-version download count), and no third-party
   scripts or fonts.
 - **Hosting**: a Cloudflare Worker with static assets (`wrangler.jsonc`,
   `src/worker.mjs`) on `djsync.jeffrey.build`, DJ Sync's one public host. This

@@ -15,6 +15,7 @@
 //   GET  /__/shortcut_playlists      shortcut link auth (GET /api/playlists)
 //   POST /__/telegram/bind|unbind|update   from the Worker's Telegram webhook
 
+import { downloadStatsText, type StatsBucket } from "./download-stats";
 import { fireworksRunner } from "./fireworks";
 import { recordAgentEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
@@ -63,6 +64,8 @@ export interface TenantEnv extends TelegramEnv {
   AI_MODEL?: string;
   /** Optional Analytics Engine dataset for assistant calls (off until bound). */
   ANALYTICS?: AnalyticsSink;
+  /** The downloads bucket, read for the owner's /stats. */
+  DOWNLOADS?: StatsBucket;
   /** Optional Telegram chat id that gets a message when the assistant is failing (off until set). */
   ALERT_CHAT_ID?: string;
   /** When set, the assistant runs on Fireworks AI instead of Workers AI. */
@@ -581,6 +584,10 @@ export class Tenant extends DurableObject<TenantEnv> {
           rateLimit: (chatId) => this.telegramRate(chatId),
           agent: this.agent(),
           onAgentEvent: (e) => this.onAgentEvent(e, api),
+          ownerStats: (chat) =>
+            this.env.ALERT_CHAT_ID && chat === this.env.ALERT_CHAT_ID
+              ? downloadStatsText(this.env.DOWNLOADS, this.clock().toISOString().slice(0, 10))
+              : null,
         },
         b.update as TgUpdate,
         link.id,

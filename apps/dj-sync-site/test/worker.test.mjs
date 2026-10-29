@@ -113,3 +113,57 @@ test("a browser opening the Shortcut API gets the iPhone guide; API clients don'
   }
   assert.equal(e.calls.cloud.length, api.length);
 });
+
+test("counts a started DMG or update zip by kind and version, and nothing else", async () => {
+  const { countDownload } = await import("../src/worker.mjs");
+  const points = [];
+  const e = { DOWNLOAD_STATS: { writeDataPoint: (p) => points.push(p) } };
+  countDownload(e, "DJ-Sync-1.3.4.dmg");
+  countDownload(e, "DJ-Sync-1.3.4.zip");
+  countDownload(e, "DJ-Sync-1.3.4.dmg", true); // a resumed range request
+  countDownload(e, "appcast.json");
+  assert.deepEqual(points, [
+    { indexes: ["install"], blobs: ["install", "1.3.4"], doubles: [1] },
+    { indexes: ["update"], blobs: ["update", "1.3.4"], doubles: [1] },
+  ]);
+  countDownload({}, "DJ-Sync-1.3.4.dmg"); // unbound: just a log line
+});
+
+test("bumpStats adds to today's bucket and retries when another download wrote first", async () => {
+  const { bumpStats } = await import("../src/worker.mjs");
+  let stored = null;
+  let etag = 0;
+  let conflict = true;
+  const bucket = {
+    get: async () => (stored ? { json: async () => JSON.parse(stored), httpEtag: `"${etag}"` } : null),
+    put: async (_k, body, o) => {
+      if (conflict) {
+        conflict = false; // someone else wrote between our get and put
+        stored = JSON.stringify({ days: { "2026-10-29": { "install:1.3.4": 1 } } });
+        etag++;
+        return null;
+      }
+      assert.ok(o.onlyIf);
+      stored = body;
+      etag++;
+      return {};
+    },
+  };
+  await bumpStats(bucket, "install:1.3.4", new Date("2026-10-29T10:00:00Z"));
+  assert.deepEqual(JSON.parse(stored), { days: { "2026-10-29": { "install:1.3.4": 2 } } });
+});
+
+test("a missing file or an R2 error is counted as a failed download, and made-up names go under other", async () => {
+  const w = (await import("../src/worker.mjs")).default;
+  const waits = [];
+  const ctx = { waitUntil: (p) => waits.push(p) };
+  const points = [];
+  const base = env();
+  const e = { ...base, DOWNLOAD_STATS: { writeDataPoint: (p) => points.push(p) } };
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/DJ-Sync-9.9.9.dmg"), e, ctx)).status, 404);
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/wp-login.php"), e, ctx)).status, 404);
+  const broken = { ...e, DOWNLOADS: { get: async () => { throw new Error("r2"); }, head: async () => { throw new Error("r2"); } } };
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/DJ-Sync-1.2.1.dmg"), broken, ctx)).status, 502);
+  await Promise.all(waits);
+  assert.deepEqual(points.map((p) => p.blobs), [["failed", "missing", "9.9.9"], ["failed", "missing", "other"], ["failed", "error", "1.2.1"]]);
+});

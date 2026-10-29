@@ -43,6 +43,8 @@
   // The Mac's Rekordbox library snapshot (POST /agent/library), read by the
   // playlist tools. PLACEHOLDER id: replace it with the id printed by
   // Created with `wrangler kv namespace create dj-sync-library`.
+  // Read-only use: the owner's /stats reads the site Worker's download counts.
+  "r2_buckets": [{ "binding": "DOWNLOADS", "bucket_name": "dj-sync-downloads" }],
   "kv_namespaces": [
     { "binding": "LIBRARY", "id": "9ff56c62057649839c68af7e57527f09" }
   ],
@@ -61,6 +63,7 @@
   "vars": {
     "DEFAULT_PLAYLIST": "DJ Sync Downloads",
     "AI_MODEL": "accounts/fireworks/models/deepseek-v4p1-flash-1017",
+    "ALERT_CHAT_ID": "7402995117",
     "MAX_URLS": "25",
     // Canonical host since 2026-10-28 (served through dj-sync-site's service
     // binding); mcp.triplejmusic.art stays an alias for existing connectors.

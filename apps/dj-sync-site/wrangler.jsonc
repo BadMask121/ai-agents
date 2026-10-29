@@ -16,6 +16,10 @@
   },
   "r2_buckets": [{ "binding": "DOWNLOADS", "bucket_name": "dj-sync-downloads" }],
   "services": [{ "binding": "CLOUD", "service": "dj-sync-cloud" }],
+  // Download counts (src/worker.mjs): every DMG/zip download logs one line, adds
+  // to the owner's private /stats in Telegram (counts kept in R2), and writes
+  // a data point here for charts.
+  "analytics_engine_datasets": [{ "binding": "DOWNLOAD_STATS", "dataset": "djsync_downloads" }],
   "workers_dev": false,
   "routes": [
     { "pattern": "djsync.jeffrey.build", "custom_domain": true },

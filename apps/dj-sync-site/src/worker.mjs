@@ -36,7 +36,7 @@ export function isBrowserVisit(request) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.hostname !== CANONICAL_HOST) {
       url.protocol = "https:";
@@ -49,12 +49,12 @@ export default {
     }
     if (isCloudPath(url.pathname)) return env.CLOUD.fetch(request);
     const file = DOWNLOAD.exec(url.pathname);
-    if (file) return download(request, env, file[1]);
+    if (file) return download(request, env, file[1], ctx);
     return env.ASSETS.fetch(request);
   },
 };
 
-async function download(request, env, name) {
+async function download(request, env, name, ctx) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
   }
@@ -68,11 +68,20 @@ async function download(request, env, name) {
   }
   const key = `djsync/${name}`;
   const ranged = request.method === "GET" && request.headers.has("range");
-  const object =
-    request.method === "HEAD"
-      ? await env.DOWNLOADS.head(key)
-      : await env.DOWNLOADS.get(key, ranged ? { range: request.headers } : undefined);
-  if (!object) return new Response("Not found\n", { status: 404, headers: { "content-type": "text/plain" } });
+  let object;
+  try {
+    object =
+      request.method === "HEAD"
+        ? await env.DOWNLOADS.head(key)
+        : await env.DOWNLOADS.get(key, ranged ? { range: request.headers } : undefined);
+  } catch {
+    countFailure(env, name, "error", ctx);
+    return new Response("Download failed, please try again\n", { status: 502, headers: { "content-type": "text/plain" } });
+  }
+  if (!object) {
+    countFailure(env, name, "missing", ctx);
+    return new Response("Not found\n", { status: 404, headers: { "content-type": "text/plain" } });
+  }
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
@@ -92,7 +101,65 @@ async function download(request, env, name) {
     return new Response(object.body, { status: 206, headers });
   }
   headers.set("content-length", String(object.size));
+  countDownload(env, name, ranged, ctx);
   return new Response(object.body, { headers });
+}
+
+/**
+ * Count a started DMG (first install) or zip (the app updating itself):
+ * what and which version, nothing about who. A log line always; a data point
+ * only when the optional DOWNLOAD_STATS Analytics Engine binding exists.
+ */
+export function countDownload(env, name, ranged = false, ctx) {
+  const m = /^DJ-Sync-(\d+\.\d+\.\d+)\.(dmg|zip)$/.exec(name);
+  if (!m || ranged) return;
+  const [, version, ext] = m;
+  const kind = ext === "dmg" ? "install" : "update";
+  console.log(JSON.stringify({ event: "download", kind, version }));
+  try {
+    env.DOWNLOAD_STATS?.writeDataPoint({ indexes: [kind], blobs: [kind, version], doubles: [1] });
+  } catch {
+    /* counting never breaks a download */
+  }
+  if (ctx && env.DOWNLOADS) ctx.waitUntil(bumpStats(env.DOWNLOADS, `${kind}:${version}`).catch(() => {}));
+}
+
+/**
+ * A download that didn't happen: the file is missing (404) or R2 failed (502).
+ * Only DMG/zip names count, bucketed by version ("other" for anything else),
+ * so scanners can't fill the counts with made-up names.
+ */
+export function countFailure(env, name, reason, ctx) {
+  const m = /^DJ-Sync-(\d+\.\d+\.\d+|latest)\.(dmg|zip)$/.exec(name);
+  const version = m ? m[1] : "other";
+  console.log(JSON.stringify({ event: "download_failed", reason, version }));
+  try {
+    env.DOWNLOAD_STATS?.writeDataPoint({ indexes: ["failed"], blobs: ["failed", reason, version], doubles: [1] });
+  } catch {
+    /* counting never breaks a download */
+  }
+  if (ctx && env.DOWNLOADS) ctx.waitUntil(bumpStats(env.DOWNLOADS, `failed-${reason}:${version}`).catch(() => {}));
+}
+
+const STATS_KEY = "djsync/stats/downloads.json";
+const STATS_DAYS = 120;
+
+/** One more download in today's bucket of the owner's counts in R2 (a few retries if two land at once). */
+export async function bumpStats(bucket, key, now = new Date()) {
+  const day = now.toISOString().slice(0, 10);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const current = await bucket.get(STATS_KEY);
+    const stats = current ? await current.json() : { days: {} };
+    stats.days ??= {};
+    stats.days[day] ??= {};
+    stats.days[day][key] = (stats.days[day][key] ?? 0) + 1;
+    for (const d of Object.keys(stats.days).sort().slice(0, -STATS_DAYS)) delete stats.days[d];
+    const put = await bucket.put(STATS_KEY, JSON.stringify(stats), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: current ? { etagMatches: current.httpEtag } : { etagDoesNotMatch: "*" },
+    });
+    if (put) return;
+  }
 }
 
 /** The released version, from the update feed (null if it can't be read:
