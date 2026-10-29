@@ -58,7 +58,7 @@ snapshot and queued as **library jobs**.
 | Tool | Input | Notes |
 |---|---|---|
 | `list_playlists` | `query?` | Name, folder, track count |
-| `search_tracks` | `query?`, `artist?`, `genre?`, `bpm_min?`, `bpm_max?`, `key?`, `limit?` | Returns `track_id`s for the write tools. Keys are as Rekordbox shows them (`10B`, `F#m`) |
+| `search_tracks` | `query?`, `artist?`, `genre?`, `bpm_min?`, `bpm_max?`, `key?`, `limit?` | Returns `track_id`s for the write tools, best match first, each with the playlists it's in. Ignores accents, case, punctuation and filler words (*by, the, feat*); forgives small typos but then says "No exact match" (`match: "close"`), and the Telegram assistant asks before changing a playlist with a close match. Index built once per snapshot (`src/search.ts`); test set in `test/search-cases.ts`. Keys are as Rekordbox shows them (`10B`, `F#m`) |
 | `get_playlist` | `name` | First 200 tracks. A misspelled name suggests the closest match |
 | `create_playlist` | `name`, `track_ids?` | In the DJ Sync folder. If it already exists, the tracks are added |
 | `add_tracks_to_playlist` | `playlist`, `track_ids` | |

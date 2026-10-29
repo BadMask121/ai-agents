@@ -3,6 +3,7 @@
 // state and the library snapshot (spec §3.2, §3.5, §3.6). SQL runs through a
 // tiny `SqlDb` seam: ctx.storage.sql in production, node:sqlite in tests.
 
+import { buildIndex, type SearchIndex } from "./search";
 import { gunzip, gzip } from "./bytes";
 import { LIBRARY_CHUNK_BYTES, MAX_LIBRARY_JSON_BYTES } from "./constants";
 import {
@@ -189,7 +190,7 @@ type TrackTuple = [string, string, string | null, string | null, string | null, 
 
 export class SqlStore implements Store {
   /** Decompressed snapshot, kept while this DO instance lives. */
-  private cache: { hash: string; playlists?: LibPlaylist[]; tracks?: LibTrack[] } | null = null;
+  private cache: { hash: string; playlists?: LibPlaylist[]; tracks?: LibTrack[]; index?: SearchIndex } | null = null;
 
   constructor(
     private db: SqlDb,
@@ -416,6 +417,14 @@ export class SqlStore implements Store {
     const cached = await this.cached("playlists");
     if (cached === undefined) return null;
     return [...(cached as LibPlaylist[])];
+  }
+
+  /** The search index for the current snapshot, built once (search.ts). */
+  async getSearchIndex(): Promise<SearchIndex | null> {
+    const tracks = await this.cached("tracks");
+    if (tracks === undefined || !this.cache) return null;
+    this.cache.index ??= buildIndex(tracks as LibTrack[]);
+    return this.cache.index;
   }
 
   async getLibraryTracks() {

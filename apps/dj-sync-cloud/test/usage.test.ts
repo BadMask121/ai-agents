@@ -49,6 +49,9 @@ describe("usage counting", () => {
       row("2026-10-29", "route", "jev", 25),
       row("2026-10-29", "route", "assistant", 8),
       row("2026-10-29", "route", "buttons", 4),
+      row("2026-10-29", "search", "exact", 12),
+      row("2026-10-29", "search", "close", 3),
+      row("2026-10-29", "search", "none", 1, { ok: 0 }),
       row("2026-10-01", "model", "jev-1.14.0", 999), // outside the week
     ];
     const text = usageReport(rows, "2026-10-29");
@@ -62,6 +65,8 @@ describe("usage counting", () => {
     expect(text).toContain("Jev: avg 150 ms, 54k tokens in, ~$0.0023");
     expect(text).toContain("DeepSeek: avg 3.0 s, 26k tokens in / 1,200 out, ~$0.0091");
     expect(text).not.toContain("999");
+    expect(text).toContain("<b>Track searches</b>");
+    expect(text).toMatch(/Exact +█+ +12\nClose only +█+[▉-▏]? +3\nNothing +█?[▉-▏]? +1/u);
     expect(usageReport([], "2026-10-29")).toContain("No model calls");
   });
 });
@@ -102,6 +107,7 @@ describe("/metrics in Telegram", () => {
     expect(reply.text).toMatch(/glm 4\.7 \(CF\) +█+ +1<\/pre>/u); // the fake assistant, metered as the default model
     expect(reply.text).toMatch(/Jev +█+ +1\n/u);
     expect(reply.text).toMatch(/Assistant +█+ +1\n/u);
+    expect(reply.text).toMatch(/Exact +█+ +1\n/u); // "find burna boy tracks" found Ye
 
     // Another DJ's chat: no such command.
     const other = 777;

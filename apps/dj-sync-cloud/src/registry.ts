@@ -100,7 +100,7 @@ export class Registry extends DurableObject<RegistryEnv> {
     const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : 0);
     this.ctx.storage.transactionSync(() => {
       for (const e of b.events as Record<string, unknown>[]) {
-        if ((e.kind !== "model" && e.kind !== "route") || typeof e.name !== "string" || e.name === "" || e.name.length > 100) continue;
+        if (!["model", "route", "search"].includes(String(e.kind)) || typeof e.name !== "string" || e.name === "" || e.name.length > 100) continue;
         this.ctx.storage.sql.exec(
           `INSERT INTO usage (day, kind, name, ok, calls, ms, tokens_in, tokens_out) VALUES (?, ?, ?, ?, 1, ?, ?, ?)
            ON CONFLICT (day, kind, name, ok) DO UPDATE SET calls = calls + 1, ms = ms + excluded.ms,

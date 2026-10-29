@@ -157,44 +157,6 @@ export function sortPlaylists(playlists: LibPlaylist[]): LibPlaylist[] {
   );
 }
 
-export interface TrackFilter {
-  query?: string;
-  artist?: string;
-  genre?: string;
-  bpmMin?: number;
-  bpmMax?: number;
-  key?: string;
-}
-
-/**
- * Every query word must appear (case-insensitively) in the title, artist,
- * album or genre; artist/genre are substring filters, key is exact, BPM is an
- * inclusive range (tracks without a BPM don't match a BPM filter).
- * Sorted by artist, then title.
- */
-export function searchTracks(tracks: LibTrack[], f: TrackFilter): LibTrack[] {
-  const words = lower(f.query).split(/\s+/u).filter((w) => w !== "");
-  const artist = lower(f.artist);
-  const genre = lower(f.genre);
-  const key = lower(f.key);
-  const hits = tracks.filter((t) => {
-    if (words.length > 0) {
-      const hay = [t.title, t.artist, t.album, t.genre].map(lower);
-      if (!words.every((w) => hay.some((h) => h.includes(w)))) return false;
-    }
-    if (artist !== "" && !lower(t.artist).includes(artist)) return false;
-    if (genre !== "" && !lower(t.genre).includes(genre)) return false;
-    if (key !== "" && lower(t.key) !== key) return false;
-    if (f.bpmMin !== undefined || f.bpmMax !== undefined) {
-      if (t.bpm === null) return false;
-      if (f.bpmMin !== undefined && t.bpm < f.bpmMin) return false;
-      if (f.bpmMax !== undefined && t.bpm > f.bpmMax) return false;
-    }
-    return true;
-  });
-  return hits.sort((a, b) => lower(a.artist).localeCompare(lower(b.artist)) || lower(a.title).localeCompare(lower(b.title)));
-}
-
 /** Track ids from a tool call: strings, de-duplicated (order kept), at most MAX_TRACK_IDS. */
 export function parseTrackIds(v: unknown, min: number): Result<string[]> {
   if (v === undefined || v === null) {

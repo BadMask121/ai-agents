@@ -6,9 +6,9 @@
 import type { AiRunner } from "./telegram-agent";
 
 export interface UsageEvent {
-  /** "model": one call to a model; "route": which layer handled a message. */
-  kind: "model" | "route";
-  /** The model id, or the layer (code, jev, assistant, buttons). */
+  /** "model": one call to a model; "route": which layer handled a message; "search": how a track search went. */
+  kind: "model" | "route" | "search";
+  /** The model id, the layer (code, jev, assistant, buttons), or the search outcome (exact, close, none). */
   name: string;
   ok: boolean;
   ms: number;
@@ -145,6 +145,13 @@ export function usageReport(rows: UsageRow[], today: string, days = 7): string {
     "",
   ]);
 
+  const searches: [string, number, string][] = [
+    ["Exact", "exact"],
+    ["Close only", "close"],
+    ["Nothing", "none"],
+  ].map(([label, key]) => [label!, recent.filter((r) => r.kind === "search" && r.name === key).reduce((n, r) => n + r.calls, 0), ""]);
+  const searchTotal = searches.reduce((n, r) => n + r[1], 0);
+
   const details = ordered.map(([model, m]) => {
     const c = cost(model, m);
     return (
@@ -164,6 +171,7 @@ export function usageReport(rows: UsageRow[], today: string, days = 7): string {
     `<pre>${esc(chart(perDay))}</pre>`,
     "<b>Messages handled by</b>",
     `<pre>${esc(chart(handled))}</pre>`,
+    ...(searchTotal > 0 ? ["<b>Track searches</b>", `<pre>${esc(chart(searches))}</pre>`] : []),
     esc(details.join("\n")),
     "<i>Costs are estimates from list prices; check each provider's console for billing.</i>",
   ].join("\n");

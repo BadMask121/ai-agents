@@ -2,6 +2,7 @@
 // Transport concerns (status codes, headers) live in router.ts; this maps one
 // message to at most one response (`null` = notification → 202).
 
+import { libraryIndex, searchIndex } from "./search";
 import {
   MAX_PLAYLIST_NAME,
   MAX_TRACK_IDS,
@@ -32,7 +33,6 @@ import {
   playlistPath,
   plural,
   resolvePlaylist,
-  searchTracks,
   sortPlaylists,
   trackView,
   unknownTrackIds,
@@ -697,16 +697,19 @@ async function callSearchTracks(args: Obj | undefined, deps: Deps): Promise<Json
     limit = rawLimit;
   }
 
-  const [tracks, playlists] = await Promise.all([deps.store.getLibraryTracks(), deps.store.getLibraryPlaylists()]);
-  if (!tracks) return toolError(NO_LIBRARY);
-  const hits = searchTracks(tracks, {
-    query: str(args?.query),
+  const [index, playlists] = await Promise.all([libraryIndex(deps.store), deps.store.getLibraryPlaylists()]);
+  if (!index) return toolError(NO_LIBRARY);
+  const query = str(args?.query);
+  const result = searchIndex(index, {
+    query,
     artist: str(args?.artist),
     genre: str(args?.genre),
     key: str(args?.key),
     bpmMin: bpm.bpm_min,
     bpmMax: bpm.bpm_max,
   });
+  deps.onSearch?.(result.match);
+  const hits = result.tracks;
   const inPlaylists = playlistsByTrack(playlists ?? []);
   const shown = hits.slice(0, limit).map((t) => ({ ...trackView(t), playlists: inPlaylists.get(t.id) ?? [] }));
   const f = await freshness(deps);
@@ -715,14 +718,18 @@ async function callSearchTracks(args: Obj | undefined, deps: Deps): Promise<Json
       ? " · in no playlist"
       : ` · in ${names.slice(0, TRACK_PLAYLISTS_SHOWN).join(", ")}` +
         (names.length > TRACK_PLAYLISTS_SHOWN ? ` (+${names.length - TRACK_PLAYLISTS_SHOWN} more)` : "");
+  const lines = `:\n${shown.map((t) => `- ${trackLine(t)}${where(t.playlists)}`).join("\n")}`;
+  const more = hits.length > shown.length ? ` (showing ${shown.length})` : "";
   let text =
-    hits.length === 0
+    result.match === "none"
       ? "No tracks match."
-      : `${plural(hits.length, "track")} match` +
-        (hits.length > shown.length ? ` (showing ${shown.length})` : "") +
-        `:\n${shown.map((t) => `- ${trackLine(t)}${where(t.playlists)}`).join("\n")}`;
+      : result.match === "close"
+        ? `No exact match for “${query ?? ""}”. ${hits.length} close ${hits.length === 1 ? "match" : "matches"}${more} ` +
+          "(check with the DJ before changing a playlist with these)" +
+          lines
+        : `${plural(hits.length, "track")} match${more}${lines}`;
   text += f.note;
-  return toolResult(text, { tracks: shown, total_matches: hits.length, ...freshnessFields(f) }, false);
+  return toolResult(text, { tracks: shown, total_matches: hits.length, match: result.match, ...freshnessFields(f) }, false);
 }
 
 async function callGetPlaylist(args: Obj | undefined, deps: Deps): Promise<Json> {
