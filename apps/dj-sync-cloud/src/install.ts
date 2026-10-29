@@ -49,11 +49,11 @@ export function installPage(fileHref: string): Response {
     "Add DJ Sync to your iPhone",
     `<p class="tag">DJ Sync</p>` +
       `<h1>Add DJ Sync to your iPhone</h1>` +
-      `<p>Send songs from Spotify and YouTube straight into Rekordbox on your Mac.</p>` +
+      `<p>Send songs from Spotify, YouTube and SoundCloud straight into Rekordbox on your Mac.</p>` +
       `<a class="add" href="${fileHref}">Add Shortcut</a>` +
       `<ol><li>Tap <strong>Add Shortcut</strong> above, then <strong>Add Shortcut</strong> again in the Shortcuts app ` +
       `(if Safari asks first, allow the download and open it).</li>` +
-      `<li>In Spotify or YouTube, tap <strong>Share → DJ Sync</strong> and pick a playlist.</li></ol>` +
+      `<li>In Spotify, YouTube or SoundCloud, tap <strong>Share → DJ Sync</strong> and pick a playlist.</li></ol>` +
       `<p class="small">This link works for a few minutes and is only for you: the Shortcut holds your DJ Sync key.</p>`,
     200,
   );

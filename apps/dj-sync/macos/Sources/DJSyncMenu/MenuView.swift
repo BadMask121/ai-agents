@@ -675,7 +675,7 @@ private struct TelegramRow: View {
       }
       if link.isConnected {
         HStack(spacing: 8) {
-          Text("Send the bot Spotify or YouTube links, or /playlists.")
+          Text("Send the bot Spotify, YouTube or SoundCloud links, or /playlists.")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -777,7 +777,7 @@ private struct ShortcutInstallView: View {
     switch setup {
     case .idle:
       HStack(spacing: 8) {
-        Text(connected ? "Share a Spotify or YouTube link → DJ Sync." : "Add DJ Sync to your iPhone in one scan.")
+        Text(connected ? "Share a Spotify, YouTube or SoundCloud link → DJ Sync." : "Add DJ Sync to your iPhone in one scan.")
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)

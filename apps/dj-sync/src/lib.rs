@@ -87,12 +87,13 @@ impl MatchResult {
 pub enum MediaRef {
     Spotify(url::Url),
     YouTube(url::Url),
+    SoundCloud(url::Url),
 }
 
 impl MediaRef {
     pub fn url(&self) -> &url::Url {
         match self {
-            MediaRef::Spotify(u) | MediaRef::YouTube(u) => u,
+            MediaRef::Spotify(u) | MediaRef::YouTube(u) | MediaRef::SoundCloud(u) => u,
         }
     }
 
@@ -100,6 +101,7 @@ impl MediaRef {
         match self {
             MediaRef::Spotify(_) => "spotify",
             MediaRef::YouTube(_) => "youtube",
+            MediaRef::SoundCloud(_) => "soundcloud",
         }
     }
 }

@@ -3,7 +3,7 @@
 //! (`shortcuts sign`, which uses the DJ's own Apple ID), then uploaded so the
 //! iPhone can install it from a QR code in one tap.
 //!
-//! What it does, from the Share sheet in Spotify or YouTube:
+//! What it does, from the Share sheet in Spotify, YouTube or SoundCloud:
 //! 1. Get Contents of URL — GET `<base>/api/playlists` (Authorization header)
 //! 2. Get Dictionary Value `names`
 //! 3. Choose from List — "Add to which playlist?"

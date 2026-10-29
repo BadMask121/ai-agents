@@ -126,10 +126,10 @@ describe("iPhone Shortcut REST", () => {
       expect(typeof b.message).toBe("string");
       return b.message as string;
     };
-    expect(await fail(await post(c, { text: "no link here" }, token), 400)).toMatch(/^No Spotify or YouTube link found/u);
-    expect(await fail(await post(c, { text: "https://example.com/song" }, token), 400)).toMatch(/^No Spotify or YouTube link found/u);
-    expect(await fail(await post(c, { text: 7 }, token), 400)).toMatch(/^No Spotify or YouTube link found/u);
-    expect(await fail(await post(c, {}, token), 400)).toMatch(/^No Spotify or YouTube link found/u);
+    expect(await fail(await post(c, { text: "no link here" }, token), 400)).toMatch(/^No Spotify, YouTube or SoundCloud link found/u);
+    expect(await fail(await post(c, { text: "https://example.com/song" }, token), 400)).toMatch(/^No Spotify, YouTube or SoundCloud link found/u);
+    expect(await fail(await post(c, { text: 7 }, token), 400)).toMatch(/^No Spotify, YouTube or SoundCloud link found/u);
+    expect(await fail(await post(c, {}, token), 400)).toMatch(/^No Spotify, YouTube or SoundCloud link found/u);
     expect(await fail(await post(c, { text: `${YT(1)} ${YT(2)} ${YT(3)} ${YT(4)}` }, token), 400)).toBe(
       "That's 4 links — send at most 3 at a time.",
     );

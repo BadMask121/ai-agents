@@ -1,13 +1,14 @@
 # dj-sync
 
-Spotify / YouTube → Rekordbox prep for a DJ laptop. One Rust binary with two
-optional lanes:
+Spotify / YouTube / SoundCloud → Rekordbox prep for a DJ laptop. One Rust binary
+with two optional lanes:
 
 - **Telegram bot.** It matches Spotify playlists against your local library
   (ISRC → fuzzy → AI) and browses your Rekordbox XML. It starts when
   `TELEGRAM_BOT_TOKEN` is set.
-- **ChatGPT MCP download lane.** An MCP server that ChatGPT calls with Spotify or
-  YouTube links. It downloads them with spotdl / yt-dlp into `~/Music/DJ_Downloads`
+- **ChatGPT MCP download lane.** An MCP server that ChatGPT calls with Spotify,
+  YouTube or SoundCloud links. It downloads them with spotdl / yt-dlp into
+  `~/Music/DJ_Downloads`
   and adds them to the file Rekordbox's *rekordbox xml* pane already reads.
   dj-sync auto-detects Rekordbox's *Imported Library* setting, falling back to
   `~/Music/rekordbox_import.xml`. It starts when `[mcp] enabled = true` is set. An optional bearer REST

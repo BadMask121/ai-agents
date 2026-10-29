@@ -33,6 +33,42 @@ describe("extractMediaRef", () => {
     expect(ok("https://youtu.be/-ZJ8iqC4Jnc")).toBe("https://www.youtube.com/watch?v=-ZJ8iqC4Jnc");
   });
 
+  it("canonicalises soundcloud links", () => {
+    expect(ok("https://soundcloud.com/artist/some-track?si=abc")).toBe("https://soundcloud.com/artist/some-track");
+    expect(ok("https://www.soundcloud.com/artist/some-track")).toBe("https://soundcloud.com/artist/some-track");
+    expect(ok("https://m.soundcloud.com/artist/sets/warehouse-march")).toBe(
+      "https://soundcloud.com/artist/sets/warehouse-march",
+    );
+    const track = extractMediaRef("https://soundcloud.com/artist/some-track");
+    expect(track.ok && track.media.kind).toBe("soundcloud");
+  });
+
+  it("keeps soundcloud private-track secrets", () => {
+    // Either secret form rides along: without it the link is useless.
+    expect(ok("https://soundcloud.com/artist/some-track/s-Ab12Cd34")).toBe(
+      "https://soundcloud.com/artist/some-track/s-Ab12Cd34",
+    );
+    expect(ok("https://soundcloud.com/artist/some-track?secret_token=s-Ab12Cd34")).toBe(
+      "https://soundcloud.com/artist/some-track?secret_token=s-Ab12Cd34",
+    );
+    // …and a track whose slug starts with "s-" isn't mistaken for a token.
+    expect(ok("https://soundcloud.com/artist/s-wave")).toBe("https://soundcloud.com/artist/s-wave");
+  });
+
+  it("rejects soundcloud non-track pages", () => {
+    for (const bad of [
+      "https://soundcloud.com/artist",
+      "https://soundcloud.com/artist/sets",
+      "https://soundcloud.com/artist/sets/",
+      "https://soundcloud.com/discover/sets/charts-top:all-music",
+      "https://soundcloud.com/artist/tracks",
+      "https://soundcloud.com/artist/abc;rm",
+      "https://on.soundcloud.com/xYz12",
+    ]) {
+      expect(extractMediaRef(bad).ok, bad).toBe(false);
+    }
+  });
+
   it("rejects everything else", () => {
     for (const bad of [
       "http://open.spotify.com/track/abc",
@@ -54,7 +90,7 @@ describe("extractMediaRef", () => {
 
   it("explains rejections like the Rust parser", () => {
     const r = extractMediaRef("https://evil.example/x");
-    expect(!r.ok && r.reason).toBe('unsupported site "evil.example": send a Spotify or YouTube link');
+    expect(!r.ok && r.reason).toBe('unsupported site "evil.example": send a Spotify, YouTube or SoundCloud link');
     const s = extractMediaRef("https://open.spotify.com/artist/abc");
     expect(!s.ok && s.reason).toBe("Spotify artist links aren't supported; send a track, album or playlist");
   });

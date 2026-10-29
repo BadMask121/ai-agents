@@ -247,7 +247,7 @@ export async function telegramSetup(env: TelegramEnv, api: TelegramApi | null): 
     await api.call("setMyCommands", { commands: BOT_COMMANDS });
     await api.call("setMyDescription", {
       description:
-        "DJ Sync puts Spotify and YouTube links into your Rekordbox library on your Mac, and lets you browse your playlists. " +
+        "DJ Sync puts Spotify, YouTube and SoundCloud links into your Rekordbox library on your Mac, and lets you browse your playlists. " +
         "Connect it from the DJ Sync app on your Mac: Assistants → Connect Telegram.",
     });
     await api.call("setMyShortDescription", { short_description: "Send links to your Rekordbox, from your phone." });

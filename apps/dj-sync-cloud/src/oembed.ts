@@ -1,6 +1,6 @@
-// The name of a Spotify or YouTube playlist (or album) from its link, so
-// "download this playlist" lands in a Rekordbox playlist of the same name.
-// Both sites answer oEmbed without a key; the title is all we read.
+// The name of a Spotify, YouTube or SoundCloud playlist (or album) from its
+// link, so "download this playlist" lands in a Rekordbox playlist of the same
+// name. All three answer oEmbed without a key; the title is all we read.
 
 import { MAX_PLAYLIST_NAME, OEMBED_TIMEOUT_MS } from "./constants";
 import { cleanName } from "./library";
@@ -10,16 +10,20 @@ export function isCollection(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.hostname === "open.spotify.com") return /^\/(playlist|album)\//u.test(u.pathname);
+    if (SOUNDCLOUD_HOSTS.has(u.hostname)) return /^\/[^/]+\/sets\//u.test(u.pathname);
     return u.pathname === "/playlist" && u.searchParams.has("list");
   } catch {
     return false;
   }
 }
 
+const SOUNDCLOUD_HOSTS = new Set(["soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"]);
+
 function oembedUrl(url: string): string | null {
   const u = new URL(url);
   if (u.hostname === "open.spotify.com") return `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
   if (u.hostname.endsWith("youtube.com")) return `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`;
+  if (SOUNDCLOUD_HOSTS.has(u.hostname)) return `https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(url)}`;
   return null;
 }
 

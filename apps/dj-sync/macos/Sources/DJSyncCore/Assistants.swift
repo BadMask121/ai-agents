@@ -119,13 +119,13 @@ public enum Assistant: String, CaseIterable, Sendable, Identifiable {
       [
         "Scan the code with your phone's camera (or click Open Telegram).",
         "Tap Start in the DJ Sync bot.",
-        "Send it Spotify or YouTube links, or ask for /playlists.",
+        "Send it Spotify, YouTube or SoundCloud links, or ask for /playlists.",
       ]
     case .iphone:
       [
         "Scan the code with your iPhone camera.",
         "Tap Add Shortcut.",
-        "In Spotify or YouTube, Share → DJ Sync, then pick a playlist.",
+        "In Spotify, YouTube or SoundCloud, Share → DJ Sync, then pick a playlist.",
       ]
     }
   }

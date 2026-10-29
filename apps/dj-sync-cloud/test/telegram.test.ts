@@ -221,7 +221,7 @@ describe("Telegram bot", () => {
     await hook(c, msg(CHAT, "/dance"));
     expect(tg.last(CHAT).text).toContain("I don't know /dance");
     await hook(c, msg(CHAT, "just chatting"));
-    expect(tg.last(CHAT).text).toContain("Send me a Spotify or YouTube link");
+    expect(tg.last(CHAT).text).toContain("Send me a Spotify, YouTube or SoundCloud link");
   });
 
   it("tells the chat when its job finishes", async () => {

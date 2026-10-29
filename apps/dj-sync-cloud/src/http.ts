@@ -89,7 +89,8 @@ function apiError(status: number, error: string, message: string, extra: Record<
   return json({ error, message, ...extra }, status);
 }
 
-const NO_LINKS = "No Spotify or YouTube link found — share a song, album or playlist from Spotify, or a video from YouTube.";
+const NO_LINKS =
+  "No Spotify, YouTube or SoundCloud link found — share a song, album or playlist from Spotify or SoundCloud, or a video from YouTube.";
 
 export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   const body = await readJson(req);
@@ -129,7 +130,7 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
     if (!r.ok) rejected.push({ url: raw, reason: r.reason });
     else if (!media.some((m) => m.url === r.media.url)) media.push(r.media);
   }
-  if (media.length === 0) return apiError(400, "no supported Spotify or YouTube links", NO_LINKS, { rejected });
+  if (media.length === 0) return apiError(400, "no supported Spotify, YouTube or SoundCloud links", NO_LINKS, { rejected });
 
   // A pinned playlist_id wins; a name (or "Folder/Name" path from
   // GET /api/playlists) that matches one playlist is pinned too; anything

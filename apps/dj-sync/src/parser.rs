@@ -48,10 +48,11 @@ pub fn extract_spotify_ref(text: &str) -> Option<SpotifyRef> {
 
 /// Validate a link for the download lane and rebuild it in canonical form.
 ///
-/// Only `https` links to Spotify tracks/albums/playlists and YouTube
-/// videos/playlists are accepted. Rebuilding (rather than passing the input
-/// through) drops tracking params and `&list=RD…` "Mix" playlists, and means
-/// the argv we hand to spotdl / yt-dlp always starts with `https://`.
+/// Only `https` links to Spotify tracks/albums/playlists, YouTube
+/// videos/playlists and SoundCloud tracks/sets are accepted. Rebuilding
+/// (rather than passing the input through) drops tracking params and
+/// `&list=RD…` "Mix" playlists, and means the argv we hand to spotdl / yt-dlp
+/// always starts with `https://`.
 pub fn extract_media_ref(input: &str) -> Result<MediaRef, String> {
     let input = input.trim();
     if let Some(rest) = input.strip_prefix("spotify:") {
@@ -102,8 +103,15 @@ pub fn extract_media_ref(input: &str) -> Result<MediaRef, String> {
             [id] => youtube_video(id, input),
             _ => Err(format!("not a YouTube video link: {input}")),
         },
+        "soundcloud.com" | "www.soundcloud.com" | "m.soundcloud.com" => {
+            soundcloud_ref(&segs, &url, input)
+        }
+        "on.soundcloud.com" => Err(
+            "SoundCloud share links can't be checked; open the link and send the full soundcloud.com address"
+                .into(),
+        ),
         _ => Err(format!(
-            "unsupported site {host:?}: send a Spotify or YouTube link"
+            "unsupported site {host:?}: send a Spotify, YouTube or SoundCloud link"
         )),
     }
 }
@@ -150,6 +158,70 @@ fn youtube_playlist(list: &str, input: &str) -> Result<MediaRef, String> {
     let url = url::Url::parse(&format!("https://www.youtube.com/playlist?list={list}"))
         .map_err(|e| e.to_string())?;
     Ok(MediaRef::YouTube(url))
+}
+
+/// SoundCloud artist/track/set slugs: the URL-safe words its paths are built
+/// from. Case is kept — the link is passed to yt-dlp as shared.
+fn is_soundcloud_slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Profile tabs that share the `/artist/<word>` shape with tracks.
+fn is_soundcloud_tab(s: &str) -> bool {
+    matches!(
+        s,
+        "sets"
+            | "tracks"
+            | "albums"
+            | "likes"
+            | "spotlight"
+            | "reposts"
+            | "followers"
+            | "following"
+            | "stats"
+            | "playlists"
+            | "groups"
+            | "posts"
+            | "permalink"
+    )
+}
+
+/// SoundCloud track and set links: `/artist/track` or `/artist/sets/set-name`.
+/// A trailing `/s-<token>` segment or `?secret_token=` param unlocks a private
+/// track — kept either way, since the link is useless without its secret.
+fn soundcloud_ref(segs: &[&str], url: &url::Url, input: &str) -> Result<MediaRef, String> {
+    // A token is only ever a third-or-later segment: `artist/s-foo` is a track
+    // whose slug happens to start with "s-".
+    let has_token = match segs {
+        [rest @ .., last] => {
+            rest.len() >= 2 && last.len() > 2 && last.starts_with("s-") && is_soundcloud_slug(last)
+        }
+        _ => false,
+    };
+    let path_segs = if has_token {
+        &segs[..segs.len() - 1]
+    } else {
+        segs
+    };
+    match path_segs {
+        [artist, track]
+            if !is_soundcloud_tab(track)
+                && is_soundcloud_slug(artist)
+                && is_soundcloud_slug(track) => {}
+        [artist, "sets", set] if is_soundcloud_slug(artist) && is_soundcloud_slug(set) => {}
+        _ => return Err(format!("not a SoundCloud track or set link: {input}")),
+    }
+    let mut out = url::Url::parse("https://soundcloud.com/").expect("static base");
+    out.set_path(&segs.join("/"));
+    if !has_token {
+        if let Some((_, v)) = url.query_pairs().find(|(k, _)| k == "secret_token") {
+            out.query_pairs_mut().append_pair("secret_token", &v);
+        }
+    }
+    Ok(MediaRef::SoundCloud(out))
 }
 
 #[cfg(test)]
@@ -224,6 +296,59 @@ mod tests {
             ok("https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG"),
             "https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG"
         );
+    }
+
+    #[test]
+    fn media_ref_canonicalises_soundcloud_links() {
+        assert_eq!(
+            ok("https://soundcloud.com/artist/some-track?si=abc"),
+            "https://soundcloud.com/artist/some-track"
+        );
+        assert_eq!(
+            ok("https://www.soundcloud.com/artist/some-track"),
+            "https://soundcloud.com/artist/some-track"
+        );
+        assert_eq!(
+            ok("https://m.soundcloud.com/artist/sets/warehouse-march"),
+            "https://soundcloud.com/artist/sets/warehouse-march"
+        );
+        assert!(matches!(
+            extract_media_ref("https://soundcloud.com/artist/some-track").unwrap(),
+            MediaRef::SoundCloud(_)
+        ));
+    }
+
+    #[test]
+    fn soundcloud_private_tracks_keep_their_secret() {
+        // Either secret form rides along: without it the link is useless.
+        assert_eq!(
+            ok("https://soundcloud.com/artist/some-track/s-Ab12Cd34"),
+            "https://soundcloud.com/artist/some-track/s-Ab12Cd34"
+        );
+        assert_eq!(
+            ok("https://soundcloud.com/artist/some-track?secret_token=s-Ab12Cd34"),
+            "https://soundcloud.com/artist/some-track?secret_token=s-Ab12Cd34"
+        );
+        // …and a track whose slug starts with "s-" isn't mistaken for a token.
+        assert_eq!(
+            ok("https://soundcloud.com/artist/s-wave"),
+            "https://soundcloud.com/artist/s-wave"
+        );
+    }
+
+    #[test]
+    fn soundcloud_rejects_non_track_pages() {
+        for bad in [
+            "https://soundcloud.com/artist",
+            "https://soundcloud.com/artist/sets",
+            "https://soundcloud.com/artist/sets/",
+            "https://soundcloud.com/discover/sets/charts-top:all-music",
+            "https://soundcloud.com/artist/tracks",
+            "https://soundcloud.com/artist/abc;rm",
+            "https://on.soundcloud.com/xYz12",
+        ] {
+            assert!(extract_media_ref(bad).is_err(), "should reject {bad}");
+        }
     }
 
     #[test]

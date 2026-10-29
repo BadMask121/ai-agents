@@ -67,7 +67,7 @@ describe("Telegram assistant (connect-anywhere spec §1c)", () => {
     await paired(c);
     await say(c, "list the playlists in DJ sync folder");
     expect(tg.last(CHAT).text).toBe(HELP);
-    expect(tg.last(CHAT).text.split("Send me a Spotify or YouTube link")).toHaveLength(2);
+    expect(tg.last(CHAT).text.split("Send me a Spotify, YouTube or SoundCloud link")).toHaveLength(2);
     await say(c, "/help");
     expect(tg.last(CHAT).text).toBe(HELP);
   });

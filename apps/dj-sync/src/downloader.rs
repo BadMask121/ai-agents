@@ -1,5 +1,5 @@
 //! Fetches audio for one link into a staging directory by running spotdl
-//! (Spotify) or yt-dlp (YouTube) as a child process.
+//! (Spotify) or yt-dlp (YouTube, SoundCloud) as a child process.
 //!
 //! Arguments are always passed as a separate argv — never through a shell —
 //! and the URL has already been canonicalised by `parser::extract_media_ref`,
@@ -95,33 +95,65 @@ impl ProcessFetcher {
                 } else {
                     "--no-playlist"
                 };
-                let args = vec![
-                    os("--extract-audio"),
-                    os("--audio-format"),
-                    os(&c.format),
-                    os("--audio-quality"),
-                    os(&ytdlp_audio_quality(&c.bitrate)),
-                    os("--embed-metadata"),
-                    os("--embed-thumbnail"),
-                    os("--convert-thumbnails"),
-                    os("jpg"),
-                    // "Artist - Title" uploads → proper artist/title tags; if the
-                    // pattern doesn't match yt-dlp just warns and moves on.
-                    os("--parse-metadata"),
-                    os("title:%(artist)s - %(title)s"),
-                    os(playlist_flag),
-                    os("--no-progress"),
-                    os("--ffmpeg-location"),
-                    c.ffmpeg_bin.clone().into(),
-                    os("--output"),
-                    staging
-                        .join("%(artist,uploader)s - %(title)s.%(ext)s")
-                        .into(),
-                    os(url.as_str()),
-                ];
-                (c.ytdlp_bin.clone(), args)
+                (
+                    c.ytdlp_bin.clone(),
+                    self.ytdlp_args(url.as_str(), playlist_flag, true, staging),
+                )
+            }
+            MediaRef::SoundCloud(url) => {
+                let playlist_flag = if url.path().contains("/sets/") {
+                    "--yes-playlist"
+                } else {
+                    "--no-playlist"
+                };
+                (
+                    c.ytdlp_bin.clone(),
+                    self.ytdlp_args(url.as_str(), playlist_flag, false, staging),
+                )
             }
         }
+    }
+
+    /// Shared yt-dlp argv for YouTube and SoundCloud (both are yt-dlp
+    /// extractors). `guess_artist_title` adds the "Artist - Title" upload-title
+    /// parse; SoundCloud exposes real artist/title tags, so it skips it.
+    fn ytdlp_args(
+        &self,
+        url: &str,
+        playlist_flag: &str,
+        guess_artist_title: bool,
+        staging: &Path,
+    ) -> Vec<OsString> {
+        let c = &self.cfg;
+        let os = |s: &str| OsString::from(s);
+        let mut args = vec![
+            os("--extract-audio"),
+            os("--audio-format"),
+            os(&c.format),
+            os("--audio-quality"),
+            os(&ytdlp_audio_quality(&c.bitrate)),
+            os("--embed-metadata"),
+            os("--embed-thumbnail"),
+            os("--convert-thumbnails"),
+            os("jpg"),
+        ];
+        if guess_artist_title {
+            // "Artist - Title" uploads → proper artist/title tags; if the
+            // pattern doesn't match yt-dlp just warns and moves on.
+            args.extend([os("--parse-metadata"), os("title:%(artist)s - %(title)s")]);
+        }
+        args.extend([
+            os(playlist_flag),
+            os("--no-progress"),
+            os("--ffmpeg-location"),
+            c.ffmpeg_bin.clone().into(),
+            os("--output"),
+            staging
+                .join("%(artist,uploader)s - %(title)s.%(ext)s")
+                .into(),
+            os(url),
+        ]);
+        args
     }
 
     fn child_path(&self) -> OsString {
@@ -313,6 +345,30 @@ mod tests {
     #[test]
     fn youtube_playlist_opts_in_to_playlist() {
         let (_, a) = argv("https://www.youtube.com/playlist?list=PLabc");
+        assert!(a.contains(&"--yes-playlist".to_string()));
+        assert!(!a.contains(&"--no-playlist".to_string()));
+    }
+
+    #[test]
+    fn soundcloud_track_goes_to_ytdlp_without_the_title_hack() {
+        let (prog, a) = argv("https://soundcloud.com/artist/some-track?si=z");
+        assert_eq!(prog, PathBuf::from("/opt/bin/yt-dlp"));
+        assert!(a.contains(&"--no-playlist".to_string()));
+        // SoundCloud exposes real artist/title tags; the YouTube upload-title
+        // parse would mangle them.
+        assert!(!a.contains(&"--parse-metadata".to_string()));
+        assert_eq!(
+            a.last().unwrap(),
+            "https://soundcloud.com/artist/some-track"
+        );
+        let joined = a.join(" ");
+        assert!(joined.contains("--audio-format mp3 --audio-quality 320K"));
+        assert!(joined.contains("--output /stage/%(artist,uploader)s - %(title)s.%(ext)s"));
+    }
+
+    #[test]
+    fn soundcloud_set_opts_in_to_playlist() {
+        let (_, a) = argv("https://soundcloud.com/artist/sets/warehouse-march");
         assert!(a.contains(&"--yes-playlist".to_string()));
         assert!(!a.contains(&"--no-playlist".to_string()));
     }

@@ -112,7 +112,7 @@ function initialize(params: Obj): Json {
     capabilities: { tools: { listChanged: false } },
     serverInfo: { name: "dj-sync", title: "DJ Sync → Rekordbox", version: WORKER_VERSION },
     instructions:
-      "Use download_to_rekordbox when the user shares Spotify or YouTube links they want in " +
+      "Use download_to_rekordbox when the user shares Spotify, YouTube or SoundCloud links they want in " +
       "Rekordbox. It queues a download for the DJ's Mac and returns a job_id right away; the Mac " +
       "picks it up as soon as it's online and downloads take a few minutes. To work with the DJ's " +
       "Rekordbox playlists, use list_playlists, search_tracks and get_playlist (they read the " +
@@ -143,7 +143,8 @@ export function toolDefinitions(maxUrls: number): Json {
       name: DOWNLOAD_TOOL,
       title: "Download to Rekordbox",
       description:
-        "Download Spotify (track, album, playlist) or YouTube (video, playlist) links as audio files " +
+        "Download Spotify (track, album, playlist), YouTube (video, playlist) or SoundCloud (track, set) " +
+        "links as audio files " +
         "on the DJ's Mac and add them to a playlist in the Rekordbox import XML. Returns immediately " +
         "with a job_id; the download runs on the Mac (queued until it's online) and takes a few " +
         "minutes — call get_download_status to check on it.",
@@ -155,7 +156,7 @@ export function toolDefinitions(maxUrls: number): Json {
             items: { type: "string" },
             minItems: 1,
             maxItems: maxUrls,
-            description: "Spotify or YouTube links, e.g. https://open.spotify.com/track/… or https://youtu.be/…",
+            description: "Spotify, YouTube or SoundCloud links, e.g. https://open.spotify.com/track/… or https://soundcloud.com/artist/track",
           },
           playlist_name: {
             type: "string",
@@ -429,8 +430,8 @@ function libraryToolDefinitions(): Json[] {
 
 async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
   const urls = args?.urls;
-  if (!Array.isArray(urls)) return toolError("`urls` must be a list of Spotify or YouTube links.");
-  if (urls.length === 0) return toolError("`urls` is empty — send at least one Spotify or YouTube link.");
+  if (!Array.isArray(urls)) return toolError("`urls` must be a list of Spotify, YouTube or SoundCloud links.");
+  if (urls.length === 0) return toolError("`urls` is empty — send at least one Spotify, YouTube or SoundCloud link.");
   if (urls.length > deps.config.maxUrls) {
     return toolError(`Too many links (${urls.length}); send at most ${deps.config.maxUrls} per call.`);
   }
@@ -452,8 +453,8 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
   }
   if (media.length === 0) {
     return toolResult(
-      "None of the links can be downloaded: only https Spotify track/album/playlist and YouTube " +
-        "video/playlist links are supported.",
+      "None of the links can be downloaded: only https Spotify track/album/playlist, YouTube " +
+        "video/playlist and SoundCloud track/set links are supported.",
       { rejected },
       true,
     );

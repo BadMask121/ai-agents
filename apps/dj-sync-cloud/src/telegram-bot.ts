@@ -51,7 +51,7 @@ const STOP_NO = "x:n";
 const DISCONNECTED = "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.";
 
 export const HELP =
-  "Send me a Spotify or YouTube link and it goes into your Rekordbox on your Mac. " +
+  "Send me a Spotify, YouTube or SoundCloud link and it goes into your Rekordbox on your Mac. " +
   "Add a playlist name after the link to choose where it goes (e.g. “https://youtu.be/… gqom”), " +
   "or pick one from the buttons I show. You can also just ask, e.g. “list the playlists in my DJ Sync " +
   "folder” or “move the first two tracks of Friday into Gqom”.\n\n" +
@@ -134,7 +134,7 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
     await send(
       host.api,
       chatId,
-      "I can only download https Spotify links (track, album, playlist) and YouTube links (video, playlist).",
+      "I can only download https Spotify links (track, album, playlist), YouTube links (video, playlist) and SoundCloud links (track, set).",
     );
     return;
   }

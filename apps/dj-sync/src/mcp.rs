@@ -99,10 +99,10 @@ fn initialize(params: &Value) -> Value {
             "title": "DJ Sync → Rekordbox",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": "Use download_to_rekordbox when the user shares Spotify or YouTube \
-            links they want in Rekordbox. It queues a download on the DJ's Mac and returns a \
-            job_id right away; downloads take a few minutes. Use get_download_status with that \
-            job_id when the user asks how it went.",
+        "instructions": "Use download_to_rekordbox when the user shares Spotify, YouTube or \
+            SoundCloud links they want in Rekordbox. It queues a download on the DJ's Mac and \
+            returns a job_id right away; downloads take a few minutes. Use get_download_status \
+            with that job_id when the user asks how it went.",
     })
 }
 
@@ -111,10 +111,10 @@ pub fn tool_definitions(max_urls: usize) -> Value {
         {
             "name": DOWNLOAD_TOOL,
             "title": "Download to Rekordbox",
-            "description": "Download Spotify (track, album, playlist) or YouTube (video, playlist) \
-                links as audio files on the DJ's Mac and add them to a playlist in the Rekordbox \
-                import XML. Returns immediately with a job_id; the download itself takes a few \
-                minutes — call get_download_status to check on it.",
+            "description": "Download Spotify (track, album, playlist), YouTube (video, playlist) \
+                or SoundCloud (track, set) links as audio files on the DJ's Mac and add them to a \
+                playlist in the Rekordbox import XML. Returns immediately with a job_id; the \
+                download itself takes a few minutes — call get_download_status to check on it.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -123,7 +123,7 @@ pub fn tool_definitions(max_urls: usize) -> Value {
                         "items": { "type": "string" },
                         "minItems": 1,
                         "maxItems": max_urls,
-                        "description": "Spotify or YouTube links, e.g. https://open.spotify.com/track/… or https://youtu.be/…"
+                        "description": "Spotify, YouTube or SoundCloud links, e.g. https://open.spotify.com/track/… or https://soundcloud.com/artist/track"
                     },
                     "playlist_name": {
                         "type": "string",
@@ -165,10 +165,12 @@ pub fn tool_definitions(max_urls: usize) -> Value {
 
 fn call_download(args: Option<&Value>, ctx: &McpContext<'_>) -> Value {
     let Some(urls) = args.and_then(|a| a.get("urls")).and_then(Value::as_array) else {
-        return tool_error("`urls` must be a list of Spotify or YouTube links.");
+        return tool_error("`urls` must be a list of Spotify, YouTube or SoundCloud links.");
     };
     if urls.is_empty() {
-        return tool_error("`urls` is empty — send at least one Spotify or YouTube link.");
+        return tool_error(
+            "`urls` is empty — send at least one Spotify, YouTube or SoundCloud link.",
+        );
     }
     if urls.len() > ctx.max_urls {
         return tool_error(&format!(
@@ -195,8 +197,8 @@ fn call_download(args: Option<&Value>, ctx: &McpContext<'_>) -> Value {
     }
     if media.is_empty() {
         return tool_result(
-            "None of the links can be downloaded: only https Spotify track/album/playlist and \
-             YouTube video/playlist links are supported.",
+            "None of the links can be downloaded: only https Spotify track/album/playlist, \
+             YouTube video/playlist and SoundCloud track/set links are supported.",
             json!({ "rejected": rejected }),
             true,
         );

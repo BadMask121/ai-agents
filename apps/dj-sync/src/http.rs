@@ -525,7 +525,7 @@ async fn api_submit(State(state): State<AppState>, headers: HeaderMap, body: Byt
     if media.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "no supported Spotify or YouTube links", "rejected": rejected })),
+            Json(json!({ "error": "no supported Spotify, YouTube or SoundCloud links", "rejected": rejected })),
         )
             .into_response();
     }

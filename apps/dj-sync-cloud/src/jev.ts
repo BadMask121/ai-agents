@@ -38,7 +38,7 @@ export interface JevClient {
 const ACTIONS: Record<RouteAction, unknown> = {
   download: {
     what:
-      "The message has a Spotify or YouTube link and only asks to get that song/album/playlist into Rekordbox, " +
+      "The message has a Spotify, YouTube or SoundCloud link and only asks to get that song/album/playlist into Rekordbox, " +
       "optionally into a named playlist",
     examples: ["add this to Gqom <link>", "<link> amapiano", "put this song in my wedding playlist <link>", "<link>", "download this playlist <link>"],
   },

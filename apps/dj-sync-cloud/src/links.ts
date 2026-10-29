@@ -2,7 +2,7 @@
 // rebuild it in canonical form. Keep the two in step — the Mac re-validates
 // every URL it claims with the Rust version.
 
-export type MediaKind = "spotify" | "youtube";
+export type MediaKind = "spotify" | "youtube" | "soundcloud";
 
 export interface MediaRef {
   kind: MediaKind;
@@ -13,6 +13,7 @@ export interface MediaRef {
 export type LinkResult = { ok: true; media: MediaRef } | { ok: false; reason: string };
 
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"]);
+const SOUNDCLOUD_HOSTS = new Set(["soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"]);
 
 export function extractMediaRef(raw: string): LinkResult {
   const input = raw.trim();
@@ -58,7 +59,13 @@ export function extractMediaRef(raw: string): LinkResult {
   if (host === "youtu.be") {
     return segs.length === 1 ? youtubeVideo(segs[0]!, input) : err(`not a YouTube video link: ${input}`);
   }
-  return err(`unsupported site ${JSON.stringify(host)}: send a Spotify or YouTube link`);
+  if (SOUNDCLOUD_HOSTS.has(host)) {
+    return soundcloudRef(segs, url, input);
+  }
+  if (host === "on.soundcloud.com") {
+    return err("SoundCloud share links can't be checked; open the link and send the full soundcloud.com address");
+  }
+  return err(`unsupported site ${JSON.stringify(host)}: send a Spotify, YouTube or SoundCloud link`);
 }
 
 function spotifyRef(kind: string, id: string): LinkResult {
@@ -86,6 +93,40 @@ function youtubePlaylist(list: string, input: string): LinkResult {
   // Auto-generated "Mix" playlists never end.
   if (list.startsWith("RD")) return err("YouTube Mix playlists aren't supported; send the video link");
   return { ok: true, media: { kind: "youtube", url: `https://www.youtube.com/playlist?list=${list}` } };
+}
+
+/** SoundCloud artist/track/set slugs: the URL-safe words its paths are built from. */
+function isSoundcloudSlug(s: string): boolean {
+  return s.length >= 1 && s.length <= 128 && /^[A-Za-z0-9_-]+$/.test(s);
+}
+
+/** Profile tabs that share the `/artist/<word>` shape with tracks. */
+function isSoundcloudTab(s: string): boolean {
+  return ["sets", "tracks", "albums", "likes", "spotlight", "reposts", "followers", "following", "stats", "playlists", "groups", "posts", "permalink"].includes(s);
+}
+
+/**
+ * SoundCloud track and set links: `/artist/track` or `/artist/sets/set-name`.
+ * A trailing `/s-<token>` segment or `?secret_token=` param unlocks a private
+ * track — kept either way, since the link is useless without its secret.
+ */
+function soundcloudRef(segs: string[], url: URL, input: string): LinkResult {
+  // A token is only ever a third-or-later segment: `artist/s-foo` is a track
+  // whose slug happens to start with "s-".
+  const last = segs.at(-1);
+  const hasToken = segs.length >= 3 && last !== undefined && last.startsWith("s-") && last.length > 2 && isSoundcloudSlug(last);
+  const pathSegs = hasToken ? segs.slice(0, -1) : segs;
+  const isTrack = pathSegs.length === 2 && pathSegs[0] !== undefined && pathSegs[1] !== undefined && !isSoundcloudTab(pathSegs[1]) && isSoundcloudSlug(pathSegs[0]) && isSoundcloudSlug(pathSegs[1]);
+  const isSet = pathSegs.length === 3 && pathSegs[1] === "sets" && pathSegs[0] !== undefined && pathSegs[2] !== undefined && isSoundcloudSlug(pathSegs[0]) && isSoundcloudSlug(pathSegs[2]);
+  if (!isTrack && !isSet) {
+    return err(`not a SoundCloud track or set link: ${input}`);
+  }
+  let out = `https://soundcloud.com/${segs.join("/")}`;
+  if (!hasToken) {
+    const secret = url.searchParams.get("secret_token");
+    if (secret !== null) out += `?secret_token=${encodeURIComponent(secret)}`;
+  }
+  return { ok: true, media: { kind: "soundcloud", url: out } };
 }
 
 function err(reason: string): LinkResult {
