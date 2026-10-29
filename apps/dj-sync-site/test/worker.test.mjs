@@ -113,3 +113,18 @@ test("a browser opening the Shortcut API gets the iPhone guide; API clients don'
   }
   assert.equal(e.calls.cloud.length, api.length);
 });
+
+test("counts a started DMG or update zip by kind and version, and nothing else", async () => {
+  const { countDownload } = await import("../src/worker.mjs");
+  const points = [];
+  const e = { DOWNLOAD_STATS: { writeDataPoint: (p) => points.push(p) } };
+  countDownload(e, "DJ-Sync-1.3.4.dmg");
+  countDownload(e, "DJ-Sync-1.3.4.zip");
+  countDownload(e, "DJ-Sync-1.3.4.dmg", true); // a resumed range request
+  countDownload(e, "appcast.json");
+  assert.deepEqual(points, [
+    { indexes: ["install"], blobs: ["install", "1.3.4"], doubles: [1] },
+    { indexes: ["update"], blobs: ["update", "1.3.4"], doubles: [1] },
+  ]);
+  countDownload({}, "DJ-Sync-1.3.4.dmg"); // unbound: just a log line
+});

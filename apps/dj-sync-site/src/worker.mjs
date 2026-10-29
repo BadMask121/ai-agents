@@ -36,7 +36,7 @@ export function isBrowserVisit(request) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.hostname !== CANONICAL_HOST) {
       url.protocol = "https:";
@@ -49,12 +49,12 @@ export default {
     }
     if (isCloudPath(url.pathname)) return env.CLOUD.fetch(request);
     const file = DOWNLOAD.exec(url.pathname);
-    if (file) return download(request, env, file[1]);
+    if (file) return download(request, env, file[1], ctx);
     return env.ASSETS.fetch(request);
   },
 };
 
-async function download(request, env, name) {
+async function download(request, env, name, ctx) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
   }
@@ -92,7 +92,26 @@ async function download(request, env, name) {
     return new Response(object.body, { status: 206, headers });
   }
   headers.set("content-length", String(object.size));
+  countDownload(env, name, ranged);
   return new Response(object.body, { headers });
+}
+
+/**
+ * Count a started DMG (first install) or zip (the app updating itself):
+ * what and which version, nothing about who. A log line always; a data point
+ * only when the optional DOWNLOAD_STATS Analytics Engine binding exists.
+ */
+export function countDownload(env, name, ranged = false) {
+  const m = /^DJ-Sync-(\d+\.\d+\.\d+)\.(dmg|zip)$/.exec(name);
+  if (!m || ranged) return;
+  const [, version, ext] = m;
+  const kind = ext === "dmg" ? "install" : "update";
+  console.log(JSON.stringify({ event: "download", kind, version }));
+  try {
+    env.DOWNLOAD_STATS?.writeDataPoint({ indexes: [kind], blobs: [kind, version], doubles: [1] });
+  } catch {
+    /* counting never breaks a download */
+  }
 }
 
 /** The released version, from the update feed (null if it can't be read:
