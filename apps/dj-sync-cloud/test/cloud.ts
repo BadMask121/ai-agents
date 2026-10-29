@@ -1,6 +1,7 @@
 // A whole protocol 2 cloud in Node: the Worker's route() over fake Tenant and
 // Registry namespaces, a movable clock, and helpers that act like the Mac.
 
+import type { JevClient } from "../src/jev";
 import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { Registry } from "../src/registry";
 import { route, type Namespaces, type Secrets } from "../src/router";
@@ -25,6 +26,8 @@ export interface CloudOptions {
   telegram?: TelegramApi;
   /** A fake Workers AI for every Tenant (the Telegram assistant). */
   ai?: AiRunner;
+  /** A fake Jev for every Tenant (the Telegram router). */
+  router?: JevClient;
 }
 
 export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
@@ -35,6 +38,7 @@ export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {
     t.clock = clock;
     if (opts.telegram) t.telegramApi = opts.telegram;
     if (opts.ai) t.aiRunner = opts.ai;
+    if (opts.router) t.jevRouter = opts.router;
   });
   const REGISTRY = new FakeNamespace(Registry, () => env, (r) => (r.clock = clock));
   env.TENANT = TENANT;

@@ -16,12 +16,14 @@
 //   POST /__/telegram/bind|unbind|update   from the Worker's Telegram webhook
 
 import { downloadStatsText, type StatsBucket } from "./download-stats";
-import { fireworksRunner } from "./fireworks";
-import { recordAgentEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
+import { chainRunner, fireworksRunner } from "./fireworks";
+import { jevClient, type JevClient } from "./jev";
+import { recordAgentEvent, recordRouterEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
 import { LINK_SECRET, gunzip, isGzip, newLinkSecret, randomBase64url, sha256Hex, utcDay } from "./bytes";
 import {
+  AGENT_MODEL,
   AGENT_PROTOCOL_V2,
   CLOSE_INCOMPATIBLE,
   CLOSE_OVER_LIMITS,
@@ -68,6 +70,8 @@ export interface TenantEnv extends TelegramEnv {
   DOWNLOADS?: StatsBucket;
   /** Optional Telegram chat id that gets a message when the assistant is failing (off until set). */
   ALERT_CHAT_ID?: string;
+  /** When set, Jev (TypeSafe) routes Telegram messages before the assistant. */
+  TYPESAFE_API_KEY?: string;
   /** When set, the assistant runs on Fireworks AI instead of Workers AI. */
   FIREWORKS_API_KEY?: string;
   DEFAULT_PLAYLIST?: string;
@@ -111,10 +115,24 @@ export class Tenant extends DurableObject<TenantEnv> {
   telegramApi: TelegramApi | null = null;
   /** Workers AI; tests set a fake (otherwise env.AI). */
   aiRunner: AiRunner | null = null;
-  /** The assistant's model runner: a test fake, else Fireworks when keyed, else Workers AI. */
+  /** Jev; tests set a fake (otherwise built from TYPESAFE_API_KEY). */
+  jevRouter: JevClient | null = null;
+  /**
+   * The assistant's models: a test fake, else DeepSeek on Fireworks (when
+   * keyed) with Workers AI behind it if it fails, else Workers AI alone.
+   */
   private agent(): { ai: AiRunner; model?: string } | null {
-    const ai = this.aiRunner ?? (this.env.FIREWORKS_API_KEY ? fireworksRunner(this.env.FIREWORKS_API_KEY) : this.env.AI);
-    return ai ? { ai, model: this.env.AI_MODEL } : null;
+    if (this.aiRunner) return { ai: this.aiRunner, model: this.env.AI_MODEL };
+    const chain: { ai: AiRunner; model: string }[] = [];
+    if (this.env.FIREWORKS_API_KEY && this.env.AI_MODEL) {
+      chain.push({ ai: fireworksRunner(this.env.FIREWORKS_API_KEY), model: this.env.AI_MODEL });
+    }
+    if (this.env.AI) chain.push({ ai: this.env.AI, model: this.env.FIREWORKS_API_KEY ? AGENT_MODEL : this.env.AI_MODEL || AGENT_MODEL });
+    if (chain.length === 0) return null;
+    return { ai: chain.length === 1 ? chain[0]!.ai : chainRunner(chain), model: chain[0]!.model };
+  }
+  private router(): JevClient | null {
+    return this.jevRouter ?? (this.env.TYPESAFE_API_KEY ? jevClient(this.env.TYPESAFE_API_KEY) : null);
   }
   /** Log + optionally count each assistant call; alert the owner at most once an hour when it fails. */
   private async onAgentEvent(e: AgentEvent, api: TelegramApi | null): Promise<void> {
@@ -584,6 +602,8 @@ export class Tenant extends DurableObject<TenantEnv> {
           rateLimit: (chatId) => this.telegramRate(chatId),
           agent: this.agent(),
           onAgentEvent: (e) => this.onAgentEvent(e, api),
+          router: this.router(),
+          onRouterEvent: (e) => recordRouterEvent(e, this.env.ANALYTICS),
           ownerStats: (chat) =>
             this.env.ALERT_CHAT_ID && chat === this.env.ALERT_CHAT_ID
               ? downloadStatsText(this.env.DOWNLOADS, this.clock().toISOString().slice(0, 10))

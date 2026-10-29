@@ -29,3 +29,17 @@ export function recordAgentEvent(e: AgentEvent, sink?: AnalyticsSink): void {
     /* metrics never break the bot */
   }
 }
+
+/** The Telegram router's decisions and button picks (telegram-bot.ts builds the fields). */
+export function recordRouterEvent(e: Record<string, unknown>, sink?: AnalyticsSink): void {
+  console.log(JSON.stringify(e));
+  try {
+    sink?.writeDataPoint({
+      indexes: [String(e.chat ?? "")],
+      blobs: ["router", String(e.layer ?? ""), String(e.decision ?? "")],
+      doubles: [typeof e.ms === "number" ? e.ms : 0],
+    });
+  } catch {
+    /* metrics never break the bot */
+  }
+}

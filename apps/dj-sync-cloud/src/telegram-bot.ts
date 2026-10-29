@@ -1,11 +1,14 @@
 // The DJ Sync bot for one paired chat, run inside that DJ's Tenant
 // (connect-anywhere spec §1): links (with a playlist hint, or buttons),
-// /playlists, /search, /status, /help, /stop. Free text — and links with more
-// than a playlist name after them — go to the assistant (telegram-agent.ts,
-// spec §1c) when Workers AI is bound. Replies are plain text.
+// /playlists, /search, /status, /help, /stop. What isn't clear from code goes
+// to Jev when it's configured (routing.ts decides what to trust), then to the
+// assistant (telegram-agent.ts, spec §1c). Replies are plain text.
 
 import { AGENT_MODEL } from "./constants";
 import { agentEvent, type AgentEvent } from "./metrics";
+import type { JevClient, JevRoute } from "./jev";
+import { decideLink, decideText, exactPlaylist } from "./routing";
+import { sha256Hex } from "./bytes";
 import { TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, searchTracks, sortPlaylists } from "./library";
@@ -32,6 +35,10 @@ export interface BotHost {
   onAgentEvent?(e: AgentEvent): void | Promise<void>;
   /** The owner's private /stats: null for everyone else (then /stats isn't a command). */
   ownerStats?(chatId: string): Promise<string> | null;
+  /** Jev, the fast router; null when it isn't configured (then code, then the assistant). */
+  router?: JevClient | null;
+  /** Hears what the router decided and which button the DJ picked (logs); optional. */
+  onRouterEvent?(e: Record<string, unknown>): void;
 }
 
 const DJ_SYNC_FOLDER = "DJ Sync";
@@ -107,11 +114,7 @@ export function splitMessage(text: string): { links: string[]; full: string; hin
 
 async function onText(host: BotHost, chatId: string, text: string): Promise<void> {
   const { links, full, hint } = splitMessage(text);
-  if (links.length === 0) {
-    if (host.agent) return ask(host, chatId, text);
-    await send(host.api, chatId, HELP);
-    return;
-  }
+  if (links.length === 0) return onPlainText(host, chatId, text);
   const media: MediaRef[] = [];
   const rejected: string[] = [];
   for (const l of links) {
@@ -136,18 +139,30 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
 
   const playlists = await host.store.getLibraryPlaylists();
   if (hint !== "" && playlists) {
-    for (const candidate of [...new Set([full, hint])]) {
-      const m = resolvePlaylist(playlists, candidate);
-      if (m.kind === "one") {
-        await send(host.api, chatId, (await queue(host, chatId, urls, m.playlist.name, m.playlist.id)) + skipped);
-        return;
-      }
+    const exact = exactPlaylist(playlists, full, hint);
+    if (exact) {
+      await routerEvent(host, chatId, { layer: "code", decision: "queue", playlist: exact.id });
+      await send(host.api, chatId, (await queue(host, chatId, urls, exact.name, exact.id)) + skipped);
+      return;
     }
   }
-  // More than a playlist name after the link ("into a new playlist called
-  // Lagos Nights"): the assistant reads it. A short unclear name or a
-  // duplicate keeps the one-tap buttons below.
-  if (host.agent && hint.split(/\s+/u).filter(Boolean).length >= 3) return ask(host, chatId, text);
+  let suggest: LibPlaylist[] = [];
+  const route = hint !== "" && playlists ? await jev(host, chatId, text, urls, playlists) : null;
+  if (route && playlists) {
+    const d = decideLink(route, hint, playlists);
+    await routerEvent(host, chatId, { layer: "jev", decision: d.kind, ...routeFields(route) });
+    if (d.kind === "queue") {
+      await send(host.api, chatId, (await queue(host, chatId, urls, d.playlist.name, d.playlist.id)) + skipped);
+      return;
+    }
+    if (d.kind === "assistant" && host.agent && (await ask(host, chatId, text, true))) return;
+    if (d.kind === "buttons") suggest = d.suggest;
+  } else if (host.agent && hint.split(/\s+/u).filter(Boolean).length >= 3) {
+    // More than a playlist name after the link ("into a new playlist called
+    // Lagos Nights"): the assistant reads it. A short unclear name or a
+    // duplicate keeps the one-tap buttons below.
+    if (await ask(host, chatId, text, true)) return;
+  }
   if (!playlists) {
     // No library shared yet: use the name as given (or the default).
     await send(host.api, chatId, (await queue(host, chatId, urls, hint || null, null)) + skipped);
@@ -176,6 +191,8 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
       offerNew = true;
     }
   }
+  // Jev's best guesses first.
+  options = [...new Map([...suggest, ...options].map((p) => [p.id, p])).values()].slice(0, TELEGRAM_BUTTONS);
   const button = (label: string, target: string) => ({ text: label.slice(0, 64), callback_data: `d:${id}:${target}` });
   const rows = options
     .filter((p) => new TextEncoder().encode(`d:${id}:${p.id}`).length <= 64)
@@ -183,10 +200,64 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   rows.push([button(`Default (${host.deps.config.defaultPlaylist})`, "def")]);
   if (offerNew) rows.push([button(`New playlist: ${hint}`, "new")]);
   await send(host.api, chatId, question + skipped, { reply_markup: { inline_keyboard: rows } });
+  await routerEvent(host, chatId, { layer: "buttons", pending: id, offered: options.map((p) => p.id) });
 }
 
-/** Free text → the assistant, with a typing indicator; a delete waits for a tap. */
-async function ask(host: BotHost, chatId: string, text: string): Promise<void> {
+/** A message without links: Jev for list / search when it's sure, else the assistant. */
+async function onPlainText(host: BotHost, chatId: string, text: string): Promise<void> {
+  const playlists = host.router ? await host.store.getLibraryPlaylists() : null;
+  const route = playlists ? await jev(host, chatId, text, [], playlists) : null;
+  if (route) {
+    const d = decideText(route, text);
+    await routerEvent(host, chatId, { layer: "jev", decision: d.kind, ...routeFields(route) });
+    if (d.kind === "list") return void (await send(host.api, chatId, await playlistsText(host, d.filter)));
+    if (d.kind === "search") return void (await send(host.api, chatId, await searchText(host, d.query)));
+  }
+  if (host.agent) return void (await ask(host, chatId, text, false));
+  await send(host.api, chatId, HELP);
+}
+
+/** Jev's reading of a message, or null when it isn't configured, slow or failing. */
+async function jev(host: BotHost, chatId: string, text: string, links: string[], playlists: LibPlaylist[]): Promise<JevRoute | null> {
+  if (!host.router) return null;
+  const started = Date.now();
+  try {
+    return await host.router.route(text, links, playlists);
+  } catch (e) {
+    await routerEvent(host, chatId, { layer: "jev", decision: "failed", ms: Date.now() - started, error: errorKind(e) });
+    return null;
+  }
+}
+
+/** "jev 503", "TimeoutError" — never a response body (it could echo the message). */
+const errorKind = (e: unknown) =>
+  e instanceof Error ? (/^jev \d{3}/u.exec(e.message)?.[0] ?? (e.name === "Error" ? "error" : e.name)) : "error";
+
+const routeFields = (r: JevRoute) => ({
+  action: r.action,
+  aconf: Math.round(r.actionConfidence * 100) / 100,
+  playlist: r.playlist?.id ?? null,
+  pconf: Math.round(r.playlistConfidence * 100) / 100,
+  ms: r.ms,
+  model: r.model,
+});
+
+/** One JSON line per routing decision (no message text; the chat as a short hash). */
+async function routerEvent(host: BotHost, chatId: string, fields: Record<string, unknown>): Promise<void> {
+  if (!host.onRouterEvent) return;
+  try {
+    host.onRouterEvent({ event: "router", chat: (await sha256Hex(chatId)).slice(0, 8), ...fields });
+  } catch {
+    /* metrics never break the bot */
+  }
+}
+
+/**
+ * Free text → the assistant, with a typing indicator; a delete waits for a
+ * tap. With `orButtons`, an unavailable assistant returns false (the caller
+ * shows playlist buttons instead of an apology).
+ */
+async function ask(host: BotHost, chatId: string, text: string, orButtons: boolean): Promise<boolean> {
   try {
     await host.api.call("sendChatAction", { chat_id: chatId, action: "typing" });
   } catch {
@@ -203,6 +274,7 @@ async function ask(host: BotHost, chatId: string, text: string): Promise<void> {
   } catch {
     /* metrics never break the bot */
   }
+  if (outcome.kind === "unavailable" && orButtons) return false;
   if (outcome.kind === "confirm") {
     await send(host.api, chatId, outcome.text, {
       reply_markup: {
@@ -214,9 +286,10 @@ async function ask(host: BotHost, chatId: string, text: string): Promise<void> {
         ],
       },
     });
-    return;
+    return true;
   }
   await send(host.api, chatId, outcome.text);
+  return true;
 }
 
 /** Edit the message with the buttons (or send a new one if that fails). */
@@ -270,6 +343,7 @@ async function onButton(host: BotHost, chatId: string, callbackId: string, data:
     playlistId = p.id;
   }
   const text = await queue(host, chatId, pending.urls, name, playlistId);
+  await routerEvent(host, chatId, { layer: "pick", pending: pending.id, picked: playlistId ?? target });
   host.store.deleteTgPending(pending.id);
   await answerCallback(host.api, callbackId);
   if (messageId !== null) {
