@@ -68,11 +68,20 @@ async function download(request, env, name, ctx) {
   }
   const key = `djsync/${name}`;
   const ranged = request.method === "GET" && request.headers.has("range");
-  const object =
-    request.method === "HEAD"
-      ? await env.DOWNLOADS.head(key)
-      : await env.DOWNLOADS.get(key, ranged ? { range: request.headers } : undefined);
-  if (!object) return new Response("Not found\n", { status: 404, headers: { "content-type": "text/plain" } });
+  let object;
+  try {
+    object =
+      request.method === "HEAD"
+        ? await env.DOWNLOADS.head(key)
+        : await env.DOWNLOADS.get(key, ranged ? { range: request.headers } : undefined);
+  } catch {
+    countFailure(env, name, "error", ctx);
+    return new Response("Download failed, please try again\n", { status: 502, headers: { "content-type": "text/plain" } });
+  }
+  if (!object) {
+    countFailure(env, name, "missing", ctx);
+    return new Response("Not found\n", { status: 404, headers: { "content-type": "text/plain" } });
+  }
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
@@ -113,6 +122,23 @@ export function countDownload(env, name, ranged = false, ctx) {
     /* counting never breaks a download */
   }
   if (ctx && env.DOWNLOADS) ctx.waitUntil(bumpStats(env.DOWNLOADS, `${kind}:${version}`).catch(() => {}));
+}
+
+/**
+ * A download that didn't happen: the file is missing (404) or R2 failed (502).
+ * Only DMG/zip names count, bucketed by version ("other" for anything else),
+ * so scanners can't fill the counts with made-up names.
+ */
+export function countFailure(env, name, reason, ctx) {
+  const m = /^DJ-Sync-(\d+\.\d+\.\d+|latest)\.(dmg|zip)$/.exec(name);
+  const version = m ? m[1] : "other";
+  console.log(JSON.stringify({ event: "download_failed", reason, version }));
+  try {
+    env.DOWNLOAD_STATS?.writeDataPoint({ indexes: ["failed"], blobs: ["failed", reason, version], doubles: [1] });
+  } catch {
+    /* counting never breaks a download */
+  }
+  if (ctx && env.DOWNLOADS) ctx.waitUntil(bumpStats(env.DOWNLOADS, `failed-${reason}:${version}`).catch(() => {}));
 }
 
 const STATS_KEY = "djsync/stats/downloads.json";

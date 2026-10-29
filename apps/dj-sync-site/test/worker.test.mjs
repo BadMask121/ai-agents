@@ -152,3 +152,18 @@ test("bumpStats adds to today's bucket and retries when another download wrote f
   await bumpStats(bucket, "install:1.3.4", new Date("2026-10-29T10:00:00Z"));
   assert.deepEqual(JSON.parse(stored), { days: { "2026-10-29": { "install:1.3.4": 2 } } });
 });
+
+test("a missing file or an R2 error is counted as a failed download, and made-up names go under other", async () => {
+  const w = (await import("../src/worker.mjs")).default;
+  const waits = [];
+  const ctx = { waitUntil: (p) => waits.push(p) };
+  const points = [];
+  const base = env();
+  const e = { ...base, DOWNLOAD_STATS: { writeDataPoint: (p) => points.push(p) } };
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/DJ-Sync-9.9.9.dmg"), e, ctx)).status, 404);
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/wp-login.php"), e, ctx)).status, 404);
+  const broken = { ...e, DOWNLOADS: { get: async () => { throw new Error("r2"); }, head: async () => { throw new Error("r2"); } } };
+  assert.equal((await w.fetch(new Request("https://djsync.jeffrey.build/download/DJ-Sync-1.2.1.dmg"), broken, ctx)).status, 502);
+  await Promise.all(waits);
+  assert.deepEqual(points.map((p) => p.blobs), [["failed", "missing", "9.9.9"], ["failed", "missing", "other"], ["failed", "error", "1.2.1"]]);
+});

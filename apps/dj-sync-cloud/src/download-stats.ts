@@ -21,16 +21,27 @@ export function summarize(stats: DownloadStats, today: string): string {
       .filter((d) => d >= from)
       .reduce((n, d) => n + Object.entries(stats.days[d]!).filter(([k]) => k.startsWith(`${kind}:`)).reduce((a, [, v]) => a + v, 0), 0);
   const ago = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
-  const line = (label: string, from: string) => `${label}: ${sum(from, "install")} installs, ${sum(from, "update")} updates`;
+  const line = (label: string, from: string) => {
+    const failed = sum(from, "failed-missing") + sum(from, "failed-error");
+    return `${label}: ${sum(from, "install")} installs, ${sum(from, "update")} updates${failed > 0 ? `, ${failed} failed` : ""}`;
+  };
   const versions = new Map<string, number>();
   for (const d of days) for (const [k, v] of Object.entries(stats.days[d]!)) if (k.startsWith("install:")) versions.set(k.slice(8), (versions.get(k.slice(8)) ?? 0) + v);
   const top = [...versions].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([v, n]) => `• ${v}: ${n}`);
+  const failures = new Map<string, number>();
+  for (const d of days)
+    for (const [k, v] of Object.entries(stats.days[d]!)) {
+      const m = /^failed-(missing|error):(.+)$/.exec(k);
+      if (m) failures.set(`${m[2]} (${m[1] === "missing" ? "not found" : "server error"})`, (failures.get(`${m[2]} (${m[1] === "missing" ? "not found" : "server error"})`) ?? 0) + v);
+    }
+  const failed = [...failures].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => `• ${k}: ${n}`);
   return [
     "DJ Sync downloads",
     line("Today", today),
     line("Last 7 days", ago(6)),
     line(`Since ${days[0]}`, days[0]!),
     ...(top.length > 0 ? ["", "Installs by version:", ...top] : []),
+    ...(failed.length > 0 ? ["", "Failed downloads:", ...failed] : []),
   ].join("\n");
 }
 

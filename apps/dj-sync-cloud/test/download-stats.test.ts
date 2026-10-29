@@ -18,6 +18,13 @@ describe("owner download stats", () => {
     expect(text).toContain("• 1.3.4: 4");
   });
 
+  it("shows failed downloads", () => {
+    const text = summarize({ days: { "2026-10-29": { "install:1.3.4": 1, "failed-missing:9.9.9": 2, "failed-error:1.3.4": 1 } } }, "2026-10-29");
+    expect(text).toContain("Today: 1 installs, 0 updates, 3 failed");
+    expect(text).toContain("• 9.9.9 (not found): 2");
+    expect(text).toContain("• 1.3.4 (server error): 1");
+  });
+
   it("says so when nothing is counted, unbound or unreadable", async () => {
     expect(summarize({ days: {} }, "2026-10-29")).toBe("No downloads counted yet.");
     expect(await downloadStatsText(undefined, "2026-10-29")).toBe("Download counts aren't connected.");
