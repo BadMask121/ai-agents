@@ -18,6 +18,7 @@
 import { downloadStatsText, type StatsBucket } from "./download-stats";
 import { chainRunner, fireworksRunner } from "./fireworks";
 import { jevClient, type JevClient } from "./jev";
+import { collectionTitle } from "./oembed";
 import { meteredRunner, usageReport, type UsageEvent, type UsageRow } from "./usage";
 import { recordAgentEvent, recordRouterEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
@@ -120,6 +121,8 @@ export class Tenant extends DurableObject<TenantEnv> {
   aiRunner: AiRunner | null = null;
   /** Jev; tests set a fake (otherwise built from TYPESAFE_API_KEY). */
   jevRouter: JevClient | null = null;
+  /** Playlist names from links (oEmbed); tests set a fake. */
+  titleLookup: ((url: string) => Promise<string | null>) | null = null;
   /**
    * The assistant's models: a test fake, else DeepSeek on Fireworks (when
    * keyed) with Workers AI behind it if it fails, else Workers AI alone.
@@ -241,6 +244,7 @@ export class Tenant extends DurableObject<TenantEnv> {
         }
         return null;
       },
+      mediaTitle: (url) => (this.titleLookup ?? collectionTitle)(url),
       onSearch: (match) => this.recordUsage({ kind: "search", name: match, ok: match !== "none", ms: 0, tokensIn: 0, tokensOut: 0 }),
     };
   }

@@ -92,8 +92,16 @@ describe("Telegram pairing (connect-anywhere spec §1)", () => {
   it("/stop and deleting the link unpair the chat", async () => {
     const { c, tg } = tgCloud();
     const { t } = await paired(c, CHAT);
+    // /stop asks first; Cancel keeps the chat.
     await hook(c, msg(CHAT, "/stop"));
-    expect(tg.last(CHAT).text).toContain("Disconnected");
+    expect(tg.last(CHAT).text).toBe("Disconnect this chat from DJ Sync? To use it here again you'd pair it from your Mac.");
+    expect(tg.last(CHAT).reply_markup.inline_keyboard[0].map((b: Any) => b.text)).toEqual(["Disconnect", "Cancel"]);
+    await hook(c, tap(CHAT, "x:n", 90));
+    expect(tg.of("editMessageText").at(-1)).toMatchObject({ message_id: 90, text: "OK — this chat is still connected." });
+    expect(await links(c, t)).toHaveLength(1);
+    await hook(c, msg(CHAT, "/stop"));
+    await hook(c, tap(CHAT, "x:y", 91));
+    expect(tg.of("editMessageText").at(-1).text).toContain("Disconnected");
     expect(await links(c, t)).toEqual([]);
     await hook(c, msg(CHAT, "/help"));
     expect(tg.last(CHAT).text).toBe(NOT_CONNECTED);
@@ -266,7 +274,7 @@ describe("Telegram bot", () => {
       allowed_updates: ["message", "callback_query"],
       drop_pending_updates: true,
     });
-    expect(tg.of("setMyCommands")[0].commands.map((x: Any) => x.command)).toEqual(["playlists", "search", "status", "help", "stop"]);
+    expect(tg.of("setMyCommands")[0].commands.map((x: Any) => x.command)).toEqual(["playlists", "search", "rename", "status", "help", "stop"]);
     expect(tg.of("setMyDescription")).toHaveLength(1);
     expect(tg.of("setMyShortDescription")).toHaveLength(1);
 

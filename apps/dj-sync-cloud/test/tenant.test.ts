@@ -94,7 +94,7 @@ describe("MCP per DJ", () => {
     expect(s).toBe(200);
     expect(init.result.serverInfo.version).toBe(WORKER_VERSION);
     const [, list] = await c.mcp(url, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-    expect(list.result.tools).toHaveLength(11);
+    expect(list.result.tools).toHaveLength(12);
     expect((await c.mcp(url, { jsonrpc: "2.0", method: "notifications/initialized" }))[0]).toBe(202);
     expect((await c.mcp(url, { jsonrpc: "2.0", id: 3, method: "ping" }, { origin: "https://evil.example" }))[0]).toBe(403);
     expect((await c.mcp(url, { jsonrpc: "2.0", id: 3, method: "ping" }, { "mcp-protocol-version": "2026-07-28" }))[0]).toBe(400);
@@ -369,7 +369,7 @@ describe("per-DJ limits (spec §3.7)", () => {
     const over = await c.tool(url, "get_download_status", {});
     expect(over).toMatchObject({ isError: true, structuredContent: { error: "rate_limited" } });
     // Other methods still work.
-    expect((await c.mcp(url, { jsonrpc: "2.0", id: 9, method: "tools/list" }))[1].result.tools).toHaveLength(11);
+    expect((await c.mcp(url, { jsonrpc: "2.0", id: 9, method: "tools/list" }))[1].result.tools).toHaveLength(12);
     c.advance(3601);
     expect((await c.tool(url, "get_download_status", {})).isError).toBe(false);
   });

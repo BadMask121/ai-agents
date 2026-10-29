@@ -54,7 +54,7 @@ export const agentLimited = () =>
   `That's today's limit of ${AGENT_MESSAGES_PER_DAY} questions to DJ Sync's assistant — commands and links still ` +
   "work: /playlists, /search <words>, /status, or send a link.";
 
-const TRACK_CHANGES = new Set(["add_tracks_to_playlist", "remove_tracks_from_playlist", "move_tracks"]);
+const TRACK_CHANGES = new Set(["add_tracks_to_playlist", "remove_tracks_from_playlist", "move_tracks", "copy_tracks"]);
 
 /**
  * The changes that need a tap first: ones that change a lot at once, and
@@ -97,9 +97,14 @@ export function systemPrompt(today: string): string {
       "the message (\"add this to Afrobeat - Wa\"), you MUST pass it as playlist_name in that same call — never " +
       "download to the default and add later. Omit playlist_name only when the user named none. For a new " +
       "playlist set create_playlist: true.",
-    "- Copy tracks = add_tracks_to_playlist; move them = move_tracks.",
+    "- Copy songs from one playlist to another = copy_tracks (all: true for the whole playlist); move them = " +
+      "move_tracks; songs found with search_tracks go in with add_tracks_to_playlist. For a playlist that doesn't " +
+      "exist yet, set create_playlist: true.",
     "- \"Which playlist has <song>?\" = one search_tracks call: each track it finds lists the playlists it's in.",
     "- If search_tracks says \"No exact match\", say which song you found and ask before changing a playlist with it.",
+    "- You can't see which songs are inside a Spotify or YouTube link until it's downloaded. If asked to compare or " +
+      "check a link's songs, say so plainly and offer to download it (into a playlist named after it) or to work with " +
+      "playlists already in Rekordbox. Never download a link the DJ only asked you to check.",
     "- If the request is unclear, ask one short question instead of guessing.",
     "- Never mention tool names, job ids, files (XML, databases) or other internals in a reply. Say what happened " +
       "in plain words, e.g. \"Added to Afrobeat - Wa.\"",
@@ -379,7 +384,7 @@ async function closeMatchConfirmation(
       ? `Add ${songs} to “${String(args.playlist)}”`
       : tool === "remove_tracks_from_playlist"
         ? `Remove ${songs} from “${String(args.playlist)}”`
-        : `Move ${songs} from “${String(args.from_playlist)}” to “${String(args.to_playlist)}”`;
+        : `${tool === "copy_tracks" ? "Copy" : "Move"} ${songs} from “${String(args.from_playlist)}” to “${String(args.to_playlist)}”`;
   const nearCount = ids.filter((id) => close.has(id)).length;
   const text = `${where}? I found ${nearCount === 1 && named.length === 1 ? "it" : "them"} as a close match, not an exact one.`;
   const id = randomBase64url(6);

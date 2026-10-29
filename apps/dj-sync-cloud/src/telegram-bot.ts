@@ -7,13 +7,14 @@
 import { AGENT_MODEL } from "./constants";
 import { agentEvent, type AgentEvent } from "./metrics";
 import type { JevClient, JevRoute } from "./jev";
-import { decideLink, decideText, exactPlaylist } from "./routing";
+import { decideLink, decideText, exactPlaylist, looksLikeInstruction, renameRequest } from "./routing";
 import { sha256Hex } from "./bytes";
-import { TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
+import { MAX_PLAYLIST_NAME, TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, sortPlaylists } from "./library";
 import { libraryIndex, searchIndex } from "./search";
 import { asLink, extractMediaRef, type MediaRef } from "./links";
+import { isCollection } from "./oembed";
 import type { SqlStore } from "./sqlstore";
 import type { LibPlaylist } from "./store";
 import { answerCallback, clip, send, updateChat, type TelegramApi, type TgUpdate } from "./telegram";
@@ -45,6 +46,9 @@ export interface BotHost {
 }
 
 const DJ_SYNC_FOLDER = "DJ Sync";
+const STOP_YES = "x:y";
+const STOP_NO = "x:n";
+const DISCONNECTED = "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.";
 
 export const HELP =
   "Send me a Spotify or YouTube link and it goes into your Rekordbox on your Mac. " +
@@ -53,6 +57,7 @@ export const HELP =
   "folder” or “move the first two tracks of Friday into Gqom”.\n\n" +
   "/playlists — your playlists (add words to filter)\n" +
   "/search <words> — find tracks in your library\n" +
+  "/rename <playlist> to <new name> — rename a playlist\n" +
   "/status — your latest downloads and changes\n" +
   "/stop — disconnect this chat";
 
@@ -82,7 +87,7 @@ export async function handleUpdate(host: BotHost, update: TgUpdate, linkId: stri
 
   const callback = update.callback_query;
   if (callback && who.callbackId) {
-    await onButton(host, who.chatId, who.callbackId, callback.data ?? "", callback.message?.message_id ?? null);
+    await onButton(host, who.chatId, who.callbackId, callback.data ?? "", callback.message?.message_id ?? null, linkId);
     return true;
   }
   const text = who.text.trim();
@@ -96,8 +101,8 @@ export async function handleUpdate(host: BotHost, update: TgUpdate, linkId: stri
 
 // ---------- links ----------
 
-const FILLER_BEFORE = new Set(["add", "put", "save", "send", "download", "to", "into", "in", "the", "my", "this", "these", "please"]);
-const FILLER_AFTER = new Set(["playlist", "please"]);
+const FILLER_BEFORE = new Set(["add", "put", "save", "send", "download", "get", "grab", "to", "into", "in", "the", "my", "this", "these", "please"]);
+const FILLER_AFTER = new Set(["playlist", "album", "please", "pls", "for", "me", "now"]);
 
 /** The links in a message and what's left as a playlist hint (as typed, and without filler words). */
 export function splitMessage(text: string): { links: string[]; full: string; hint: string } {
@@ -141,7 +146,20 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   const skipped = rejected.length > 0 ? ` (Skipped ${plural(rejected.length, "unsupported link")}.)` : "";
 
   const playlists = await host.store.getLibraryPlaylists();
-  if (hint !== "" && playlists) {
+  const instruction = looksLikeInstruction(hint);
+  // "Download this playlist": one playlist or album link and no playlist named → its own name.
+  if (hint === "" && media.length === 1 && isCollection(media[0]!.url)) {
+    const title = await host.deps.mediaTitle?.(media[0]!.url);
+    const m = title && playlists ? resolvePlaylist(playlists, title) : null;
+    if (title && m?.kind !== "many") {
+      const existing = m?.kind === "one" ? m.playlist : null;
+      await routerEvent(host, chatId, { layer: "code", decision: "queue", playlist: existing?.id ?? null, named_after_link: true });
+      const note = existing ? "" : ` (a new playlist named after the ${media[0]!.kind === "spotify" ? "Spotify" : "YouTube"} one)`;
+      await send(host.api, chatId, (await queue(host, chatId, urls, existing?.name ?? title, existing?.id ?? null, note)) + skipped);
+      return;
+    }
+  }
+  if (hint !== "" && playlists && !instruction) {
     const exact = exactPlaylist(playlists, full, hint);
     if (exact) {
       await routerEvent(host, chatId, { layer: "code", decision: "queue", playlist: exact.id });
@@ -149,8 +167,14 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
       return;
     }
   }
+  // A whole instruction or a question around the link ("check these against Shayo 29 and copy…"):
+  // straight to the assistant.
+  if (instruction && host.agent) {
+    await routerEvent(host, chatId, { layer: "code", decision: "assistant" });
+    if (await ask(host, chatId, text, true)) return;
+  }
   let suggest: LibPlaylist[] = [];
-  const route = hint !== "" && playlists ? await jev(host, chatId, text, urls, playlists) : null;
+  const route = hint !== "" && !instruction && playlists ? await jev(host, chatId, text, urls, playlists) : null;
   if (route && playlists) {
     const d = decideLink(route, hint, playlists);
     await routerEvent(host, chatId, { layer: "jev", decision: d.kind, ...routeFields(route) });
@@ -177,7 +201,7 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   let question: string;
   let options: LibPlaylist[];
   let offerNew = false;
-  if (hint === "") {
+  if (hint === "" || instruction) {
     question = `Which playlist should ${plural(urls.length, "link")} go into?`;
     options = djSyncFirst(playlists).slice(0, TELEGRAM_BUTTONS);
   } else {
@@ -208,6 +232,7 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
 
 /** A message without links: Jev for list / search when it's sure, else the assistant. */
 async function onPlainText(host: BotHost, chatId: string, text: string): Promise<void> {
+  if (await askRename(host, chatId, text)) return;
   const playlists = host.router ? await host.store.getLibraryPlaylists() : null;
   const route = playlists ? await jev(host, chatId, text, [], playlists) : null;
   if (route) {
@@ -218,6 +243,47 @@ async function onPlainText(host: BotHost, chatId: string, text: string): Promise
   }
   if (host.agent) return void (await ask(host, chatId, text, false));
   await send(host.api, chatId, HELP);
+}
+
+/**
+ * "rename Friday to Friday Night": asks with a tap, then queues it for the
+ * Mac. True when handled; false when it isn't a rename (or the playlist isn't
+ * clear and the assistant is there to work it out).
+ */
+async function askRename(host: BotHost, chatId: string, text: string): Promise<boolean> {
+  const playlists = await host.store.getLibraryPlaylists();
+  if (!playlists) return false;
+  const r = renameRequest(text, playlists);
+  if (r === null) return false;
+  if (r.kind === "unknown") {
+    if (host.agent) return false;
+    const close = closestPlaylists(playlists, r.from, 3).map((p) => playlistPath(p));
+    await send(host.api, chatId, `I couldn't find a playlist called “${r.from}”.${close.length > 0 ? ` Did you mean ${close.join(", ")}?` : ""}`);
+    return true;
+  }
+  await routerEvent(host, chatId, { layer: "code", decision: "rename", playlist: r.playlist.id });
+  if (normalizeName(r.newName) === normalizeName(r.playlist.name)) {
+    await send(host.api, chatId, `It's already called “${r.playlist.name}”.`);
+    return true;
+  }
+  if (r.newName.length > MAX_PLAYLIST_NAME) {
+    await send(host.api, chatId, `That name is too long (at most ${MAX_PLAYLIST_NAME} characters).`);
+    return true;
+  }
+  const id = randomBase64url(6);
+  const prompt = `Rename “${playlistPath(r.playlist)}” to “${r.newName}”?`;
+  host.store.addAgentConfirm({
+    id,
+    chat_id: chatId,
+    tool: "rename_playlist",
+    args: { name: r.playlist.name, new_name: r.newName, playlist_id: r.playlist.id },
+    prompt,
+    created_at: host.now().toISOString(),
+  });
+  await send(host.api, chatId, prompt, {
+    reply_markup: { inline_keyboard: [[{ text: "Rename", callback_data: `c:${id}:y` }, { text: "Cancel", callback_data: `c:${id}:n` }]] },
+  });
+  return true;
 }
 
 /** Jev's reading of a message, or null when it isn't configured, slow or failing. */
@@ -308,7 +374,20 @@ async function replaceMessage(host: BotHost, chatId: string, messageId: number |
   await send(host.api, chatId, text);
 }
 
-async function onButton(host: BotHost, chatId: string, callbackId: string, data: string, messageId: number | null): Promise<void> {
+async function onButton(
+  host: BotHost,
+  chatId: string,
+  callbackId: string,
+  data: string,
+  messageId: number | null,
+  linkId: string,
+): Promise<void> {
+  if (data === STOP_YES || data === STOP_NO) {
+    await answerCallback(host.api, callbackId);
+    if (data === STOP_NO) return replaceMessage(host, chatId, messageId, "OK — this chat is still connected.");
+    await replaceMessage(host, chatId, messageId, DISCONNECTED);
+    return host.disconnect(linkId);
+  }
   const confirm = /^c:([A-Za-z0-9_-]{8}):([yn])$/u.exec(data);
   if (confirm) {
     const text = await resolveConfirmation(
@@ -361,7 +440,14 @@ async function onButton(host: BotHost, chatId: string, callbackId: string, data:
 }
 
 /** Queue a download and say what happens next. */
-async function queue(host: BotHost, chatId: string, urls: string[], name: string | null, playlistId: string | null): Promise<string> {
+async function queue(
+  host: BotHost,
+  chatId: string,
+  urls: string[],
+  name: string | null,
+  playlistId: string | null,
+  note = "",
+): Promise<string> {
   const media = urls.map((u) => extractMediaRef(u)).flatMap((r) => (r.ok ? [r.media] : []));
   const sub = await submit(host.deps, media, name, "mcp", playlistId);
   if (!sub.ok) return `Couldn't queue that: ${sub.error}`;
@@ -369,7 +455,7 @@ async function queue(host: BotHost, chatId: string, urls: string[], name: string
   host.store.addTgJob(job.id, chatId);
   let text = deduplicated
     ? `That's already queued → ${job.playlist}. I'll tell you when it's in Rekordbox.`
-    : `Queued: ${plural(job.urls.length, "link")} → ${job.playlist}. I'll tell you when it's in Rekordbox.`;
+    : `Queued: ${plural(job.urls.length, "link")} → ${job.playlist}${note}. I'll tell you when it's in Rekordbox.`;
   const agent = await agentStatus(host.deps);
   if (!agent.online) text += offlineNote(agent, host.now());
   return text;
@@ -407,8 +493,13 @@ async function onCommand(host: BotHost, chatId: string, linkId: string, text: st
       return void (await send(host.api, chatId, `I don't know /${command}.\n\n${HELP}`));
     }
     case "stop":
-      await send(host.api, chatId, "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.");
-      return host.disconnect(linkId);
+      return void (await send(host.api, chatId, "Disconnect this chat from DJ Sync? To use it here again you'd pair it from your Mac.", {
+        reply_markup: { inline_keyboard: [[{ text: "Disconnect", callback_data: STOP_YES }, { text: "Cancel", callback_data: STOP_NO }]] },
+      }));
+    case "rename":
+      if (args === "") return void (await send(host.api, chatId, "Usage: /rename <playlist> to <new name>, e.g. /rename Friday to Friday Night"));
+      if (await askRename(host, chatId, `rename ${args}`)) return;
+      return void (await send(host.api, chatId, "Usage: /rename <playlist> to <new name>, e.g. /rename Friday to Friday Night"));
     default:
       return void (await send(host.api, chatId, `I don't know /${command}.\n\n${HELP}`));
   }

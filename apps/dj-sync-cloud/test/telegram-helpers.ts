@@ -28,9 +28,9 @@ export const LIBRARY = {
   ],
 };
 
-export function tgCloud(ai?: FakeAi, router?: JevClient) {
+export function tgCloud(ai?: FakeAi, router?: JevClient, titles?: Record<string, string>) {
   const tg = new FakeTelegram();
-  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai, router });
+  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai, router, titles });
   return { c, tg };
 }
 
