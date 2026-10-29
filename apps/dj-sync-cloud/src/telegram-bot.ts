@@ -4,6 +4,8 @@
 // than a playlist name after them — go to the assistant (telegram-agent.ts,
 // spec §1c) when Workers AI is bound. Replies are plain text.
 
+import { AGENT_MODEL } from "./constants";
+import { agentEvent, type AgentEvent } from "./metrics";
 import { TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, searchTracks, sortPlaylists } from "./library";
@@ -26,6 +28,8 @@ export interface BotHost {
   rateLimit(chatId: string): "ok" | "warn" | "drop";
   /** Workers AI for free text; null without the binding (then the bot stays rule-based). */
   agent: { ai: AiRunner; model?: string } | null;
+  /** Hears about each assistant call (metrics, alerts); optional. */
+  onAgentEvent?(e: AgentEvent): void | Promise<void>;
 }
 
 const DJ_SYNC_FOLDER = "DJ Sync";
@@ -186,11 +190,17 @@ async function ask(host: BotHost, chatId: string, text: string): Promise<void> {
   } catch {
     /* cosmetic */
   }
+  const started = Date.now();
   const outcome = await runAgent(
     { ai: host.agent!.ai, model: host.agent!.model, deps: host.deps, store: host.store, chatId, now: () => host.now() },
     text,
     (jobId) => host.store.addTgJob(jobId, chatId),
   );
+  try {
+    await host.onAgentEvent?.(await agentEvent(outcome.kind, Date.now() - started, host.agent!.model || AGENT_MODEL, chatId));
+  } catch {
+    /* metrics never break the bot */
+  }
   if (outcome.kind === "confirm") {
     await send(host.api, chatId, outcome.text, {
       reply_markup: {
