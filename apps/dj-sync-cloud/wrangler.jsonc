@@ -86,6 +86,9 @@
   //   TELEGRAM_BOT_TOKEN       — the shared bot's token from @BotFather
   //   TELEGRAM_WEBHOOK_SECRET  — random; Telegram echoes it in X-Telegram-Bot-Api-Secret-Token
   //   (Without both, /telegram/* is 404 and creating a telegram link is 503 telegram_not_configured.)
+  //   FIREWORKS_API_KEY — optional; the assistant runs DeepSeek (var AI_MODEL) on Fireworks, Workers AI behind it
+  //   TYPESAFE_API_KEY  — optional; Jev routes Telegram messages before the assistant (src/routing.ts).
+  //                       Check changes with `npm run eval:router` (about 100 Jev calls).
 
   // Optional, free-tier observability (src/metrics.ts). Each assistant call
   // already logs one JSON line. To also chart them, bind an Analytics Engine

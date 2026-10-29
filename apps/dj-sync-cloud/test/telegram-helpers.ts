@@ -2,6 +2,7 @@
 // cloud, a library snapshot, and webhook update builders.
 
 import { expect } from "vitest";
+import type { JevClient } from "../src/jev";
 import { FakeTelegram, agentHeaders, makeCloud, req, type Any, type FakeAi, type Registered } from "./cloud";
 
 export const TG = {
@@ -27,9 +28,9 @@ export const LIBRARY = {
   ],
 };
 
-export function tgCloud(ai?: FakeAi) {
+export function tgCloud(ai?: FakeAi, router?: JevClient) {
   const tg = new FakeTelegram();
-  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai });
+  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai, router });
   return { c, tg };
 }
 

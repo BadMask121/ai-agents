@@ -84,6 +84,17 @@ export const TELEGRAM_MESSAGES_PER_HOUR = 60;
 /** Playlist buttons offered for a link (plus Default / New). */
 export const TELEGRAM_BUTTONS = 6;
 
+// ---------- the router: Jev before the assistant ----------
+
+/** Jev answers within this, or the message goes on to the assistant. */
+export const JEV_TIMEOUT_MS = 1500;
+/** Options a Jev choice question takes (TypeSafe's limit). */
+export const JEV_MAX_CHOICES = 255;
+/** Act on Jev's answer only at or above this confidence; below, ask (buttons or the assistant). */
+export const JEV_ACT_CONFIDENCE = 0.9;
+/** Each assistant model call gives up after this (then the next model is tried). */
+export const AGENT_CALL_TIMEOUT_MS = 15_000;
+
 // ---------- one-scan iPhone install (connect-anywhere spec §2b) ----------
 
 /** The signed .shortcut the Mac uploads. */
