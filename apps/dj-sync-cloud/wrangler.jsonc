@@ -84,6 +84,11 @@
   //   TELEGRAM_WEBHOOK_SECRET  — random; Telegram echoes it in X-Telegram-Bot-Api-Secret-Token
   //   (Without both, /telegram/* is 404 and creating a telegram link is 503 telegram_not_configured.)
 
+  // Optional, free-tier observability (src/metrics.ts). Each assistant call
+  // already logs one JSON line. To also chart them, bind an Analytics Engine
+  // dataset ("analytics_engine_datasets": [{ "binding": "ANALYTICS", "dataset": "djsync_assistant" }]);
+  // to get a Telegram message (at most hourly) when the assistant fails, add
+  // the var ALERT_CHAT_ID. Both stay off until set.
   "observability": {
     "enabled": true,
     // Invocation logs record the request URL, which contains MCP_SECRET_PATH.

@@ -16,6 +16,7 @@
 //   POST /__/telegram/bind|unbind|update   from the Worker's Telegram webhook
 
 import { fireworksRunner } from "./fireworks";
+import { recordAgentEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
 import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
 import { LINK_SECRET, gunzip, isGzip, newLinkSecret, randomBase64url, sha256Hex, utcDay } from "./bytes";
@@ -60,6 +61,10 @@ export interface TenantEnv extends TelegramEnv {
   AI?: AiRunner;
   /** Overrides AGENT_MODEL (with FIREWORKS_API_KEY: the Fireworks model id). */
   AI_MODEL?: string;
+  /** Optional Analytics Engine dataset for assistant calls (off until bound). */
+  ANALYTICS?: AnalyticsSink;
+  /** Optional Telegram chat id that gets a message when the assistant is failing (off until set). */
+  ALERT_CHAT_ID?: string;
   /** When set, the assistant runs on Fireworks AI instead of Workers AI. */
   FIREWORKS_API_KEY?: string;
   DEFAULT_PLAYLIST?: string;
@@ -107,6 +112,18 @@ export class Tenant extends DurableObject<TenantEnv> {
   private agent(): { ai: AiRunner; model?: string } | null {
     const ai = this.aiRunner ?? (this.env.FIREWORKS_API_KEY ? fireworksRunner(this.env.FIREWORKS_API_KEY) : this.env.AI);
     return ai ? { ai, model: this.env.AI_MODEL } : null;
+  }
+  /** Log + optionally count each assistant call; alert the owner at most once an hour when it fails. */
+  private async onAgentEvent(e: AgentEvent, api: TelegramApi | null): Promise<void> {
+    recordAgentEvent(e, this.env.ANALYTICS);
+    const to = this.env.ALERT_CHAT_ID;
+    if (e.outcome !== "unavailable" || !to || !api) return;
+    const store = this.store;
+    if (!store) return;
+    const last = Number(store.meta("alert_sent_at") ?? "0");
+    if (this.clock().getTime() - last < 3600 * 1000) return;
+    store.setMeta("alert_sent_at", String(this.clock().getTime()));
+    await api.call("sendMessage", { chat_id: to, text: `DJ Sync: the assistant failed (${e.model}, ${e.ms} ms). See the Worker logs.` });
   }
   /** Telegram messages per chat in the last hour (in memory). */
   private tgRate = new Map<string, { times: number[]; warned: boolean }>();
@@ -563,6 +580,7 @@ export class Tenant extends DurableObject<TenantEnv> {
           },
           rateLimit: (chatId) => this.telegramRate(chatId),
           agent: this.agent(),
+          onAgentEvent: (e) => this.onAgentEvent(e, api),
         },
         b.update as TgUpdate,
         link.id,
