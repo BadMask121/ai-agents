@@ -11,6 +11,12 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.4.0] — 2026-10-29 · SoundCloud
+
+### Added
+- **SoundCloud track and set links are accepted everywhere Spotify and YouTube links are** — Telegram, the ChatGPT/Claude MCP tools, the REST shortcut route and the cloud queue. The parser canonicalises `soundcloud.com/<artist>/<track>` and `/sets/<name>` links, keeps private-track `/s-<token>` secrets (`?secret_token=` too), and rejects share links (`on.soundcloud.com`), profile tabs and `/discover` pages. `apps/dj-sync-cloud/src/links.ts` validates the same shapes (the Mac re-checks every URL it claims).
+- **Sets keep playlist behaviour.** yt-dlp gets `--yes-playlist` for `/sets/` links and the playlist is named via SoundCloud's oEmbed; tracks skip the YouTube upload-title `--parse-metadata` hack because SoundCloud exposes real artist/title tags. Both YouTube and SoundCloud share one yt-dlp argv builder (`downloader.rs`).
+
 ## [1.3.4] — 2026-10-28 · update in place
 
 ### Fixed

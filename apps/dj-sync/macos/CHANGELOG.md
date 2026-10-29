@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.4.0] — 2026-10-29 · SoundCloud
+
+### Added
+- **SoundCloud links work now.** Send a SoundCloud track or a set (SoundCloud's word for a playlist) from Telegram, ChatGPT, Claude or your iPhone, and it lands in your Rekordbox library like any other. Private tracks work too — send the link exactly as you got it, secret and all.
+- A set keeps its playlist behaviour: the tracks land in the playlist you picked, named after the set.
+
+### Fixed
+- Some SoundCloud tracks are DRM-protected and can't be downloaded. You now get a clear message for those instead of a failure, and the rest of the set still comes through.
+
 ## [1.3.4] — 2026-10-28 · update in place
 
 ### Fixed
