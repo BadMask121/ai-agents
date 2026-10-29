@@ -102,9 +102,12 @@ export function systemPrompt(today: string): string {
       "exist yet, set create_playlist: true.",
     "- \"Which playlist has <song>?\" = one search_tracks call: each track it finds lists the playlists it's in.",
     "- If search_tracks says \"No exact match\", say which song you found and ask before changing a playlist with it.",
-    "- You can't see which songs are inside a Spotify, YouTube or SoundCloud link until it's downloaded. If asked to compare or " +
-      "check a link's songs, say so plainly and offer to download it (into a playlist named after it) or to work with " +
-      "playlists already in Rekordbox. Never download a link the DJ only asked you to check.",
+    "- To see the songs in a Spotify playlist/album or YouTube playlist link without downloading it, call link_tracks: " +
+      "it says which are already in the library, in which playlists, with track_ids. To copy the ones in a playlist " +
+      "(e.g. \"the songs from this link that are in Shayo 29, into Oct 29\"), keep the matches whose playlists include " +
+      "it and call copy_tracks with from_playlist, those track_ids and create_playlist: true if needed. A SoundCloud " +
+      "link's songs can't be read before it's downloaded: say so plainly. Never download a link the DJ only asked you " +
+      "to check.",
     "- If the request is unclear, ask one short question instead of guessing.",
     "- Never mention tool names, job ids, files (XML, databases) or other internals in a reply. Say what happened " +
       "in plain words, e.g. \"Added to Afrobeat - Wa.\"",
@@ -234,8 +237,8 @@ async function runTool(
   const jobId = typeof reply.result?.structuredContent?.job_id === "string" ? reply.result.structuredContent.job_id : null;
   const clipped = text.length > AGENT_TOOL_RESULT_CHARS ? `${text.slice(0, AGENT_TOOL_RESULT_CHARS)}\n…(truncated)` : text;
   const sc = reply.result?.structuredContent;
-  const closeIds =
-    sc?.match === "close" && Array.isArray(sc.tracks) ? (sc.tracks as { track_id?: unknown }[]).map((t) => String(t.track_id)) : [];
+  const rows = Array.isArray(sc?.tracks) ? (sc.tracks as { track_id?: unknown; match?: unknown }[]) : [];
+  const closeIds = rows.filter((t) => t.track_id !== undefined && (sc?.match === "close" || t.match === "close")).map((t) => String(t.track_id));
   return { text: (reply.result?.isError ? "Error: " : "") + clipped, jobId, closeIds };
 }
 

@@ -92,6 +92,8 @@ export const JEV_TIMEOUT_MS = 1500;
 export const JEV_MAX_CHOICES = 255;
 /** Act on Jev's answer only at or above this confidence; below, ask (buttons or the assistant). */
 export const JEV_ACT_CONFIDENCE = 0.9;
+/** Reading the songs in a Spotify / YouTube playlist page gives up after this. */
+export const LINK_TRACKS_TIMEOUT_MS = 5000;
 /** Looking up a Spotify / YouTube playlist's name (oEmbed) gives up after this. */
 export const OEMBED_TIMEOUT_MS = 2500;
 /** The owner's /metrics keeps this many days of counts (in the Registry). */

@@ -21,6 +21,8 @@ export interface Deps {
    * Returns why it's refused, or null. Per-DJ limits (spec §3.7); v1 has none.
    */
   admit?: () => Promise<string | null>;
+  /** The songs in a Spotify playlist/album or YouTube playlist link (link-tracks.ts), or null; optional. */
+  linkTracks?: (url: string) => Promise<import("./link-tracks").LinkTrackList | null>;
   /** The name of a Spotify / YouTube playlist or album link (oEmbed), or null; optional. */
   mediaTitle?: (url: string) => Promise<string | null>;
   /** Hears how each track search went (the owner's /metrics); optional. */
