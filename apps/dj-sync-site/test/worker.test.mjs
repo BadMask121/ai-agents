@@ -128,3 +128,27 @@ test("counts a started DMG or update zip by kind and version, and nothing else",
   ]);
   countDownload({}, "DJ-Sync-1.3.4.dmg"); // unbound: just a log line
 });
+
+test("bumpStats adds to today's bucket and retries when another download wrote first", async () => {
+  const { bumpStats } = await import("../src/worker.mjs");
+  let stored = null;
+  let etag = 0;
+  let conflict = true;
+  const bucket = {
+    get: async () => (stored ? { json: async () => JSON.parse(stored), httpEtag: `"${etag}"` } : null),
+    put: async (_k, body, o) => {
+      if (conflict) {
+        conflict = false; // someone else wrote between our get and put
+        stored = JSON.stringify({ days: { "2026-10-29": { "install:1.3.4": 1 } } });
+        etag++;
+        return null;
+      }
+      assert.ok(o.onlyIf);
+      stored = body;
+      etag++;
+      return {};
+    },
+  };
+  await bumpStats(bucket, "install:1.3.4", new Date("2026-10-29T10:00:00Z"));
+  assert.deepEqual(JSON.parse(stored), { days: { "2026-10-29": { "install:1.3.4": 2 } } });
+});

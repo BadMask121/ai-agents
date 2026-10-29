@@ -92,7 +92,7 @@ async function download(request, env, name, ctx) {
     return new Response(object.body, { status: 206, headers });
   }
   headers.set("content-length", String(object.size));
-  countDownload(env, name, ranged);
+  countDownload(env, name, ranged, ctx);
   return new Response(object.body, { headers });
 }
 
@@ -101,7 +101,7 @@ async function download(request, env, name, ctx) {
  * what and which version, nothing about who. A log line always; a data point
  * only when the optional DOWNLOAD_STATS Analytics Engine binding exists.
  */
-export function countDownload(env, name, ranged = false) {
+export function countDownload(env, name, ranged = false, ctx) {
   const m = /^DJ-Sync-(\d+\.\d+\.\d+)\.(dmg|zip)$/.exec(name);
   if (!m || ranged) return;
   const [, version, ext] = m;
@@ -111,6 +111,28 @@ export function countDownload(env, name, ranged = false) {
     env.DOWNLOAD_STATS?.writeDataPoint({ indexes: [kind], blobs: [kind, version], doubles: [1] });
   } catch {
     /* counting never breaks a download */
+  }
+  if (ctx && env.DOWNLOADS) ctx.waitUntil(bumpStats(env.DOWNLOADS, `${kind}:${version}`).catch(() => {}));
+}
+
+const STATS_KEY = "djsync/stats/downloads.json";
+const STATS_DAYS = 120;
+
+/** One more download in today's bucket of the owner's counts in R2 (a few retries if two land at once). */
+export async function bumpStats(bucket, key, now = new Date()) {
+  const day = now.toISOString().slice(0, 10);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const current = await bucket.get(STATS_KEY);
+    const stats = current ? await current.json() : { days: {} };
+    stats.days ??= {};
+    stats.days[day] ??= {};
+    stats.days[day][key] = (stats.days[day][key] ?? 0) + 1;
+    for (const d of Object.keys(stats.days).sort().slice(0, -STATS_DAYS)) delete stats.days[d];
+    const put = await bucket.put(STATS_KEY, JSON.stringify(stats), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: current ? { etagMatches: current.httpEtag } : { etagDoesNotMatch: "*" },
+    });
+    if (put) return;
   }
 }
 

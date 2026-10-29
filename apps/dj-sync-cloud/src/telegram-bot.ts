@@ -30,6 +30,8 @@ export interface BotHost {
   agent: { ai: AiRunner; model?: string } | null;
   /** Hears about each assistant call (metrics, alerts); optional. */
   onAgentEvent?(e: AgentEvent): void | Promise<void>;
+  /** The owner's private /stats: null for everyone else (then /stats isn't a command). */
+  ownerStats?(chatId: string): Promise<string> | null;
 }
 
 const DJ_SYNC_FOLDER = "DJ Sync";
@@ -317,6 +319,11 @@ async function onCommand(host: BotHost, chatId: string, linkId: string, text: st
       return void (await send(host.api, chatId, await searchText(host, args)));
     case "status":
       return void (await send(host.api, chatId, await statusText(host)));
+    case "stats": {
+      const stats = host.ownerStats?.(chatId);
+      if (stats) return void (await send(host.api, chatId, await stats));
+      return void (await send(host.api, chatId, `I don't know /${command}.\n\n${HELP}`));
+    }
     case "stop":
       await send(host.api, chatId, "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.");
       return host.disconnect(linkId);
