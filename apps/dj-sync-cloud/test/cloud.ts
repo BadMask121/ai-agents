@@ -2,6 +2,7 @@
 // Registry namespaces, a movable clock, and helpers that act like the Mac.
 
 import type { JevClient } from "../src/jev";
+import type { LinkTrackList } from "../src/link-tracks";
 import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { Registry } from "../src/registry";
 import { route, type Namespaces, type Secrets } from "../src/router";
@@ -30,6 +31,8 @@ export interface CloudOptions {
   router?: JevClient;
   /** Playlist names for links (oEmbed); default: none, so tests never reach Spotify / YouTube. */
   titles?: Record<string, string>;
+  /** The songs in links (link_tracks); default: none. */
+  trackLists?: Record<string, LinkTrackList>;
 }
 
 export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {}, opts: CloudOptions = {}) {
@@ -42,6 +45,7 @@ export function makeCloud(start = "2026-10-28T12:00:00.000Z", extra: Secrets = {
     if (opts.ai) t.aiRunner = opts.ai;
     if (opts.router) t.jevRouter = opts.router;
     t.titleLookup = async (url) => opts.titles?.[url] ?? null;
+    t.trackListLookup = async (url) => opts.trackLists?.[url] ?? null;
   });
   const REGISTRY = new FakeNamespace(Registry, () => env, (r) => (r.clock = clock));
   env.TENANT = TENANT;

@@ -3,6 +3,7 @@
 
 import { expect } from "vitest";
 import type { JevClient } from "../src/jev";
+import type { LinkTrackList } from "../src/link-tracks";
 import { FakeTelegram, agentHeaders, makeCloud, req, type Any, type FakeAi, type Registered } from "./cloud";
 
 export const TG = {
@@ -28,9 +29,9 @@ export const LIBRARY = {
   ],
 };
 
-export function tgCloud(ai?: FakeAi, router?: JevClient, titles?: Record<string, string>) {
+export function tgCloud(ai?: FakeAi, router?: JevClient, titles?: Record<string, string>, trackLists?: Record<string, LinkTrackList>) {
   const tg = new FakeTelegram();
-  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai, router, titles });
+  const c = makeCloud(undefined, { ...TG }, { env: TG, telegram: tg, ai, router, titles, trackLists });
   return { c, tg };
 }
 

@@ -56,6 +56,7 @@ describe("protocol", () => {
       "add_tracks_to_playlist",
       "remove_tracks_from_playlist",
       "move_tracks",
+      "link_tracks",
       "copy_tracks",
       "rename_playlist",
       "delete_playlist",

@@ -2,6 +2,7 @@
 // Transport concerns (status codes, headers) live in router.ts; this maps one
 // message to at most one response (`null` = notification → 202).
 
+import { matchSong, spotifyCollection, youtubePlaylistId } from "./link-tracks";
 import { isCollection } from "./oembed";
 import { libraryIndex, searchIndex } from "./search";
 import {
@@ -54,6 +55,7 @@ const RENAME_PLAYLIST = "rename_playlist";
 const DELETE_PLAYLIST = "delete_playlist";
 const MOVE_TRACKS = "move_tracks";
 const COPY_TRACKS = "copy_tracks";
+const LINK_TRACKS = "link_tracks";
 
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
@@ -123,7 +125,9 @@ function initialize(params: Obj): Json {
       "\"Folder/Name\"): the tools match them to the DJ's playlists, and when they can't tell which " +
       "one is meant they return the closest playlists instead of acting — then ask the user to pick " +
       "and call again with that exact name. To put downloads in a brand-new playlist, set " +
-      "create_playlist: true. get_playlist pages through long playlists with offset. To copy tracks " +
+      "create_playlist: true. To see the songs in a Spotify playlist/album or YouTube playlist link " +
+      "without downloading it, use link_tracks: it says which are already in the library, in which " +
+      "playlists, with track_ids. get_playlist pages through long playlists with offset. To copy tracks " +
       "from one playlist to another use copy_tracks (all: true copies the whole playlist); to move " +
       "them, move_tracks. add_tracks_to_playlist adds tracks found with search_tracks.",
   };
@@ -370,6 +374,23 @@ function libraryToolDefinitions(): Json[] {
       annotations: writes("Move tracks between Rekordbox playlists"),
     },
     {
+      name: LINK_TRACKS,
+      title: "Songs in a Spotify or YouTube playlist link",
+      description:
+        "List the songs in a Spotify playlist or album, or a YouTube playlist, WITHOUT downloading it, and " +
+        "match each to the DJ's Rekordbox library: in the library (with track_id and the playlists it's in), " +
+        "a close match (check with the DJ first), or not in the library. Use it to compare a link with a " +
+        "playlist, or to copy the songs the DJ already has (copy_tracks / add_tracks_to_playlist with those " +
+        "track_ids). Reads up to about 100 songs.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "A Spotify playlist/album or YouTube playlist link." } },
+        required: ["url"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Songs in a playlist link", readOnlyHint: true, openWorldHint: true },
+    },
+    {
       name: COPY_TRACKS,
       title: "Copy tracks between Rekordbox playlists",
       description:
@@ -582,6 +603,7 @@ const TOOLS: Record<string, Handler> = {
   [DELETE_PLAYLIST]: callDeletePlaylist,
   [MOVE_TRACKS]: (args, deps) => transferTracks(args, deps, "move"),
   [COPY_TRACKS]: (args, deps) => transferTracks(args, deps, "copy"),
+  [LINK_TRACKS]: callLinkTracks,
 };
 
 const APPLY_NOTE =
@@ -937,6 +959,57 @@ async function editTracks(args: Obj | undefined, deps: Deps, mode: "add" | "remo
  * One library job (so one rbdb transaction): add to the target in source
  * order, then remove from the source. Copying is add_tracks_to_playlist.
  */
+/** Lines per group in link_tracks' text (the model sees up to AGENT_TOOL_RESULT_CHARS). */
+const LINK_LINES = 60;
+
+async function callLinkTracks(args: Obj | undefined, deps: Deps): Promise<Json> {
+  const url = str(args?.url);
+  if (!url) return toolError("`url` must be a Spotify playlist/album or YouTube playlist link.");
+  const kind = url.includes("spotify.com/") ? "spotify" : url.includes("youtube.com/") || url.includes("youtu.be/") ? "youtube" : null;
+  if (!kind || (!spotifyCollection(url) && !youtubePlaylistId(url))) {
+    return toolError("I can read the songs in Spotify playlist or album links and YouTube playlist links (not single songs).");
+  }
+  if (!deps.linkTracks) return toolError("Reading a link's songs isn't available here.");
+  const [list, index, playlists] = await Promise.all([deps.linkTracks(url), libraryIndex(deps.store), deps.store.getLibraryPlaylists()]);
+  if (!list) {
+    return toolError(
+      `Couldn't read the songs in that ${kind === "spotify" ? "Spotify" : "YouTube"} link right now (it may be private). ` +
+        "It can still be downloaded.",
+    );
+  }
+  if (!index) return toolError(NO_LIBRARY);
+  const where = playlistsByTrack(playlists ?? []);
+  const matches = list.tracks.map((song) => matchSong(index, song, list.source));
+  const rows = matches.map((m) => ({
+    title: m.song.title,
+    artists: m.song.artists,
+    match: m.match,
+    ...(m.track ? { track_id: m.track.id, library_title: m.track.title, library_artist: m.track.artist, playlists: where.get(m.track.id) ?? [] } : {}),
+  }));
+  const by = (k: string) => rows.filter((r) => r.match === k);
+  const [exact, close, none] = [by("exact"), by("close"), by("none")];
+  const song = (r: (typeof rows)[number]) => `${r.title}${r.artists ? ` — ${r.artists}` : ""}`;
+  const inPl = (r: (typeof rows)[number]) => (r.playlists && r.playlists.length > 0 ? ` · in ${r.playlists.slice(0, 4).join(", ")}${r.playlists.length > 4 ? ` (+${r.playlists.length - 4})` : ""}` : " · in no playlist");
+  const lines = [
+    `“${list.name}” (${kind === "spotify" ? `Spotify ${list.kind}` : "YouTube playlist"}, ${plural(rows.length, "song")}` +
+      `${list.mayHaveMore ? `${list.total ? ` of ${list.total}` : ""} read — there are more` : ""}): ` +
+      `${exact.length} in the library, ${close.length} close ${close.length === 1 ? "match" : "matches"}, ${none.length} not in the library.`,
+    ...(exact.length > 0 ? ["In the library:", ...exact.slice(0, LINK_LINES).map((r) => `- ${song(r)} [track_id ${r.track_id}]${inPl(r)}`)] : []),
+    ...(close.length > 0
+      ? [
+          "Close matches (check with the DJ before using them):",
+          ...close.slice(0, LINK_LINES).map((r) => `- ${song(r)} ≈ ${r.library_artist ? `${r.library_artist} — ` : ""}${r.library_title} [track_id ${r.track_id}]${inPl(r)}`),
+        ]
+      : []),
+    ...(none.length > 0 ? [`Not in the library: ${none.slice(0, LINK_LINES).map(song).join("; ")}`] : []),
+  ];
+  return toolResult(
+    lines.join("\n"),
+    { name: list.name, source: list.source, total: list.total, may_have_more: list.mayHaveMore, tracks: rows },
+    false,
+  );
+}
+
 /** move_tracks and copy_tracks: the same checks; a copy leaves the source alone and skips tracks already in the target. */
 async function transferTracks(args: Obj | undefined, deps: Deps, mode: "move" | "copy"): Promise<Json> {
   const verb = mode === "move" ? "move" : "copy";
