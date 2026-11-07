@@ -10,6 +10,9 @@ import {
   CLAIMED_MESSAGE,
   type AgentRow,
   type AgentSeen,
+  type AppChoice,
+  type DjApp,
+  type DjApps,
   type JobResult,
   type JobRow,
   type LibPlaylist,
@@ -45,7 +48,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   result      TEXT,
   ops         TEXT,
   summary     TEXT,
-  playlist_id TEXT
+  playlist_id TEXT,
+  app         TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_state_created ON jobs (state, created_at);
 CREATE INDEX IF NOT EXISTS jobs_dedupe ON jobs (dedupe_key, state);
@@ -76,7 +80,8 @@ CREATE TABLE IF NOT EXISTS tg_pending (
   chat_id    TEXT NOT NULL,
   urls       TEXT NOT NULL,
   hint       TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  app        TEXT
 );
 CREATE TABLE IF NOT EXISTS tg_jobs (
   job_id  TEXT PRIMARY KEY,
@@ -148,6 +153,8 @@ export interface TgPending {
   urls: string[];
   hint: string | null;
   created_at: string;
+  /** The app the message named, for the button that finishes it. */
+  app?: AppChoice | null;
 }
 
 export interface LinkRow {
@@ -160,7 +167,7 @@ export interface LinkRow {
 }
 
 const COLUMNS =
-  "id, kind, state, playlist, urls, dedupe_key, source, created_at, claimed_at, lease_until, attempts, finished_at, message, result, ops, summary, playlist_id";
+  "id, kind, state, playlist, urls, dedupe_key, source, created_at, claimed_at, lease_until, attempts, finished_at, message, result, ops, summary, playlist_id, app";
 
 function toJob(r: Record<string, SqlValue> | undefined): JobRow | null {
   if (!r) return null;
@@ -182,15 +189,19 @@ function toJob(r: Record<string, SqlValue> | undefined): JobRow | null {
     ops: r.ops ? (JSON.parse(r.ops as string) as LibraryOp[]) : null,
     summary: (r.summary as string | null) ?? null,
     playlist_id: (r.playlist_id as string | null) ?? null,
+    app: (r.app as AppChoice | null) ?? null,
   };
 }
+
+/** A snapshot's key: plain for a Mac that doesn't name apps, else per app. */
+const slotted = (name: string, slot: string) => (slot === "" ? name : `${slot}:${name}`);
 
 type PlaylistTuple = [id: string, name: string, folder: string, trackIds: string[]];
 type TrackTuple = [string, string, string | null, string | null, string | null, number | null, string | null, number | null];
 
 export class SqlStore implements Store {
-  /** Decompressed snapshot, kept while this DO instance lives. */
-  private cache: { hash: string; playlists?: LibPlaylist[]; tracks?: LibTrack[]; index?: SearchIndex } | null = null;
+  /** Decompressed snapshots by app, kept while this DO instance lives. */
+  private cache = new Map<string, { hash: string; playlists?: LibPlaylist[]; tracks?: LibTrack[]; index?: SearchIndex }>();
 
   constructor(
     private db: SqlDb,
@@ -203,6 +214,7 @@ export class SqlStore implements Store {
   static migrate(db: SqlDb): void {
     const cols = db.exec("PRAGMA table_info(jobs)").toArray().map((r) => r.name as string);
     if (cols.length > 0 && !cols.includes("playlist_id")) db.exec("ALTER TABLE jobs ADD COLUMN playlist_id TEXT");
+    if (cols.length > 0 && !cols.includes("app")) db.exec("ALTER TABLE jobs ADD COLUMN app TEXT");
     const tables = db.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'telegram_chats'").toArray();
     if (cols.length > 0 && tables.length === 0) {
       for (const stmt of TELEGRAM_TABLES.split(";").map((t) => t.trim()).filter(Boolean)) db.exec(stmt);
@@ -215,6 +227,8 @@ export class SqlStore implements Store {
     if (cols.length > 0 && installs.length === 0) {
       for (const stmt of INSTALL_TABLES.split(";").map((t) => t.trim()).filter(Boolean)) db.exec(stmt);
     }
+    const pending = db.exec("PRAGMA table_info(tg_pending)").toArray().map((r) => r.name as string);
+    if (pending.length > 0 && !pending.includes("app")) db.exec("ALTER TABLE tg_pending ADD COLUMN app TEXT");
   }
 
   /** Has `init` run? Read-only, so probing an unknown tenant writes nothing. */
@@ -251,7 +265,7 @@ export class SqlStore implements Store {
 
   async insertJob(j: JobRow) {
     this.db.exec(
-      `INSERT INTO jobs (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO jobs (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       j.id,
       j.kind,
       j.state,
@@ -269,6 +283,7 @@ export class SqlStore implements Store {
       j.ops ? JSON.stringify(j.ops) : null,
       j.summary,
       j.playlist_id ?? null,
+      j.app ?? null,
     );
   }
 
@@ -367,15 +382,16 @@ export class SqlStore implements Store {
 
   // ---------- Store: agent ----------
 
-  async getAgent(): Promise<AgentRow> {
+  async getAgent(app?: DjApp): Promise<AgentRow> {
+    const slot = this.slot(app);
     return {
       // While the socket is attached the Mac is online by definition.
       last_seen: this.live() ? this.now().toISOString() : this.meta("last_seen"),
       version: this.meta("agent_version"),
       protocol: this.meta("agent_protocol"),
-      library_hash: this.meta("library_hash"),
-      library_generated_at: this.meta("library_generated_at"),
-      library_version: this.meta("library_version"),
+      library_hash: this.meta(slotted("library_hash", slot)),
+      library_generated_at: this.meta(slotted("library_generated_at", slot)),
+      library_version: this.meta(slotted("library_version", slot)),
     };
   }
 
@@ -385,15 +401,42 @@ export class SqlStore implements Store {
     this.setMeta("agent_protocol", seen.protocol);
   }
 
-  async setLibraryMeta(m: LibraryMeta) {
-    this.setMeta("library_hash", m.library_hash);
-    this.setMeta("library_generated_at", m.library_generated_at);
-    this.setMeta("library_version", m.library_version);
+  async setLibraryMeta(m: LibraryMeta, app?: DjApp) {
+    const slot = app ?? "";
+    this.setMeta(slotted("library_hash", slot), m.library_hash);
+    this.setMeta(slotted("library_generated_at", slot), m.library_generated_at);
+    this.setMeta(slotted("library_version", slot), m.library_version);
+  }
+
+  /** Which snapshot a read means: the app asked for, else the Mac's default. */
+  private slot(app?: DjApp): string {
+    return app ?? this.djApps()?.default ?? "";
+  }
+
+  /** The snapshot hash stored for one app (`undefined`: a Mac that doesn't name apps). */
+  libraryHash(app?: DjApp): string | null {
+    return this.meta(slotted("library_hash", app ?? ""));
+  }
+
+  djApps(): DjApps | null {
+    const raw = this.meta("dj_apps");
+    return raw ? (JSON.parse(raw) as DjApps) : null;
+  }
+
+  async getDjApps() {
+    return this.djApps();
+  }
+
+  /** `null`: this Mac doesn't report its apps, so nothing can be asked of one by name. */
+  setDjApps(apps: DjApps | null) {
+    if (apps) this.setMeta("dj_apps", JSON.stringify(apps));
+    else this.db.exec("DELETE FROM meta WHERE key = 'dj_apps'");
   }
 
   // ---------- Store: library snapshot (gzip'd tuples in ≤1 MB rows) ----------
 
-  async putLibrary(playlists: LibPlaylist[], tracks: LibTrack[]) {
+  async putLibrary(playlists: LibPlaylist[], tracks: LibTrack[], app?: DjApp) {
+    const slot = app ?? "";
     const p: PlaylistTuple[] = playlists.map((x) => [x.id, x.name, x.folder, x.track_ids]);
     const t: TrackTuple[] = tracks.map((x) => [x.id, x.title, x.artist, x.album, x.genre, x.bpm, x.key, x.duration_secs]);
     const enc = new TextEncoder();
@@ -402,33 +445,35 @@ export class SqlStore implements Store {
       tracks: await gzip(enc.encode(JSON.stringify(t))),
     };
     this.db.transaction(() => {
-      this.db.exec("DELETE FROM library_chunks");
+      for (const name of Object.keys(blobs)) this.db.exec("DELETE FROM library_chunks WHERE name = ?", slotted(name, slot));
       for (const [name, blob] of Object.entries(blobs)) {
         for (let seq = 0, at = 0; at < blob.byteLength; seq++, at += LIBRARY_CHUNK_BYTES) {
           const part = blob.slice(at, at + LIBRARY_CHUNK_BYTES);
-          this.db.exec("INSERT INTO library_chunks (name, seq, data) VALUES (?, ?, ?)", name, seq, part.buffer);
+          this.db.exec("INSERT INTO library_chunks (name, seq, data) VALUES (?, ?, ?)", slotted(name, slot), seq, part.buffer);
         }
       }
     });
-    this.cache = null;
+    this.cache.delete(slot);
   }
 
-  async getLibraryPlaylists() {
-    const cached = await this.cached("playlists");
+  async getLibraryPlaylists(app?: DjApp) {
+    const cached = await this.cached("playlists", this.slot(app));
     if (cached === undefined) return null;
     return [...(cached as LibPlaylist[])];
   }
 
-  /** The search index for the current snapshot, built once (search.ts). */
-  async getSearchIndex(): Promise<SearchIndex | null> {
-    const tracks = await this.cached("tracks");
-    if (tracks === undefined || !this.cache) return null;
-    this.cache.index ??= buildIndex(tracks as LibTrack[]);
-    return this.cache.index;
+  /** The search index for one snapshot, built once (search.ts). */
+  async getSearchIndex(app?: DjApp): Promise<SearchIndex | null> {
+    const slot = this.slot(app);
+    const tracks = await this.cached("tracks", slot);
+    const cache = this.cache.get(slot);
+    if (tracks === undefined || !cache) return null;
+    cache.index ??= buildIndex(tracks as LibTrack[]);
+    return cache.index;
   }
 
-  async getLibraryTracks() {
-    const cached = await this.cached("tracks");
+  async getLibraryTracks(app?: DjApp) {
+    const cached = await this.cached("tracks", this.slot(app));
     if (cached === undefined) return null;
     return [...(cached as LibTrack[])];
   }
@@ -438,14 +483,18 @@ export class SqlStore implements Store {
     return this.count("SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM library_chunks");
   }
 
-  private async cached(name: "playlists" | "tracks"): Promise<LibPlaylist[] | LibTrack[] | undefined> {
-    const hash = this.meta("library_hash");
+  private async cached(name: "playlists" | "tracks", slot: string): Promise<LibPlaylist[] | LibTrack[] | undefined> {
+    const hash = this.meta(slotted("library_hash", slot));
     if (hash === null) return undefined;
-    if (this.cache?.hash !== hash) this.cache = { hash };
-    const have = this.cache[name];
+    let cache = this.cache.get(slot);
+    if (cache?.hash !== hash) {
+      cache = { hash };
+      this.cache.set(slot, cache);
+    }
+    const have = cache[name];
     if (have) return have;
 
-    const rows = this.db.exec("SELECT data FROM library_chunks WHERE name = ? ORDER BY seq", name).toArray();
+    const rows = this.db.exec("SELECT data FROM library_chunks WHERE name = ? ORDER BY seq", slotted(name, slot)).toArray();
     if (rows.length === 0) return undefined;
     const parts = rows.map((r) => new Uint8Array(r.data as ArrayBuffer));
     const all = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
@@ -459,7 +508,7 @@ export class SqlStore implements Store {
     const parsed = JSON.parse(new TextDecoder().decode(raw)) as unknown[];
     if (name === "playlists") {
       const list = (parsed as PlaylistTuple[]).map(([id, n, folder, track_ids]) => ({ id, name: n, folder, track_ids }));
-      this.cache.playlists = list;
+      cache.playlists = list;
       return list;
     }
     const list = (parsed as TrackTuple[]).map(([id, title, artist, album, genre, bpm, key, duration_secs]) => ({
@@ -472,7 +521,7 @@ export class SqlStore implements Store {
       key,
       duration_secs,
     }));
-    this.cache.tracks = list;
+    cache.tracks = list;
     return list;
   }
 
@@ -572,17 +621,18 @@ export class SqlStore implements Store {
 
   addTgPending(p: TgPending): void {
     this.db.exec(
-      "INSERT INTO tg_pending (id, chat_id, urls, hint, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO tg_pending (id, chat_id, urls, hint, created_at, app) VALUES (?, ?, ?, ?, ?, ?)",
       p.id,
       p.chat_id,
       JSON.stringify(p.urls),
       p.hint,
       p.created_at,
+      p.app ?? null,
     );
   }
 
   getTgPending(id: string): TgPending | null {
-    const r = this.db.exec("SELECT id, chat_id, urls, hint, created_at FROM tg_pending WHERE id = ?", id).toArray()[0];
+    const r = this.db.exec("SELECT id, chat_id, urls, hint, created_at, app FROM tg_pending WHERE id = ?", id).toArray()[0];
     if (!r) return null;
     return {
       id: r.id as string,
@@ -590,6 +640,7 @@ export class SqlStore implements Store {
       urls: JSON.parse(r.urls as string) as string[],
       hint: (r.hint as string | null) ?? null,
       created_at: r.created_at as string,
+      app: (r.app as AppChoice | null) ?? null,
     };
   }
 

@@ -7,10 +7,10 @@
 import { AGENT_MODEL } from "./constants";
 import { agentEvent, type AgentEvent } from "./metrics";
 import type { JevClient, JevRoute } from "./jev";
-import { decideLink, decideText, exactPlaylist, looksLikeInstruction, renameRequest } from "./routing";
+import { appInMessage, decideLink, decideText, exactPlaylist, looksLikeInstruction, mentionsApp, renameRequest } from "./routing";
 import { sha256Hex } from "./bytes";
 import { MAX_PLAYLIST_NAME, TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
-import { agentStatus, offlineNote, stateWord, submit, type Deps } from "./jobs";
+import { agentStatus, offlineNote, scopeToApp, stateWord, submit, whereItGoes, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, sortPlaylists } from "./library";
 import { libraryIndex, searchIndex } from "./search";
 import { asLink, extractMediaRef, type MediaRef } from "./links";
@@ -54,7 +54,8 @@ export const HELP =
   "Send me a Spotify, YouTube or SoundCloud link and it goes into your DJ library on your Mac. " +
   "Add a playlist name after the link to choose where it goes (e.g. “https://youtu.be/… gqom”), " +
   "or pick one from the buttons I show. You can also just ask, e.g. “list the playlists in my DJ Sync " +
-  "folder” or “move the first two tracks of Friday into Gqom”.\n\n" +
+  "folder” or “move the first two tracks of Friday into Gqom”. If you use both Rekordbox and Serato, say which " +
+  "(“<link> Friday to serato”, or “to both”); otherwise it goes to your default.\n\n" +
   "/playlists — your playlists (add words to filter)\n" +
   "/search <words> — find tracks in your library\n" +
   "/rename <playlist> to <new name> — rename a playlist\n" +
@@ -121,8 +122,21 @@ export function splitMessage(text: string): { links: string[]; full: string; hin
 }
 
 async function onText(host: BotHost, chatId: string, text: string): Promise<void> {
+  if (splitMessage(text).links.length === 0) return onPlainText(host, chatId, text);
+  const named = appInMessage(text);
+  // "to Serato Friday": a guess here could land in the wrong app.
+  if (named.unclear) {
+    if (host.agent && (await ask(host, chatId, text, false))) return;
+    await send(host.api, chatId, "Which app should that go to? Put it at the end, like “<link> Friday to serato”.");
+    return;
+  }
+  const scoped = await scopeToApp(named.app, { ...host.deps, store: host.store }, true);
+  if ("refused" in scoped) return void (await send(host.api, chatId, scoped.refused));
+  return onLinks({ ...host, deps: scoped.deps, store: scoped.deps.store }, chatId, named.text);
+}
+
+async function onLinks(host: BotHost, chatId: string, text: string): Promise<void> {
   const { links, full, hint } = splitMessage(text);
-  if (links.length === 0) return onPlainText(host, chatId, text);
   const media: MediaRef[] = [];
   const rejected: string[] = [];
   for (const l of links) {
@@ -197,7 +211,14 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
   }
 
   const id = randomBase64url(6);
-  host.store.addTgPending({ id, chat_id: chatId, urls, hint: hint || null, created_at: host.now().toISOString() });
+  host.store.addTgPending({
+    id,
+    chat_id: chatId,
+    urls,
+    hint: hint || null,
+    created_at: host.now().toISOString(),
+    app: host.deps.app ?? null,
+  });
   let question: string;
   let options: LibPlaylist[];
   let offerNew = false;
@@ -232,6 +253,8 @@ async function onText(host: BotHost, chatId: string, text: string): Promise<void
 
 /** A message without links: Jev for list / search when it's sure, else the assistant. */
 async function onPlainText(host: BotHost, chatId: string, text: string): Promise<void> {
+  // The quick answers below only read the default app.
+  if (host.agent && mentionsApp(text) && (await ask(host, chatId, text, false))) return;
   if (await askRename(host, chatId, text)) return;
   const playlists = host.router ? await host.store.getLibraryPlaylists() : null;
   const route = playlists ? await jev(host, chatId, text, [], playlists) : null;
@@ -410,13 +433,20 @@ async function onButton(
     await answerCallback(host.api, callbackId, "That choice has expired — send the link again.");
     return;
   }
+  // The app the message named: it may have been turned off since.
+  const scoped = await scopeToApp(pending.app, { ...host.deps, store: host.store }, true);
+  if ("refused" in scoped) {
+    await answerCallback(host.api, callbackId, scoped.refused.slice(0, 190));
+    return;
+  }
+  const picked: BotHost = { ...host, deps: scoped.deps, store: scoped.deps.store };
   let name: string | null = null;
   let playlistId: string | null = null;
   const target = m[2]!;
   if (target === "new") {
     name = pending.hint;
   } else if (target !== "def") {
-    const p = (await host.store.getLibraryPlaylists())?.find((x) => x.id === target);
+    const p = (await picked.store.getLibraryPlaylists())?.find((x) => x.id === target);
     if (!p) {
       await answerCallback(host.api, callbackId, "That playlist isn't in your library any more.");
       return;
@@ -424,7 +454,7 @@ async function onButton(
     name = p.name;
     playlistId = p.id;
   }
-  const text = await queue(host, chatId, pending.urls, name, playlistId);
+  const text = await queue(picked, chatId, pending.urls, name, playlistId);
   await routerEvent(host, chatId, { layer: "pick", pending: pending.id, picked: playlistId ?? target });
   host.store.deleteTgPending(pending.id);
   await answerCallback(host.api, callbackId);
@@ -453,9 +483,11 @@ async function queue(
   if (!sub.ok) return `Couldn't queue that: ${sub.error}`;
   const { job, deduplicated } = sub.value;
   host.store.addTgJob(job.id, chatId);
+  const where = await whereItGoes(host.deps, job.app);
+  const destination = `${job.playlist}${where ? ` (${where})` : ""}`;
   let text = deduplicated
-    ? `That's already queued → ${job.playlist}. I'll tell you when it's in your library.`
-    : `Queued: ${plural(job.urls.length, "link")} → ${job.playlist}${note}. I'll tell you when it's in your library.`;
+    ? `That's already queued → ${destination}. I'll tell you when it's in your library.`
+    : `Queued: ${plural(job.urls.length, "link")} → ${destination}${note}. I'll tell you when it's in your library.`;
   const agent = await agentStatus(host.deps);
   if (!agent.online) text += offlineNote(agent, host.now());
   return text;

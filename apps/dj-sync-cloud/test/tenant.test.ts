@@ -1,3 +1,4 @@
+import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { describe, expect, it } from "vitest";
 import { gzip } from "../src/bytes";
 import {
@@ -81,7 +82,7 @@ describe("links (spec §3.2)", () => {
     expect((await c.call(req("GET", "/v2/agent/links", undefined, { ...agentHeaders(t), authorization: "Bearer nope" }))).status).toBe(401);
     const old = await c.call(req("GET", "/v2/agent/links", undefined, agentHeaders(t, "1.1.0")));
     expect(old.status).toBe(409);
-    expect(await old.json()).toMatchObject({ error: "incompatible_protocol", worker_protocol: "2.0.0", agent_protocol: "1.1.0" });
+    expect(await old.json()).toMatchObject({ error: "incompatible_protocol", worker_protocol: AGENT_PROTOCOL_V2, agent_protocol: "1.1.0" });
   });
 });
 
@@ -147,7 +148,7 @@ describe("MCP per DJ", () => {
   });
 });
 
-describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
+describe("agent WebSocket (protocol 2, spec §3.4)", () => {
   it("hello → welcome → job → complete → ack, then ready for the next", async () => {
     const c = makeCloud();
     const t = await c.registered();
@@ -160,7 +161,7 @@ describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
     expect(ws.sent).toEqual([]); // nothing before hello
     await c.hello(t, ws, { library_hash: "abc" });
     const [welcome, job] = ws.frames();
-    expect(welcome).toEqual({ type: "welcome", worker_version: WORKER_VERSION, protocol: "2.0.0", library_wanted: true });
+    expect(welcome).toEqual({ type: "welcome", worker_version: WORKER_VERSION, protocol: AGENT_PROTOCOL_V2, library_wanted: true });
     expect(job).toEqual({ type: "job", job_id: first.job_id, kind: "download", playlist: "Sat", urls: [`https://www.youtube.com/watch?v=${YT(1).slice(-11)}`], attempt: 1 });
 
     // One at a time: the second waits for `ready`.
@@ -245,7 +246,7 @@ describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
     const old = await c.connect(t, { "x-dj-sync-agent-protocol": "1.1.0" });
     expect(old.closed?.code).toBe(CLOSE_INCOMPATIBLE);
     expect(old.frames()[0]).toMatchObject({ type: "error", code: "incompatible_protocol" });
-    const newer = await c.connect(t, { "x-dj-sync-agent-protocol": "2.1.0" });
+    const newer = await c.connect(t, { "x-dj-sync-agent-protocol": "2.2.0" });
     expect(newer.closed?.code).toBe(CLOSE_INCOMPATIBLE);
 
     const one = await c.connect(t);

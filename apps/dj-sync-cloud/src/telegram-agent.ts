@@ -15,7 +15,7 @@ import {
   AGENT_TOOL_RESULT_CHARS,
 } from "./constants";
 import { randomBase64url, utcDay } from "./bytes";
-import type { Deps } from "./jobs";
+import { isDjApp, type Deps } from "./jobs";
 import { playlistPath, plural, resolvePlaylist } from "./library";
 import { dispatch } from "./mcp";
 import type { SqlStore } from "./sqlstore";
@@ -90,6 +90,10 @@ export function systemPrompt(today: string): string {
     "Rules:",
     "- Use the tools for anything about the DJ's library. Look before you act: list_playlists, search_tracks or " +
       "get_playlist first. Never invent track_ids, playlist names or playlist_ids — take them from tool results.",
+    "- A DJ may use both Rekordbox and Serato, which have separate playlists and track_ids. If they name one, pass it " +
+      "as `app` on every tool call for that request, look-ups included (`both` works for downloads only). Otherwise " +
+      "leave `app` out: it goes to their default. Never reuse a track_id or playlist_id from one app in the other. " +
+      "If a tool says an app is turned off, tell them that.",
     "- To filter playlists by folder or name, pass words as list_playlists' query (e.g. query \"DJ Sync\").",
     "- Playlist names can be loose. If a tool says a name is ambiguous or not found, show the options briefly and " +
       "ask which one; then call again with its \"Folder/Name\" or playlist_id.",
@@ -329,7 +333,8 @@ async function confirmation(
   args: Record<string, unknown>,
   close: Set<string> = new Set(),
 ): Promise<AgentOutcome | null> {
-  const playlists = await host.store.getLibraryPlaylists();
+  const app = isDjApp(args.app) ? args.app : undefined;
+  const playlists = await host.store.getLibraryPlaylists(app);
   if (!playlists) return null;
   if (TRACK_CHANGES.has(tool) && !(tool === "move_tracks" && args.all === true)) return closeMatchConfirmation(host, tool, args, close);
   const pick = (name: unknown, id: unknown): LibPlaylist | null => {
@@ -346,7 +351,7 @@ async function confirmation(
     if (!p) return null;
     text = `Delete the playlist “${playlistPath(p)}” (${plural(p.track_ids.length, "track")})? Its tracks stay in your library.`;
     button = "Delete";
-    pinned = { name: p.name, playlist_id: p.id };
+    pinned = { name: p.name, playlist_id: p.id, ...(app ? { app } : {}) };
   } else {
     const from = pick(args.from_playlist, args.from_playlist_id);
     if (!from) return null;
@@ -374,7 +379,7 @@ async function closeMatchConfirmation(
   args: Record<string, unknown>,
   close: Set<string>,
 ): Promise<AgentOutcome | null> {
-  const tracks = (await host.store.getLibraryTracks()) ?? [];
+  const tracks = (await host.store.getLibraryTracks(isDjApp(args.app) ? args.app : undefined)) ?? [];
   const ids = (Array.isArray(args.track_ids) ? args.track_ids : []).map(String);
   const named = ids.map((id) => tracks.find((t) => t.id === id)).filter((t) => t !== undefined);
   if (named.length === 0) return null; // unknown ids: let the tool explain

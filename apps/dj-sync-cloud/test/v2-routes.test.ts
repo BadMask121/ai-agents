@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_PROTOCOL, CLOSE_UNAUTHORIZED, REGISTRATIONS_PER_DAY, REGISTRATIONS_PER_IP_PER_DAY, WORKER_VERSION } from "../src/constants";
+import { AGENT_PROTOCOL, AGENT_PROTOCOL_V2, CLOSE_UNAUTHORIZED, REGISTRATIONS_PER_DAY, REGISTRATIONS_PER_IP_PER_DAY, WORKER_VERSION } from "../src/constants";
 import { ADMIN, YT, agentHeaders, makeCloud, req, type Any } from "./cloud";
 import { AGENT_TOKEN, SECRET, SHORTCUT_KEY } from "./helpers";
 
@@ -163,7 +163,7 @@ describe("protocol 1 → 2 transition (spec §3.9)", () => {
   it("leaves v1 untouched until V1_RETIRED, with protocol_v2 in /health", async () => {
     const c = makeCloud();
     const health = await (await c.call(req("GET", "/health"))).json();
-    expect(health).toMatchObject({ version: WORKER_VERSION, protocol: AGENT_PROTOCOL, protocol_v2: "2.0.0", agent: { online: false } });
+    expect(health).toMatchObject({ version: WORKER_VERSION, protocol: AGENT_PROTOCOL, protocol_v2: AGENT_PROTOCOL_V2, agent: { online: false } });
     expect((await c.mcp(`https://mcp.example.test/${SECRET}/mcp`, ping))[0]).toBe(200);
     const poll = await c.call(
       req("POST", "/agent/poll", { active: [], can_claim: false }, {
@@ -180,7 +180,7 @@ describe("protocol 1 → 2 transition (spec §3.9)", () => {
     const owner = await c.registered();
     c.secrets = { ...c.secrets, V1_RETIRED: "true", LEGACY_TENANT_ID: owner.tenant_id };
 
-    expect(await (await c.call(req("GET", "/health"))).json()).toEqual({ status: "ok", version: WORKER_VERSION, protocol: "2.0.0" });
+    expect(await (await c.call(req("GET", "/health"))).json()).toEqual({ status: "ok", version: WORKER_VERSION, protocol: AGENT_PROTOCOL_V2 });
 
     // The owner's old ChatGPT URL and Shortcut key now land in their tenant.
     const legacyUrl = `https://mcp.example.test/${SECRET}/mcp`;

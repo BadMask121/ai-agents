@@ -12,9 +12,9 @@
 //     → 200 {ok: true} | 404 | 409 (already finished differently)
 
 import { AGENT_PROTOCOL, LEASE_SECONDS, LIBRARY_PROTOCOL_MINOR, MAX_ACTIVE_IDS, WORKER_VERSION } from "./constants";
-import type { Deps } from "./jobs";
+import { isDjApp, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible, type SemVer } from "./semver";
-import type { JobError, JobResult, JobRow, JobTrack, LibPlaylist, LibTrack } from "./store";
+import type { DjApp, DjApps, JobError, JobResult, JobRow, JobTrack, LibPlaylist, LibTrack } from "./store";
 import { addSeconds, json, timingSafeEqual } from "./util";
 
 export const PROTOCOL_HEADER = "x-dj-sync-agent-protocol";
@@ -113,6 +113,7 @@ export function claimedJobView(claimed: JobRow) {
         attempt: claimed.attempts,
         ops: claimed.ops ?? [],
         summary: claimed.summary ?? "",
+        ...(claimed.app ? { app: claimed.app } : {}),
       }
     : {
         job_id: claimed.id,
@@ -121,6 +122,7 @@ export function claimedJobView(claimed: JobRow) {
         urls: claimed.urls,
         attempt: claimed.attempts,
         ...(claimed.playlist_id ? { playlist_id: claimed.playlist_id } : {}),
+        ...(claimed.app ? { app: claimed.app } : {}),
       };
 }
 
@@ -151,6 +153,8 @@ export async function uploadLibrary(
 }
 
 export interface Snapshot {
+  /** Which app's library this is. Unset for a Mac that doesn't name apps. */
+  app?: DjApp;
   hash: string;
   generated_at: string;
   library_version: string | null;
@@ -163,7 +167,8 @@ const numOrNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ?
 
 export function parseLibrary(body: unknown): Snapshot | string {
   if (!isObj(body)) return "expected a JSON object";
-  const { hash, generated_at, library_version = null, playlists, tracks } = body;
+  const { app, hash, generated_at, library_version = null, playlists, tracks } = body;
+  if (app !== undefined && !isDjApp(app)) return "app must be rekordbox or serato";
   if (typeof hash !== "string" || hash === "") return "hash must be a non-empty string";
   if (typeof generated_at !== "string" || Number.isNaN(Date.parse(generated_at))) {
     return "generated_at must be an RFC 3339 timestamp";
@@ -195,7 +200,14 @@ export function parseLibrary(body: unknown): Snapshot | string {
       duration_secs: numOrNull(t.duration_secs),
     });
   }
-  return { hash, generated_at, library_version, playlists: outPlaylists, tracks: outTracks };
+  return { ...(app ? { app } : {}), hash, generated_at, library_version, playlists: outPlaylists, tracks: outTracks };
+}
+
+/** What a Mac says about its apps, or null if it says nothing usable. */
+export function parseApps(v: unknown): DjApps | null {
+  if (!isObj(v) || !isDjApp(v.default) || !Array.isArray(v.enabled) || !v.enabled.every(isDjApp)) return null;
+  const enabled = [...new Set(v.enabled as DjApp[])];
+  return enabled.includes(v.default) ? { default: v.default, enabled } : null;
 }
 
 export async function complete(jobId: string, body: unknown, deps: Deps): Promise<Response> {

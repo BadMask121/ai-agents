@@ -15,7 +15,7 @@ export const LIBRARY_PROTOCOL_MINOR = 1;
  * (GET /v2/agent). Same compatibility rule as protocol 1. Protocol 1 above
  * keeps serving /agent/* until V1_RETIRED.
  */
-export const AGENT_PROTOCOL_V2 = "2.0.0";
+export const AGENT_PROTOCOL_V2 = "2.1.0";
 
 /** Newest first; the first is what we offer when the client asks for something else. */
 export const SUPPORTED_MCP_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
