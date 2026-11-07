@@ -124,7 +124,7 @@ export function claimedJobView(claimed: JobRow) {
       };
 }
 
-/** The Mac's Rekordbox library (playlists + tracks), for ChatGPT to browse. */
+/** The Mac's DJ library (playlists + tracks), for ChatGPT to browse. */
 export async function uploadLibrary(
   body: unknown,
   protocol: SemVer,

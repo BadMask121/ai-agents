@@ -73,7 +73,7 @@ describe("Telegram pairing (connect-anywhere spec §1)", () => {
 
     // Another DJ pairs the same chat: it now belongs to them, and A lets go.
     const { url: mcpA } = await c.link(a, "chatgpt");
-    expect((await c.tool(mcpA, "download_to_rekordbox", { urls: [YT(1)] })).isError).toBe(false);
+    expect((await c.tool(mcpA, "download_tracks", { urls: [YT(1)] })).isError).toBe(false);
     const b = await c.registered("198.51.100.200");
     const linkB = await c.link(b, "telegram");
     await hook(c, msg(666, `/start ${codeOf(linkB)}`));
@@ -121,7 +121,7 @@ describe("Telegram bot", () => {
     const { t } = await paired(c);
     expect((await upload(c, t)).status).toBe(200);
     await hook(c, msg(CHAT, `${YT(1)} add to friday playlist`));
-    expect(tg.last(CHAT).text).toMatch(/^Queued: 1 link → Friday\. I'll tell you when it's in Rekordbox\. Your Mac is offline/);
+    expect(tg.last(CHAT).text).toMatch(/^Queued: 1 link → Friday\. I'll tell you when it's in your library\. Your Mac is offline/);
     expect(await pushedJob(c, t)).toMatchObject({ kind: "download", playlist: "Friday", playlist_id: "p3" });
 
     // "Folder/Name" picks one of two same-named playlists.
@@ -199,7 +199,7 @@ describe("Telegram bot", () => {
     const { c, tg } = tgCloud();
     const { t } = await paired(c);
     await hook(c, msg(CHAT, "/playlists"));
-    expect(tg.last(CHAT).text).toContain("hasn't shared its Rekordbox library");
+    expect(tg.last(CHAT).text).toContain("hasn't shared its library");
     await upload(c, t);
     await hook(c, msg(CHAT, "/playlists@DJSyncAppBot"));
     const list = tg.last(CHAT).text.split("\n");

@@ -47,7 +47,7 @@ describe("Telegram assistant (connect-anywhere spec §1c)", () => {
     expect(first.messages[0].content).toContain("Today is 2026-10-28.");
     expect(first.messages.at(-1)).toEqual({ role: "user", content: "list the playlists in DJ sync folder" });
     expect(first.tools).toHaveLength(13);
-    expect(first.tools[0]).toMatchObject({ type: "function", function: { name: "download_to_rekordbox", parameters: { type: "object" } } });
+    expect(first.tools[0]).toMatchObject({ type: "function", function: { name: "download_tracks", parameters: { type: "object" } } });
     expect(first.tools.map((t: Any) => t.function.name)).toEqual(expect.arrayContaining(["list_playlists", "move_tracks", "delete_playlist"]));
     expect(first.chat_template_kwargs).toEqual({ enable_thinking: false });
 
@@ -213,7 +213,7 @@ describe("Telegram assistant (connect-anywhere spec §1c)", () => {
       (inputs) => ({
         calls: [
           {
-            name: "download_to_rekordbox",
+            name: "download_tracks",
             args: { urls: [/https:\/\/\S+/u.exec(inputs.messages.at(-1).content)![0]], playlist_name: "Lagos Nights", create_playlist: true },
           },
         ],

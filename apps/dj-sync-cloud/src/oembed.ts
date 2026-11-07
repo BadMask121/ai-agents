@@ -1,5 +1,5 @@
 // The name of a Spotify, YouTube or SoundCloud playlist (or album) from its
-// link, so "download this playlist" lands in a Rekordbox playlist of the same
+// link, so "download this playlist" lands in a playlist of the same
 // name. All three answer oEmbed without a key; the title is all we read.
 
 import { MAX_PLAYLIST_NAME, OEMBED_TIMEOUT_MS } from "./constants";

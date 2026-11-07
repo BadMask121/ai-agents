@@ -43,7 +43,10 @@ import { extractMediaRef, type MediaRef } from "./links";
 import type { JobRow, LibPlaylist, LibTrack, LibraryOp } from "./store";
 import { errorSummary, relativeTime } from "./util";
 
-const DOWNLOAD_TOOL = "download_to_rekordbox";
+const DOWNLOAD_TOOL = "download_tracks";
+/** The tool's name until Serato support. No longer listed, but connectors that
+ * cached the old tool list can still call it, so it stays. */
+const LEGACY_DOWNLOAD_TOOL = "download_to_rekordbox";
 const STATUS_TOOL = "get_download_status";
 const LIST_PLAYLISTS = "list_playlists";
 const SEARCH_TRACKS = "search_tracks";
@@ -112,12 +115,12 @@ function initialize(params: Obj): Json {
   return {
     protocolVersion: version,
     capabilities: { tools: { listChanged: false } },
-    serverInfo: { name: "dj-sync", title: "DJ Sync → Rekordbox", version: WORKER_VERSION },
+    serverInfo: { name: "dj-sync", title: "DJ Sync", version: WORKER_VERSION },
     instructions:
-      "Use download_to_rekordbox when the user shares Spotify, YouTube or SoundCloud links they want in " +
-      "Rekordbox. It queues a download for the DJ's Mac and returns a job_id right away; the Mac " +
+      `Use ${DOWNLOAD_TOOL} when the user shares Spotify, YouTube or SoundCloud links they want in ` +
+      "their DJ library (Rekordbox or Serato). It queues a download for the DJ's Mac and returns a job_id right away; the Mac " +
       "picks it up as soon as it's online and downloads take a few minutes. To work with the DJ's " +
-      "Rekordbox playlists, use list_playlists, search_tracks and get_playlist (they read the " +
+      "playlists, use list_playlists, search_tracks and get_playlist (they read the " +
       "library the Mac last shared), then create_playlist, add_tracks_to_playlist, " +
       "remove_tracks_from_playlist, rename_playlist or delete_playlist with track_ids from those " +
       "results; changes are queued for the Mac like downloads. Use get_download_status with a " +
@@ -145,11 +148,11 @@ export function toolDefinitions(maxUrls: number): Json {
   return [
     {
       name: DOWNLOAD_TOOL,
-      title: "Download to Rekordbox",
+      title: "Download tracks",
       description:
         "Download Spotify (track, album, playlist), YouTube (video, playlist) or SoundCloud (track, set) " +
         "links as audio files " +
-        "on the DJ's Mac and add them to a playlist in the Rekordbox import XML. Returns immediately " +
+        "on the DJ's Mac and add them to a playlist in the DJ's library. Returns immediately " +
         "with a job_id; the download runs on the Mac (queued until it's online) and takes a few " +
         "minutes — call get_download_status to check on it.",
       inputSchema: {
@@ -166,7 +169,7 @@ export function toolDefinitions(maxUrls: number): Json {
             type: "string",
             maxLength: 100,
             description:
-              "Existing Rekordbox playlist to add the tracks to, as the user said it (case, emoji and " +
+              "Existing playlist to add the tracks to, as the user said it (case, emoji and " +
               "punctuation don't matter; \"Folder/Name\" picks one of two same-named playlists). If it " +
               "doesn't clearly match one playlist, nothing is queued and the closest playlists come back " +
               "to ask the user about. Omit to use the default playlist.",
@@ -183,7 +186,7 @@ export function toolDefinitions(maxUrls: number): Json {
         additionalProperties: false,
       },
       annotations: {
-        title: "Download to Rekordbox",
+        title: "Download tracks",
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
@@ -194,14 +197,14 @@ export function toolDefinitions(maxUrls: number): Json {
       name: STATUS_TOOL,
       title: "Download status",
       description:
-        "Check a job started by download_to_rekordbox or by a playlist tool (create, add, remove, " +
+        `Check a job started by ${DOWNLOAD_TOOL} or by a playlist tool (create, add, remove, ` +
         "rename, delete). Pass its job_id, or omit it to list the most recent jobs.",
       inputSchema: {
         type: "object",
         properties: {
           job_id: {
             type: "string",
-            description: "The job_id returned by download_to_rekordbox or a playlist tool.",
+            description: `The job_id returned by ${DOWNLOAD_TOOL} or a playlist tool.`,
           },
         },
         additionalProperties: false,
@@ -217,7 +220,7 @@ const trackIdsSchema = (minItems: number) => ({
   items: { type: "string" },
   minItems,
   maxItems: MAX_TRACK_IDS,
-  description: "Rekordbox track ids (track_id) from search_tracks or get_playlist.",
+  description: "Track ids (track_id) from search_tracks or get_playlist.",
 });
 
 const nameSchema = (description: string) => ({
@@ -241,22 +244,22 @@ function libraryToolDefinitions(): Json[] {
   return [
     {
       name: LIST_PLAYLISTS,
-      title: "List Rekordbox playlists",
+      title: "List playlists",
       description:
-        "List the playlists in the DJ's Rekordbox library (name, folder, track count), from the " +
+        "List the playlists in the DJ's library (name, folder, track count), from the " +
         "library their Mac last shared. Optionally filter by part of a name or folder.",
       inputSchema: {
         type: "object",
         properties: { query: { type: "string", description: "Only playlists whose name or folder contains this." } },
         additionalProperties: false,
       },
-      annotations: readOnly("List Rekordbox playlists"),
+      annotations: readOnly("List playlists"),
     },
     {
       name: SEARCH_TRACKS,
-      title: "Search Rekordbox tracks",
+      title: "Search tracks",
       description:
-        "Search the DJ's Rekordbox library. Every word of `query` must appear in the title, artist, " +
+        "Search the DJ's library. Every word of `query` must appear in the title, artist, " +
         "album or genre; narrow with artist, genre, key and a BPM range. Each track lists the " +
         "playlists it's in, so this also answers \"which playlist has <song>\". Returns track_ids to " +
         "use with the playlist tools.",
@@ -268,7 +271,7 @@ function libraryToolDefinitions(): Json[] {
           genre: { type: "string", description: "Genre contains this." },
           bpm_min: { type: "number", description: "Lowest BPM (inclusive)." },
           bpm_max: { type: "number", description: "Highest BPM (inclusive)." },
-          key: { type: "string", description: "Exact key as Rekordbox shows it, e.g. Am or 8A." },
+          key: { type: "string", description: "Exact key as the DJ's app shows it, e.g. Am or 8A." },
           limit: {
             type: "integer",
             minimum: 1,
@@ -278,13 +281,13 @@ function libraryToolDefinitions(): Json[] {
         },
         additionalProperties: false,
       },
-      annotations: readOnly("Search Rekordbox tracks"),
+      annotations: readOnly("Search tracks"),
     },
     {
       name: GET_PLAYLIST,
-      title: "Show a Rekordbox playlist",
+      title: "Show a playlist",
       description:
-        `Every track in one Rekordbox playlist, ${PLAYLIST_TRACKS_SHOWN} per page (use offset for the ` +
+        `Every track in one playlist, ${PLAYLIST_TRACKS_SHOWN} per page (use offset for the ` +
         "next page), with their track_ids. The name can be loose; unclear names return suggestions.",
       inputSchema: {
         type: "object",
@@ -302,13 +305,13 @@ function libraryToolDefinitions(): Json[] {
         required: ["name"],
         additionalProperties: false,
       },
-      annotations: readOnly("Show a Rekordbox playlist"),
+      annotations: readOnly("Show a playlist"),
     },
     {
       name: CREATE_PLAYLIST,
-      title: "Create a Rekordbox playlist",
+      title: "Create a playlist",
       description:
-        "Create a playlist in the DJ's Rekordbox library (in the DJ Sync folder), optionally with " +
+        "Create a playlist in the DJ's library (in the DJ Sync folder), optionally with " +
         "tracks. If it already exists, the tracks are added to it. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
@@ -316,13 +319,13 @@ function libraryToolDefinitions(): Json[] {
         required: ["name"],
         additionalProperties: false,
       },
-      annotations: writes("Create a Rekordbox playlist"),
+      annotations: writes("Create a playlist"),
     },
     {
       name: ADD_TRACKS,
-      title: "Add tracks to a Rekordbox playlist",
+      title: "Add tracks to a playlist",
       description:
-        "Add (copy) tracks, by track_id, to an existing Rekordbox playlist; they stay in any other playlists. " +
+        "Add (copy) tracks, by track_id, to an existing playlist; they stay in any other playlists. " +
         "To move them out of a playlist instead, use move_tracks. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
@@ -330,13 +333,13 @@ function libraryToolDefinitions(): Json[] {
         required: ["playlist", "track_ids"],
         additionalProperties: false,
       },
-      annotations: writes("Add tracks to a Rekordbox playlist"),
+      annotations: writes("Add tracks to a playlist"),
     },
     {
       name: REMOVE_TRACKS,
-      title: "Remove tracks from a Rekordbox playlist",
+      title: "Remove tracks from a playlist",
       description:
-        "Remove tracks (by track_id) from a Rekordbox playlist; they stay in the library. Queued for " +
+        "Remove tracks (by track_id) from a playlist; they stay in the library. Queued for " +
         "the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
@@ -344,13 +347,13 @@ function libraryToolDefinitions(): Json[] {
         required: ["playlist", "track_ids"],
         additionalProperties: false,
       },
-      annotations: writes("Remove tracks from a Rekordbox playlist"),
+      annotations: writes("Remove tracks from a playlist"),
     },
     {
       name: MOVE_TRACKS,
-      title: "Move tracks between Rekordbox playlists",
+      title: "Move tracks between playlists",
       description:
-        "Move tracks from one Rekordbox playlist to another in a single change: they're added to " +
+        "Move tracks from one playlist to another in a single change: they're added to " +
         "to_playlist and removed from from_playlist (they stay in the library). Give track_ids " +
         "(from get_playlist on from_playlist) or all: true for every track. To copy instead, use " +
         "copy_tracks. Queued for the Mac; returns a job_id.",
@@ -371,14 +374,14 @@ function libraryToolDefinitions(): Json[] {
         required: ["from_playlist", "to_playlist"],
         additionalProperties: false,
       },
-      annotations: writes("Move tracks between Rekordbox playlists"),
+      annotations: writes("Move tracks between playlists"),
     },
     {
       name: LINK_TRACKS,
       title: "Songs in a Spotify or YouTube playlist link",
       description:
         "List the songs in a Spotify playlist or album, or a YouTube playlist, WITHOUT downloading it, and " +
-        "match each to the DJ's Rekordbox library: in the library (with track_id and the playlists it's in), " +
+        "match each to the DJ's library: in the library (with track_id and the playlists it's in), " +
         "a close match (check with the DJ first), or not in the library. Use it to compare a link with a " +
         "playlist, or to copy the songs the DJ already has (copy_tracks / add_tracks_to_playlist with those " +
         "track_ids). Reads up to about 100 songs.",
@@ -392,9 +395,9 @@ function libraryToolDefinitions(): Json[] {
     },
     {
       name: COPY_TRACKS,
-      title: "Copy tracks between Rekordbox playlists",
+      title: "Copy tracks between playlists",
       description:
-        "Copy tracks from one Rekordbox playlist into another: they're added to to_playlist and stay " +
+        "Copy tracks from one playlist into another: they're added to to_playlist and stay " +
         "in from_playlist. Give track_ids (from get_playlist on from_playlist) or all: true for every " +
         "track. Tracks already in to_playlist aren't added twice. Queued for the Mac; returns a job_id.",
       inputSchema: {
@@ -414,12 +417,12 @@ function libraryToolDefinitions(): Json[] {
         required: ["from_playlist", "to_playlist"],
         additionalProperties: false,
       },
-      annotations: writes("Copy tracks between Rekordbox playlists"),
+      annotations: writes("Copy tracks between playlists"),
     },
     {
       name: RENAME_PLAYLIST,
-      title: "Rename a Rekordbox playlist",
-      description: "Rename a Rekordbox playlist. Queued for the Mac; returns a job_id.",
+      title: "Rename a playlist",
+      description: "Rename a playlist. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
         properties: {
@@ -430,13 +433,13 @@ function libraryToolDefinitions(): Json[] {
         required: ["name", "new_name"],
         additionalProperties: false,
       },
-      annotations: writes("Rename a Rekordbox playlist"),
+      annotations: writes("Rename a playlist"),
     },
     {
       name: DELETE_PLAYLIST,
-      title: "Delete a Rekordbox playlist",
+      title: "Delete a playlist",
       description:
-        "Delete a Rekordbox playlist (its tracks stay in the library). Rekordbox's library is backed " +
+        "Delete a playlist (its tracks stay in the library). The library is backed " +
         "up first and can be restored from DJ Sync on the Mac. Queued for the Mac; returns a job_id.",
       inputSchema: {
         type: "object",
@@ -444,7 +447,7 @@ function libraryToolDefinitions(): Json[] {
         required: ["name"],
         additionalProperties: false,
       },
-      annotations: writes("Delete a Rekordbox playlist", true),
+      annotations: writes("Delete a playlist", true),
     },
   ];
 }
@@ -487,7 +490,7 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
   let playlistId: string | null = null;
   let wantsNew = args?.create_playlist === true;
   // "Download this playlist": no playlist named and one Spotify / YouTube playlist or album → a
-  // Rekordbox playlist with its name (the existing one if there is one, else a new one).
+  // playlist with its name (the existing one if there is one, else a new one).
   let namedAfter = false;
   if ((playlistName === null || cleanName(playlistName) === "") && media.length === 1 && isCollection(media[0]!.url)) {
     const title = await deps.mediaTitle?.(media[0]!.url);
@@ -527,7 +530,7 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
 
   let text = deduplicated
     ? `That download is already in progress as job ${job.id} (${stateWord(job.state)}).`
-    : `Queued job ${job.id}: ${job.urls.length} link(s) → Rekordbox playlist "${job.playlist}"` +
+    : `Queued job ${job.id}: ${job.urls.length} link(s) → playlist "${job.playlist}"` +
       (namedAfter ? " (named after the linked playlist)" : "") +
       (position > 0 ? ` (${position} job(s) ahead)` : "") +
       ". Downloads take a few minutes; check with get_download_status.";
@@ -565,7 +568,7 @@ async function callStatus(args: Obj | undefined, deps: Deps): Promise<Json> {
     let text = `Job ${job.id} is ${stateWord(job.state, job.kind)}.`;
     if (job.summary) text += ` ${job.summary}.`;
     text += ` ${job.message}`;
-    if (view.library_version) text += ` Rekordbox library version ${view.library_version}.`;
+    if (view.library_version) text += ` Library version ${view.library_version}.`;
     for (const e of view.errors) text += `\n- ${e.url}: ${errorSummary(e.error)}`;
     if (job.state === "queued" && !agent.online) text += offlineNote(agent, deps.now(), job.kind);
     return toolResult(text, { ...view, mac_online: agent.online }, false);
@@ -584,7 +587,7 @@ function jobLabel(j: JobRow): string {
   return j.summary ?? `"${j.playlist}"`;
 }
 
-// ---------- Rekordbox library tools ----------
+// ---------- library tools ----------
 // Reads answer from the snapshot the Mac last uploaded; writes are checked
 // against it and queued as library jobs the Mac applies to master.db.
 
@@ -592,6 +595,7 @@ type Handler = (args: Obj | undefined, deps: Deps) => Promise<Json>;
 
 const TOOLS: Record<string, Handler> = {
   [DOWNLOAD_TOOL]: callDownload,
+  [LEGACY_DOWNLOAD_TOOL]: callDownload,
   [STATUS_TOOL]: callStatus,
   [LIST_PLAYLISTS]: callListPlaylists,
   [SEARCH_TRACKS]: callSearchTracks,
@@ -607,14 +611,13 @@ const TOOLS: Record<string, Handler> = {
 };
 
 const APPLY_NOTE =
-  " Your Mac applies it to Rekordbox — straight away if Rekordbox is closed, otherwise when you quit it." +
-  " It also shows under rekordbox xml right away.";
+  " Your Mac applies it to your library — straight away if your DJ app is closed, otherwise when you quit it.";
 
 interface Freshness {
   agent: AgentStatus;
   /** When the Mac generated the snapshot being answered from. */
   asOf: string | null;
-  /** " (Rekordbox library as of 5 min ago; your Mac is online.)" */
+  /** " (Library as of 5 min ago; your Mac is online.)" */
   note: string;
 }
 
@@ -622,7 +625,7 @@ async function freshness(deps: Deps): Promise<Freshness> {
   const [agent, row] = await Promise.all([agentStatus(deps), deps.store.getAgent()]);
   const asOf = row?.library_generated_at ?? null;
   const when = asOf ? relativeTime(asOf, deps.now()) : "an unknown time";
-  const note = ` (Rekordbox library as of ${when}; your Mac is ${agent.online ? "online" : "offline"}.)`;
+  const note = ` (Library as of ${when}; your Mac is ${agent.online ? "online" : "offline"}.)`;
   return { agent, asOf, note };
 }
 
@@ -675,7 +678,7 @@ function noSuchPlaylist(suggestions: LibPlaylist[], name: string, hint = ""): Js
         "mean (or whether they want a new playlist), then call again with that exact name."
       : " Use list_playlists to see the DJ's playlists.";
   return toolResult(
-    `Nothing was changed: there's no Rekordbox playlist called "${cleanName(name)}".${close}${hint}`,
+    `Nothing was changed: there's no playlist called "${cleanName(name)}".${close}${hint}`,
     { error: "playlist_not_found", suggestions: suggestions.map(suggestionView) },
     true,
   );
@@ -732,7 +735,7 @@ async function callListPlaylists(args: Obj | undefined, deps: Deps): Promise<Jso
   let text =
     rows.length === 0
       ? q === ""
-        ? "The Rekordbox library has no playlists."
+        ? "The library has no playlists."
         : `No playlists match "${q}".`
       : `${plural(rows.length, "playlist")}:\n` +
         shown.map((r) => `- ${r.folder ? `${r.folder}/` : ""}${r.name} (${plural(r.tracks, "track")})`).join("\n");

@@ -13,6 +13,12 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.6.0] — 2026-11-07 · Serato
+
+### Changed
+- **Nothing talks about Rekordbox as if it were the only app.** Tool titles and descriptions, assistant instructions, job messages, Telegram replies and the Shortcut's answers say "your library", because a DJ's Mac can now be using Serato. The snapshot, job and op shapes are unchanged, so the agent protocol stays as it was.
+- **`download_to_rekordbox` is now `download_tracks`.** The old name isn't listed any more but still works, because connectors can cache a tool list.
+
 ## [1.5.0] — 2026-10-28 · uninstall forgets the DJ
 
 ### Added

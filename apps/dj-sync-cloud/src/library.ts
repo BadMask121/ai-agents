@@ -1,4 +1,4 @@
-// The Mac's Rekordbox library as ChatGPT sees it: a snapshot the Mac uploads
+// The Mac's DJ library as ChatGPT sees it: a snapshot the Mac uploads
 // (POST /agent/library) whenever its library changes. Reads answer from the
 // snapshot even while the Mac is offline; writes are validated against it and
 // queued as library jobs (see mcp.ts).
@@ -7,7 +7,7 @@ import { MAX_TRACK_IDS } from "./constants";
 import type { Result } from "./jobs";
 import type { LibPlaylist, LibTrack } from "./store";
 
-export const NO_LIBRARY = "Your Mac hasn't shared its Rekordbox library yet — open DJ Sync on the Mac.";
+export const NO_LIBRARY = "Your Mac hasn't shared its library yet — open DJ Sync on the Mac.";
 
 /** The folder dj-sync creates its playlists in (mirrors rbdb.py). */
 const DJ_SYNC_FOLDER = "DJ Sync";

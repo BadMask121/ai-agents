@@ -4,12 +4,12 @@
 
 export type JobState = "queued" | "running" | "done" | "failed";
 export type JobSource = "mcp" | "shortcut";
-/** `download`: links for spotdl/yt-dlp. `library`: playlist ops for Rekordbox. */
+/** `download`: links for spotdl/yt-dlp. `library`: playlist ops for the DJ's library. */
 export type JobKind = "download" | "library";
 
 /** One playlist operation, exactly as the Mac's rbdb.py consumes it. */
 /**
- * rbdb.py ops. `playlist_id` (Rekordbox's id, from the snapshot) pins the
+ * rbdb.py ops. `playlist_id` (the library's id, from the snapshot) pins the
  * exact playlist when names are ambiguous; older Macs ignore it and match by
  * name.
  */
@@ -20,7 +20,7 @@ export type LibraryOp =
   | { op: "rename_playlist"; name: string; new_name: string; playlist_id?: string }
   | { op: "delete_playlist"; name: string; playlist_id?: string };
 
-/** A track in the Mac's Rekordbox library snapshot. */
+/** A track in the Mac's library snapshot. */
 export interface LibTrack {
   id: string;
   title: string;
@@ -62,7 +62,7 @@ export interface JobResult {
   tracks: JobTrack[];
   errors: JobError[];
   xml_version: string | null;
-  /** Rekordbox library (master.db) version after a library job. */
+  /** DJ library version after a library job. */
   library_version?: string | null;
 }
 
@@ -85,7 +85,7 @@ export interface JobRow {
   ops: LibraryOp[] | null;
   /** Library jobs only: "Add 3 tracks to “Friday”". */
   summary: string | null;
-  /** Download jobs into an existing Rekordbox playlist: its id. */
+  /** Download jobs into an existing playlist: its id. */
   playlist_id?: string | null;
 }
 
@@ -138,7 +138,7 @@ const isActive = (j: JobRow) => j.state === "queued" || j.state === "running";
 /** Status messages while a claimed job runs on the Mac. */
 export const CLAIMED_MESSAGE: Record<JobKind, string> = {
   download: "Downloading on your Mac…",
-  library: "Updating Rekordbox on your Mac…",
+  library: "Updating your library on your Mac…",
 };
 
 export class MemoryStore implements Store {

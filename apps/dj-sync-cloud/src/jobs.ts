@@ -62,7 +62,7 @@ export async function submit(
   media: MediaRef[],
   playlistName: string | null | undefined,
   source: JobSource,
-  /** The existing Rekordbox playlist `playlistName` was resolved to. */
+  /** The existing playlist `playlistName` was resolved to. */
   playlistId: string | null = null,
 ): Promise<Result<Submitted>> {
   if (media.length === 0) return { ok: false, error: "no links to download" };
@@ -86,7 +86,7 @@ export async function submit(
 }
 
 /**
- * Queue Rekordbox playlist ops for the Mac (`playlist` is the target the
+ * Queue playlist ops for the Mac (`playlist` is the target the
  * ops are about). Identical active work is reused, like downloads.
  */
 export async function submitLibrary(
@@ -154,7 +154,7 @@ export async function agentStatus(deps: Deps): Promise<AgentStatus> {
 /** " Your Mac is offline (last seen 3 h ago); it will download when it's back online." */
 export function offlineNote(agent: AgentStatus, now: Date, kind: JobKind = "download"): string {
   const seen = agent.last_seen ? relativeTime(agent.last_seen, now) : "never";
-  const what = kind === "library" ? "update Rekordbox" : "download";
+  const what = kind === "library" ? "update your library" : "download";
   return ` Your Mac is offline (last seen ${seen}); it will ${what} when it's back online.`;
 }
 
@@ -163,7 +163,7 @@ export function stateWord(state: JobState, kind: JobKind = "download"): string {
     case "queued":
       return "queued";
     case "running":
-      return kind === "library" ? "updating Rekordbox" : "downloading";
+      return kind === "library" ? "updating your library" : "downloading";
     case "done":
       return "done";
     case "failed":

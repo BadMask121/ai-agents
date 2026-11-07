@@ -9,10 +9,9 @@ type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Deps = ReturnType<typeof makeDeps>["deps"];
 const BASE = "https://mcp.example.test";
 const ALL: Secrets = { MCP_SECRET_PATH: SECRET, AGENT_TOKEN };
-const NO_LIBRARY = "Your Mac hasn't shared its Rekordbox library yet — open DJ Sync on the Mac.";
+const NO_LIBRARY = "Your Mac hasn't shared its library yet — open DJ Sync on the Mac.";
 const APPLY =
-  "Your Mac applies it to Rekordbox — straight away if Rekordbox is closed, otherwise when you quit it. " +
-  "It also shows under rekordbox xml right away.";
+  "Your Mac applies it to your library — straight away if your DJ app is closed, otherwise when you quit it.";
 
 const track = (id: string, title: string, artist: string | null, genre: string | null, bpm: number | null, key: string | null) => ({
   id,
@@ -175,7 +174,7 @@ describe("library jobs on the agent API", () => {
     const { deps, advance } = await withLibrary();
     const created = await call(deps, "create_playlist", { name: "Sunset Set", track_ids: ["t2", "t4"] });
     advance(1);
-    const download = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"] });
+    const download = await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"] });
 
     // A 1.0 Mac skips the (older) library job and gets the download.
     const old = await body(await poll(deps, { active: [], can_claim: true }, "1.0.0"));
@@ -198,7 +197,7 @@ describe("library jobs on the agent API", () => {
     });
 
     const status = await call(deps, "get_download_status", { job_id: got.job.job_id });
-    expect(text(status)).toContain("is updating Rekordbox");
+    expect(text(status)).toContain("is updating your library");
   });
 
   it("records library_version on completion and shows it in get_download_status", async () => {
@@ -271,7 +270,7 @@ describe("read tools", () => {
     ]);
     expect(all.structuredContent).toMatchObject({ library_as_of: "2026-10-28T11:55:00Z", mac_online: true });
     expect(text(all)).toContain("Gigs/Friday/Warmup (2 tracks)");
-    expect(text(all)).toMatch(/library as of .*your Mac is online/);
+    expect(text(all)).toMatch(/Library as of .*your Mac is online/);
 
     const friday = await call(deps, "list_playlists", { query: "FRIDAY" });
     expect(friday.structuredContent.playlists.map((p: Any) => p.name)).toEqual(["Closing", "Warmup"]);
@@ -544,7 +543,7 @@ describe("write tools", () => {
     advance(3600);
     const r = await call(deps, "delete_playlist", { name: "Warmup" });
     expect(r.structuredContent.mac_online).toBe(false);
-    expect(text(r)).toContain("it will update Rekordbox when it's back online");
+    expect(text(r)).toContain("it will update your library when it's back online");
   });
 
   it("asks which one when names repeat, and pins the choice by id", async () => {
@@ -568,18 +567,18 @@ describe("write tools", () => {
   it("downloads go into the playlist the user meant, or ask", async () => {
     const { deps } = await withLibrary();
     const url = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
-    const into = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "warm up" });
+    const into = await call(deps, "download_tracks", { urls: [url], playlist_name: "warm up" });
     expect(into.isError).toBe(false);
     expect(into.structuredContent).toMatchObject({ playlist: "Warmup", playlist_id: "p3" });
     const job = (await deps.store.getJob(into.structuredContent.job_id))!;
     expect(claimedJobView(job)).toMatchObject({ kind: "download", playlist: "Warmup", playlist_id: "p3" });
 
-    const unclear = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "amapino bangerz" });
+    const unclear = await call(deps, "download_tracks", { urls: [url], playlist_name: "amapino bangerz" });
     expect(unclear.isError).toBe(true);
     expect(unclear.structuredContent.suggestions[0].name).toBe("Amapiano Bangers");
     expect(text(unclear)).toContain("create_playlist: true");
 
-    const fresh = await call(deps, "download_to_rekordbox", {
+    const fresh = await call(deps, "download_tracks", {
       urls: [url],
       playlist_name: "Sunday Brunch",
       create_playlist: true,
@@ -587,7 +586,7 @@ describe("write tools", () => {
     expect(fresh.structuredContent).toMatchObject({ playlist: "Sunday Brunch", playlist_id: null });
     expect(claimedJobView((await deps.store.getJob(fresh.structuredContent.job_id))!)).not.toHaveProperty("playlist_id");
 
-    const nowhere = await call(deps, "download_to_rekordbox", { urls: [url], playlist_name: "Sunday Brunch" });
+    const nowhere = await call(deps, "download_tracks", { urls: [url], playlist_name: "Sunday Brunch" });
     expect(nowhere.isError).toBe(true);
     // Only the two good requests were queued.
     expect(await deps.store.recentJobs(10)).toHaveLength(2);

@@ -184,7 +184,7 @@ describe("protocol 1 → 2 transition (spec §3.9)", () => {
 
     // The owner's old ChatGPT URL and Shortcut key now land in their tenant.
     const legacyUrl = `https://mcp.example.test/${SECRET}/mcp`;
-    const [s, body] = await c.mcp(legacyUrl, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "download_to_rekordbox", arguments: { urls: [YT(1)] } } });
+    const [s, body] = await c.mcp(legacyUrl, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "download_tracks", arguments: { urls: [YT(1)] } } });
     expect(s).toBe(200);
     const jobId = body.result.structuredContent.job_id;
     const sc = await c.call(req("POST", "/api/downloads", { url: YT(2) }, { authorization: `Bearer ${SHORTCUT_KEY}` }));

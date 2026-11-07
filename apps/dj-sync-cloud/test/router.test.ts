@@ -164,7 +164,7 @@ describe("agent API", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "download_to_rekordbox", arguments: { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: playlist } },
+        params: { name: "download_tracks", arguments: { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: playlist } },
       }),
       ALL,
       deps,

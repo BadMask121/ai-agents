@@ -51,7 +51,7 @@ const STOP_NO = "x:n";
 const DISCONNECTED = "Disconnected. To connect again: DJ Sync on your Mac → Assistants → Connect Telegram.";
 
 export const HELP =
-  "Send me a Spotify, YouTube or SoundCloud link and it goes into your Rekordbox on your Mac. " +
+  "Send me a Spotify, YouTube or SoundCloud link and it goes into your DJ library on your Mac. " +
   "Add a playlist name after the link to choose where it goes (e.g. “https://youtu.be/… gqom”), " +
   "or pick one from the buttons I show. You can also just ask, e.g. “list the playlists in my DJ Sync " +
   "folder” or “move the first two tracks of Friday into Gqom”.\n\n" +
@@ -454,8 +454,8 @@ async function queue(
   const { job, deduplicated } = sub.value;
   host.store.addTgJob(job.id, chatId);
   let text = deduplicated
-    ? `That's already queued → ${job.playlist}. I'll tell you when it's in Rekordbox.`
-    : `Queued: ${plural(job.urls.length, "link")} → ${job.playlist}${note}. I'll tell you when it's in Rekordbox.`;
+    ? `That's already queued → ${job.playlist}. I'll tell you when it's in your library.`
+    : `Queued: ${plural(job.urls.length, "link")} → ${job.playlist}${note}. I'll tell you when it's in your library.`;
   const agent = await agentStatus(host.deps);
   if (!agent.online) text += offlineNote(agent, host.now());
   return text;

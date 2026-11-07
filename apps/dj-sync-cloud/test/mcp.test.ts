@@ -47,7 +47,7 @@ describe("protocol", () => {
     const r: Any = await dispatch({ jsonrpc: "2.0", id: 1, method: "tools/list" }, deps);
     const tools = r.result.tools;
     expect(tools.map((t: Any) => t.name)).toEqual([
-      "download_to_rekordbox",
+      "download_tracks",
       "get_download_status",
       "list_playlists",
       "search_tracks",
@@ -76,10 +76,20 @@ describe("protocol", () => {
   });
 });
 
-describe("download_to_rekordbox", () => {
+describe("the old download tool name", () => {
+  it("still works for connectors that cached it, but isn't listed any more", async () => {
+    const { deps } = makeDeps();
+    const r: Any = await dispatch({ jsonrpc: "2.0", id: 1, method: "tools/list" }, deps);
+    expect(r.result.tools.map((t: Any) => t.name)).not.toContain("download_to_rekordbox");
+    const queued = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "Fri" });
+    expect(queued.isError).toBeFalsy();
+  });
+});
+
+describe("download_tracks", () => {
   it("queues valid links, reports bad ones, and says the Mac is offline", async () => {
     const { deps } = makeDeps();
-    const r = await call(deps, "download_to_rekordbox", {
+    const r = await call(deps, "download_tracks", {
       urls: ["https://youtu.be/dQw4w9WgXcQ", "https://evil.example/x", "https://youtu.be/dQw4w9WgXcQ?si=dup"],
       playlist_name: "Fri",
     });
@@ -90,20 +100,20 @@ describe("download_to_rekordbox", () => {
     expect(s.urls).toEqual(["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]);
     expect(s.rejected).toHaveLength(1);
     const text: string = r.content[0].text;
-    expect(text).toContain(`Queued job ${s.job_id}: 1 link(s) → Rekordbox playlist "Fri"`);
+    expect(text).toContain(`Queued job ${s.job_id}: 1 link(s) → playlist "Fri"`);
     expect(text).toContain("Skipped 1 unsupported link(s).");
     expect(text).toContain("Your Mac is offline (last seen never); it will download when it's back online.");
   });
 
   it("deduplicates an identical active request and counts jobs ahead", async () => {
     const { deps, advance } = makeDeps();
-    const a = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "X" });
+    const a = await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "X" });
     advance(1);
-    const b = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "X" });
+    const b = await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "X" });
     expect(b.structuredContent.job_id).toBe(a.structuredContent.job_id);
     expect(b.structuredContent.deduplicated).toBe(true);
     expect(b.content[0].text).toContain("already in progress");
-    const c = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "Y" });
+    const c = await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "Y" });
     expect(c.structuredContent.job_id).not.toBe(a.structuredContent.job_id);
     expect(c.structuredContent.position).toBe(1);
     expect(c.content[0].text).toContain("(1 job(s) ahead)");
@@ -112,7 +122,7 @@ describe("download_to_rekordbox", () => {
   it("omits the offline note when the Mac polled recently", async () => {
     const { deps, store } = makeDeps();
     await store.touchAgent({ last_seen: deps.now().toISOString(), version: "0.2.0", protocol: "1.0.0" });
-    const r = await call(deps, "download_to_rekordbox", { urls: ["https://open.spotify.com/track/abc123"] });
+    const r = await call(deps, "download_tracks", { urls: ["https://open.spotify.com/track/abc123"] });
     expect(r.structuredContent.mac_online).toBe(true);
     expect(r.structuredContent.playlist).toBe("DJ Sync Downloads");
     expect(r.content[0].text).not.toContain("offline");
@@ -129,7 +139,7 @@ describe("download_to_rekordbox", () => {
       { urls: ["a", "b", "c", "d"] },
       { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "x".repeat(101) },
     ]) {
-      const r = await call(deps, "download_to_rekordbox", args);
+      const r = await call(deps, "download_tracks", args);
       expect(r.isError, JSON.stringify(args)).toBe(true);
     }
     expect(await store.recentJobs(10)).toHaveLength(0);
@@ -139,7 +149,7 @@ describe("download_to_rekordbox", () => {
 describe("get_download_status", () => {
   it("shows one job, summarising errors to the downloader's ERROR line", async () => {
     const { deps, store } = makeDeps();
-    const q = await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"] });
+    const q = await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"] });
     const id = q.structuredContent.job_id;
 
     const queued = await call(deps, "get_download_status", { job_id: id });
@@ -172,9 +182,9 @@ describe("get_download_status", () => {
   it("lists recent jobs newest first, and handles unknown ids", async () => {
     const { deps, advance } = makeDeps();
     expect((await call(deps, "get_download_status", {})).content[0].text).toContain("No jobs yet");
-    await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "A" });
+    await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "A" });
     advance(5);
-    await call(deps, "download_to_rekordbox", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "B" });
+    await call(deps, "download_tracks", { urls: ["https://youtu.be/dQw4w9WgXcQ"], playlist_name: "B" });
     const list = await call(deps, "get_download_status", {});
     expect(list.structuredContent.jobs.map((j: Any) => j.playlist)).toEqual(["B", "A"]);
     expect(list.content[0].text).toContain("Your Mac is offline");
