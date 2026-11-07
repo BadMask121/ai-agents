@@ -35,8 +35,8 @@ use tracing::{debug, error, info, warn};
 use crate::agent_core::{AgentCore, ClaimedJob, Completion};
 use crate::cloud::{PROTOCOL_HEADER, VERSION_HEADER};
 use crate::config::CloudCfg;
+use crate::dj_library::Libraries;
 use crate::jobs::JobQueue;
-use crate::rekordbox_db::RekordboxLibrary;
 
 /// Bump MAJOR for breaking changes to the v2 agent API, MINOR for additions
 /// the agent relies on. Must stay in step with the Worker's.
@@ -615,7 +615,7 @@ pub async fn run(
     cfg: CloudCfg,
     session: Arc<CloudSession>,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     run_with(LaneTiming::from_cfg(&cfg), session, jobs, library, shutdown).await
@@ -625,10 +625,10 @@ pub async fn run_with(
     t: LaneTiming,
     session: Arc<CloudSession>,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let mut core = AgentCore::new(jobs, None).with_library(library);
+    let mut core = AgentCore::new(jobs).with_library(library);
     let mut delay = Duration::ZERO;
     let mut offline_since: Option<Instant> = None;
     let mut unauthorized = 0u32;
@@ -1160,7 +1160,13 @@ mod tests {
     fn start(base: &str, dir: &Path) -> (Arc<CloudSession>, watch::Sender<bool>) {
         let session = CloudSession::new(base, dir.to_path_buf()).unwrap();
         let (tx, rx) = watch::channel(false);
-        tokio::spawn(run_with(fast(), session.clone(), queue(dir), None, rx));
+        tokio::spawn(run_with(
+            fast(),
+            session.clone(),
+            queue(dir),
+            Libraries::default(),
+            rx,
+        ));
         (session, tx)
     }
 

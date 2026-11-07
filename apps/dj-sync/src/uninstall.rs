@@ -11,8 +11,8 @@
 //! 4. Delete `~/.dj-sync`.
 //! 5. Remove the menu app's preferences, caches, logs and permissions.
 //!
-//! Never touched: the download folders, Rekordbox's library and its import
-//! XML. Every step skips what's already gone, so running it again is harmless.
+//! Never touched: the download folders, Rekordbox's and Serato's libraries
+//! and the import XML. Every step skips what's already gone, so running it again is harmless.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -33,7 +33,7 @@ const USAGE: &str = "usage: dj-sync uninstall [--delete-backups]
 Removes DJ Sync from this Mac: stops the background service, asks the DJ Sync
 cloud to forget this Mac, and deletes ~/.dj-sync and DJ Sync's preferences,
 caches and logs. Library backups are moved to ~/Music/DJ Sync Backups unless
---delete-backups is given. Your music and Rekordbox library stay as they are.";
+--delete-backups is given. Your music and DJ library stay as they are.";
 
 const RESTORE_NOTE: &str = "DJ Sync library backups
 
@@ -49,6 +49,30 @@ To put one back:
 4. Copy the backup you want into that folder and rename the copy master.db.
 5. Open Rekordbox.
 ";
+
+const SERATO_RESTORE_NOTE: &str = "DJ Sync library backups for Serato
+
+Each serato-library.v<version>.tar holds Serato's library files from around a
+change DJ Sync made; index.json says which change. The oldest one is your
+library from before DJ Sync's first change.
+
+To put one back:
+1. Quit Serato.
+2. Double-click the backup you want, to unpack it.
+3. In Finder, choose Go > Go to Folder... and enter ~/Music/_Serato_
+4. Move database V2, neworder.pref and the Subcrates folder somewhere safe, so
+   you keep them.
+5. Copy database V2, neworder.pref and Subcrates from the backup into that
+   folder.
+6. Open Serato. It loads them when it starts.
+";
+
+fn library_name(folder: Option<&str>) -> &'static str {
+    match folder {
+        Some(_) => "Serato library",
+        None => "library",
+    }
+}
 
 /// Everything DJ Sync puts on a Mac, from the home folder.
 pub struct Paths {
@@ -175,28 +199,38 @@ pub async fn uninstall(
     }
 
     // 3. Library backups.
-    let backups = state.join("rekordbox-backups");
-    if has_entries(&backups) {
+    for (kept, note, folder) in [
+        ("rekordbox-backups", RESTORE_NOTE, None),
+        ("serato-backups", SERATO_RESTORE_NOTE, Some("Serato")),
+    ] {
+        let backups = state.join(kept);
+        if !has_entries(&backups) {
+            continue;
+        }
         if opts.delete_backups {
             match std::fs::remove_dir_all(&backups) {
-                Ok(()) => say("deleted the library backups".into()),
+                Ok(()) => say(format!("deleted the {} backups", library_name(folder))),
                 Err(e) => say(format!("couldn't delete the library backups: {e}")),
             }
-        } else {
-            let mut dest = paths.kept_backups();
-            if dest.exists() {
-                dest = dest.join(now.format("%Y-%m-%d %H%M").to_string());
-            }
-            match keep_backups(&backups, &dest) {
-                Ok(()) => say(format!(
-                    "moved the library backups to {}",
-                    paths.show(&dest)
-                )),
-                Err(e) => say(format!(
-                    "couldn't move the library backups to {}: {e:#}",
-                    paths.show(&dest)
-                )),
-            }
+            continue;
+        }
+        let mut dest = paths.kept_backups();
+        if let Some(folder) = folder {
+            dest = dest.join(folder);
+        }
+        if dest.exists() {
+            dest = dest.join(now.format("%Y-%m-%d %H%M").to_string());
+        }
+        match keep_backups(&backups, &dest, note) {
+            Ok(()) => say(format!(
+                "moved the {} backups to {}",
+                library_name(folder),
+                paths.show(&dest)
+            )),
+            Err(e) => say(format!(
+                "couldn't move the library backups to {}: {e:#}",
+                paths.show(&dest)
+            )),
         }
     }
 
@@ -243,7 +277,7 @@ fn has_entries(dir: &Path) -> bool {
 }
 
 /// Move the backups to `dest` (copying across volumes) and add the restore note.
-fn keep_backups(src: &Path, dest: &Path) -> anyhow::Result<()> {
+fn keep_backups(src: &Path, dest: &Path, note: &str) -> anyhow::Result<()> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -251,7 +285,7 @@ fn keep_backups(src: &Path, dest: &Path) -> anyhow::Result<()> {
         copy_dir(src, dest).context("copying")?;
         std::fs::remove_dir_all(src)?;
     }
-    std::fs::write(dest.join("How to restore.txt"), RESTORE_NOTE)?;
+    std::fs::write(dest.join("How to restore.txt"), note)?;
     Ok(())
 }
 
@@ -644,6 +678,27 @@ mod tests {
             sys.events(),
             ["launchctl bootout gui/501/com.triplejmusic.dj-sync"]
         );
+    }
+
+    #[tokio::test]
+    async fn serato_backups_are_kept_beside_rekordboxs_with_their_own_note() {
+        let (_tmp, p) = installed();
+        write(
+            &p.state_dir()
+                .join("serato-backups/serato-library.v1.0.0.tar"),
+            "serato",
+        );
+        let r = uninstall(&p, &Fake::new(Ok(204)), &Options::default(), now()).await;
+        assert!(r.ok(), "left: {:?}", r.left);
+        let kept = p.kept_backups().join("Serato");
+        assert_eq!(
+            std::fs::read_to_string(kept.join("serato-library.v1.0.0.tar")).unwrap(),
+            "serato"
+        );
+        assert!(std::fs::read_to_string(kept.join("How to restore.txt"))
+            .unwrap()
+            .contains("Quit Serato"));
+        assert!(p.kept_backups().join("master.v1.0.0.db").exists());
     }
 
     #[tokio::test]

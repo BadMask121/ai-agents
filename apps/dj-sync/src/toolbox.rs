@@ -428,7 +428,8 @@ impl Toolbox {
             if let Err(e) = self.ensure_venv(name, reqs, &manifest.python.version).await {
                 warn!(venv = %name, error = %format!("{e:#}"), "python environment failed");
                 // Just a knock-on of uv not having downloaded.
-                if !(!unreachable.is_empty() && format!("{e:#}").contains("uv isn't installed yet")) {
+                if !(!unreachable.is_empty() && format!("{e:#}").contains("uv isn't installed yet"))
+                {
                     failures.push(format!("{name}: {e:#}"));
                 }
             }
@@ -1099,14 +1100,19 @@ mod tests {
     #[tokio::test]
     async fn network_failures_are_told_apart_from_bad_downloads() {
         // Nothing listens on port 1: a refused connection.
-        let refused = reqwest::get("http://127.0.0.1:1/ffmpeg.zip").await.unwrap_err();
+        let refused = reqwest::get("http://127.0.0.1:1/ffmpeg.zip")
+            .await
+            .unwrap_err();
         let err = anyhow::Error::new(refused).context("downloading http://127.0.0.1:1/ffmpeg.zip");
         assert_eq!(network_host(&err).as_deref(), Some("127.0.0.1"));
         assert_eq!(
             network_host(&anyhow!("download stalled: https://github.com/x/y")).as_deref(),
             Some("github.com")
         );
-        assert_eq!(network_host(&anyhow!("checksum mismatch for https://github.com/x")), None);
+        assert_eq!(
+            network_host(&anyhow!("checksum mismatch for https://github.com/x")),
+            None
+        );
     }
 
     #[tokio::test]

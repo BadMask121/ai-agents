@@ -49,6 +49,7 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["limit", "trace"] }
 subtle = "2"
 sha2 = "0.10"
+md-5 = "0.10"
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 flate2 = "1"

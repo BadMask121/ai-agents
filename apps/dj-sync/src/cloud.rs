@@ -9,7 +9,6 @@
 //! semver). The Worker refuses an agent whose MAJOR differs or whose MINOR is
 //! newer than its own, and we stop claiming work until one side is updated.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
@@ -21,8 +20,8 @@ use tracing::{error, info, warn};
 
 use crate::agent_core::{AgentCore, ClaimedJob, Completion};
 use crate::config::CloudCfg;
+use crate::dj_library::Libraries;
 use crate::jobs::JobQueue;
-use crate::rekordbox_db::RekordboxLibrary;
 
 /// Bump MAJOR for breaking changes to the agent API, MINOR for additions the
 /// agent relies on, PATCH for fixes. Must stay in step with the Worker's.
@@ -85,13 +84,13 @@ impl CloudAgent {
                 .context("building http client")?,
             base,
             token,
-            core: AgentCore::new(jobs, None),
+            core: AgentCore::new(jobs),
         })
     }
 
     /// Share the library snapshot and take playlist (library) jobs too.
-    pub fn with_library(mut self, lib: Option<Arc<RekordboxLibrary>>) -> Self {
-        self.core = self.core.with_library(lib);
+    pub fn with_library(mut self, libraries: Libraries) -> Self {
+        self.core = self.core.with_library(libraries);
         self
     }
 
@@ -215,7 +214,7 @@ pub async fn run(
     cfg: CloudCfg,
     token: String,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let mut agent = CloudAgent::new(&cfg.base_url, token, jobs)?.with_library(library);
@@ -265,6 +264,7 @@ pub async fn run(
 mod tests {
     use super::*;
     use crate::config::DownloadCfg;
+    use crate::dj_library::DjLibrary;
     use crate::downloader::Fetcher;
     use crate::MediaRef;
     use axum::extract::{Path as AxPath, State};
@@ -435,7 +435,7 @@ mod tests {
     }
 
     /// rbdb.py stand-in: a fixed snapshot, and `apply` that changes the db.
-    fn fake_library(dir: &Path, track: &Path) -> Arc<RekordboxLibrary> {
+    fn fake_library(dir: &Path, track: &Path) -> Arc<DjLibrary> {
         let db = dir.join("master.db");
         std::fs::write(&db, "library\n").unwrap();
         let script = dir.join("rbdb.sh");
@@ -456,7 +456,7 @@ mod tests {
             db_path: db,
             ..Default::default()
         };
-        Arc::new(RekordboxLibrary::with_parts(
+        Arc::new(crate::rekordbox_db::library_with_parts(
             cfg,
             dir.join("state"),
             crate::rekordbox_db::Helper {
@@ -497,10 +497,11 @@ mod tests {
         let fetcher = CopyFixture {
             gate: Arc::new(tokio::sync::Semaphore::new(9)),
         };
-        let (jobs, _) = JobQueue::start_with(cfg.clone(), fetcher, Some(lib.clone())).unwrap();
+        let (jobs, _) =
+            JobQueue::start_with(cfg.clone(), fetcher, Libraries::single(lib.clone())).unwrap();
         let mut agent = CloudAgent::new(&base, "agent-token".into(), jobs)
             .unwrap()
-            .with_library(Some(lib.clone()));
+            .with_library(Libraries::single(lib.clone()));
 
         // First tick: snapshot built, shared (without paths), job claimed.
         assert_eq!(agent.tick().await.unwrap().as_deref(), Some("11b000000001"));

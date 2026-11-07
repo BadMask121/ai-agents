@@ -6,7 +6,7 @@
 //! - `POST /api/downloads`       — iOS Shortcut fallback (Bearer `SHORTCUT_API_KEY`)
 //! - `GET  /api/downloads/{id}`  — job status for the Shortcut
 //! - `GET  /local/status`        — for the menu bar app on this Mac only
-//! - `POST /local/rekordbox/{apply,restore,retry,dismiss}` — library actions from the app
+//! - `POST /local/{rekordbox,serato}/{apply,restore,retry,dismiss,baseline}` — library actions from the app
 //! - `POST /local/links/{id}/install` — build, sign and upload the iPhone
 //!   Shortcut for a shortcut link; returns the install page for the QR code
 //! - `GET|POST /local/links`, `POST /local/links/{id}/rotate`,
@@ -36,10 +36,10 @@ use tracing::info;
 
 use crate::cloud_v2::{CloudError, CloudSession};
 use crate::config::{CloudCfg, Config, DownloadCfg};
+use crate::dj_library::{DjLibrary, Libraries};
 use crate::jobs::JobQueue;
 use crate::mcp::{self, McpContext, SUPPORTED_VERSIONS};
 use crate::parser::extract_media_ref;
-use crate::rekordbox_db::RekordboxLibrary;
 use crate::toolbox::Toolbox;
 use crate::xml_versions::Versions;
 
@@ -60,7 +60,7 @@ pub struct AppState {
     public_base_url: Option<String>,
     /// Set by `router`; only reported to the menu bar app on this Mac.
     mcp_secret: Arc<str>,
-    library: Option<Arc<RekordboxLibrary>>,
+    libraries: Libraries,
     /// This Mac's cloud v2 identity, for `/local/links`.
     session: Option<Arc<CloudSession>>,
     toolbox: Option<Arc<Toolbox>>,
@@ -84,7 +84,7 @@ impl AppState {
             mcp_bind: cfg.mcp.bind,
             public_base_url: cfg.mcp.public_base_url.clone(),
             mcp_secret: Arc::from(""),
-            library: None,
+            libraries: Libraries::default(),
             session: None,
             toolbox: None,
         }
@@ -100,8 +100,8 @@ impl AppState {
         self
     }
 
-    pub fn with_library(mut self, library: Option<Arc<RekordboxLibrary>>) -> Self {
-        self.library = library;
+    pub fn with_libraries(mut self, libraries: Libraries) -> Self {
+        self.libraries = libraries;
         self
     }
 
@@ -118,17 +118,17 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
     let mut app = Router::new()
         .route("/health", get(health))
         .route("/local/status", get(local_status))
-        .route("/local/rekordbox/apply", post(local_apply))
-        .route("/local/rekordbox/restore", post(local_restore))
-        .route("/local/rekordbox/retry", post(local_retry))
-        .route("/local/rekordbox/baseline", post(local_baseline))
+        .route("/local/{app}/apply", post(local_apply))
+        .route("/local/{app}/restore", post(local_restore))
+        .route("/local/{app}/retry", post(local_retry))
+        .route("/local/{app}/baseline", post(local_baseline))
+        .route("/local/{app}/dismiss", post(local_dismiss))
         .route("/local/toolbox", get(local_toolbox))
         .route("/local/toolbox/install", post(local_toolbox_install))
         .route("/local/links", get(local_links).post(local_create_link))
         .route("/local/links/{id}/rotate", post(local_rotate_link))
         .route("/local/links/{id}/install", post(local_install_shortcut))
-        .route("/local/links/{id}", delete(local_delete_link))
-        .route("/local/rekordbox/dismiss", post(local_dismiss));
+        .route("/local/links/{id}", delete(local_delete_link));
     if !secret.is_empty() {
         app = app.route(
             &format!("/{secret}/mcp"),
@@ -158,7 +158,7 @@ pub fn router(mut state: AppState, secret: &str) -> Router {
 pub async fn serve(
     cfg: Config,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    libraries: Libraries,
     session: Option<Arc<CloudSession>>,
     toolbox: Option<Arc<Toolbox>>,
     mut shutdown: watch::Receiver<bool>,
@@ -187,7 +187,7 @@ pub async fn serve(
     }
     let mut state = AppState::new(jobs, &cfg)
         .with_api_key(api_key)
-        .with_library(library)
+        .with_libraries(libraries)
         .with_session(session)
         .with_toolbox(toolbox);
     state.mcp_bind = addr;
@@ -289,18 +289,24 @@ async fn local_status(State(state): State<AppState>, headers: HeaderMap) -> Resp
             },
             "connected": state.session.as_ref().is_some_and(|s| s.is_connected()),
         },
-        "rekordbox_db": state.library.as_ref().map(|lib| lib.status()),
+        "rekordbox_db": state.libraries.rekordbox().map(|lib| lib.status()),
+        "serato_db": state.libraries.serato().map(|lib| lib.status()),
+        "dj_apps": state.libraries.active().iter().map(|lib| lib.app()).collect::<Vec<_>>(),
         "recent_jobs": recent,
     }))
     .into_response()
 }
 
-/// Apply queued library changes now (only does anything if Rekordbox is closed).
-async fn local_apply(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// Apply queued library changes now (only does anything if the app is closed).
+async fn local_apply(
+    State(state): State<AppState>,
+    Path(app): Path<String>,
+    headers: HeaderMap,
+) -> Response {
     if !local_only(&headers, true) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(lib) = state.library.clone() else {
+    let Some(lib) = state.libraries.by_key(&app) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     match tokio::task::spawn_blocking(move || lib.apply_pending()).await {
@@ -311,24 +317,33 @@ async fn local_apply(State(state): State<AppState>, headers: HeaderMap) -> Respo
 }
 
 /// Requeue changes that were set aside after failing.
-async fn local_retry(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    library_call(state, headers, |lib| lib.retry_failed()).await
+async fn local_retry(
+    State(state): State<AppState>,
+    Path(app): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    library_call(state, app, headers, |lib| lib.retry_failed()).await
 }
 
 /// Forget changes that were set aside after failing.
-async fn local_dismiss(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    library_call(state, headers, |lib| lib.dismiss_failed()).await
+async fn local_dismiss(
+    State(state): State<AppState>,
+    Path(app): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    library_call(state, app, headers, |lib| lib.dismiss_failed()).await
 }
 
 async fn library_call(
     state: AppState,
+    app: String,
     headers: HeaderMap,
-    f: impl FnOnce(&RekordboxLibrary) -> anyhow::Result<usize> + Send + 'static,
+    f: impl FnOnce(&DjLibrary) -> anyhow::Result<usize> + Send + 'static,
 ) -> Response {
     if !local_only(&headers, true) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(lib) = state.library.clone() else {
+    let Some(lib) = state.libraries.by_key(&app) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     match tokio::task::spawn_blocking(move || f(&lib)).await {
@@ -343,16 +358,17 @@ struct RestoreRequest {
     version: String,
 }
 
-/// Put a backup of Rekordbox's library back (Rekordbox must be closed).
+/// Put a backup of a DJ app's library back (the app must be closed).
 async fn local_restore(
     State(state): State<AppState>,
+    Path(app): Path<String>,
     headers: HeaderMap,
     Json(req): Json<RestoreRequest>,
 ) -> Response {
     if !local_only(&headers, true) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(lib) = state.library.clone() else {
+    let Some(lib) = state.libraries.by_key(&app) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     match tokio::task::spawn_blocking(move || lib.restore(&req.version)).await {
@@ -363,11 +379,15 @@ async fn local_restore(
 }
 
 /// Take the "before DJ Sync" backup now (onboarding).
-async fn local_baseline(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn local_baseline(
+    State(state): State<AppState>,
+    Path(app): Path<String>,
+    headers: HeaderMap,
+) -> Response {
     if !local_only(&headers, true) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(lib) = state.library.clone() else {
+    let Some(lib) = state.libraries.by_key(&app) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     match tokio::task::spawn_blocking(move || lib.ensure_baseline()).await {
