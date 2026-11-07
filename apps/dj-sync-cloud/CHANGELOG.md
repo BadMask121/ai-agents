@@ -13,6 +13,21 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.6.0] — 2026-11-07 · Serato
+
+### Changed
+- **Nothing talks about Rekordbox as if it were the only app.** Tool titles and descriptions, assistant instructions, job messages, Telegram replies and the Shortcut's answers say "your library", because a DJ's Mac can now be using Serato. The snapshot, job and op shapes are unchanged, so the agent protocol stays as it was.
+- **`download_to_rekordbox` is now `download_tracks`.** The old name isn't listed any more but still works, because connectors can cache a tool list.
+
+### Added
+- **One library snapshot per DJ app.** A Mac reports its default and which apps are on, and uploads a snapshot for each. Reads use the default unless a request names the other, so playlist names and track ids always resolve in the right app.
+- **An `app` option on the tools.** Downloads take `rekordbox`, `serato` or `both`; everything else takes one app. Left out, a request goes to the default. Replies name the app on a Mac with two on.
+- **Telegram reads the app from the message** ("<link> Friday to serato", "to both"). A mention it can't read plainly goes to the assistant instead of a guess, so nothing lands in the wrong app by accident.
+- **Asking for an app that's off says how to turn it on,** and a Mac too old to honour the choice is refused rather than left to use its default.
+
+### Agent protocol 2.1.0
+Additive: `apps` and `library_hashes` on `hello`, `libraries_wanted` on `welcome`, an `app` on `library_hash`, `library_wanted`, the library upload and jobs, and an `apps` frame when the DJ changes them. Macs on 2.0.0 keep working, with no way to name an app.
+
 ## [1.5.0] — 2026-10-28 · uninstall forgets the DJ
 
 ### Added

@@ -253,6 +253,38 @@ struct LibraryTests {
     #expect(lib.backups.last?.date != nil)
   }
 
+  @Test func `a service older than Serato support still reads as Rekordbox`() throws {
+    let s = try ServiceStatus.decode(Data(Self.json.utf8))
+    let lib = try #require(s.rekordboxDb)
+    #expect(lib.appName == "Rekordbox")
+    #expect(lib.key == "rekordbox")
+    #expect(lib.isAppRunning == false)
+    #expect(s.seratoDb == nil)
+    #expect(s.activeLibraries.map(\.appName) == ["Rekordbox"])
+  }
+
+  private func withLibraries(apps: String) -> String {
+    let library = { (app: String, running: Bool) in
+      #"{"app":"\#(app)","db_path":"/x","app_running":\#(running),"rekordbox_running":\#(running),"pending":[],"failed":[],"backups":[]}"#
+    }
+    let body = """
+      "rekordbox_db":\(library("Rekordbox", false)),"serato_db":\(library("Serato", true)),"dj_apps":\(apps)}
+      """
+    let cut = Self.json.range(of: #""rekordbox_db":"#)!.lowerBound
+    return String(Self.json[..<cut]) + body
+  }
+
+  @Test func `a Mac with both apps reads each library and which are in use`() throws {
+    let s = try ServiceStatus.decode(Data(withLibraries(apps: #"["Serato"]"#).utf8))
+    #expect(s.libraries.map(\.appName) == ["Rekordbox", "Serato"])
+    #expect(s.activeLibraries.map(\.key) == ["serato"])
+    #expect(s.seratoDb?.isAppRunning == true)
+
+    let both = try ServiceStatus.decode(Data(withLibraries(apps: #"["Rekordbox","Serato"]"#).utf8))
+    #expect(both.activeLibraries.first?.appName == "Rekordbox")
+    #expect(both.activeLibraries.count == 2)
+  }
+
   @Test func `library updates are noticed once, not on launch`() {
     var w = LibraryWatcher()
     let a = ServiceStatus.Library.Applied(at: "t1", version: "1.1.0", summary: "x")

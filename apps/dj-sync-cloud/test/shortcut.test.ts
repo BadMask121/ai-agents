@@ -103,18 +103,18 @@ describe("iPhone Shortcut REST", () => {
       playlist_id: "p1",
     });
     expect(job.message).toBe(
-      "Sent 2 links to “Gqom” — it'll be in Rekordbox in a few minutes. Your Mac is offline (last seen never); it will download when it's back online.",
+      "Sent 2 links to “Gqom” — it'll be in your library in a few minutes. Your Mac is offline (last seen never); it will download when it's back online.",
     );
     // The same share again is the same job.
     const again = (await (await post(c, { text: shared, playlist_name: "GQOM/Gqom" }, token)).json()) as Any;
     expect(again).toMatchObject({ job_id: job.job_id, deduplicated: true });
-    expect(again.message).toMatch(/^Already sent to “Gqom” — it'll be in Rekordbox in a few minutes\./u);
+    expect(again.message).toMatch(/^Already sent to “Gqom” — it'll be in your library in a few minutes\./u);
 
     // Online, the default playlist: no offline note.
     const ws = await c.connect(t);
     await c.hello(t, ws);
     const def = (await (await post(c, { text: `${YT(8)}`, playlist_name: "DJ Sync Downloads" }, token)).json()) as Any;
-    expect(def.message).toBe("Sent 1 link to “DJ Sync Downloads” — it'll be in Rekordbox in a few minutes.");
+    expect(def.message).toBe("Sent 1 link to “DJ Sync Downloads” — it'll be in your library in a few minutes.");
   });
 
   it("says what went wrong in `message`, for the notification", async () => {
@@ -133,7 +133,7 @@ describe("iPhone Shortcut REST", () => {
     expect(await fail(await post(c, { text: `${YT(1)} ${YT(2)} ${YT(3)} ${YT(4)}` }, token), 400)).toBe(
       "That's 4 links — send at most 3 at a time.",
     );
-    expect(await fail(await post(c, { url: YT(1), playlist_id: "gone" }, token), 400)).toContain("isn't in your Rekordbox library any more");
+    expect(await fail(await post(c, { url: YT(1), playlist_id: "gone" }, token), 400)).toContain("isn't in your library any more");
     expect(await fail(await c.call(req("POST", "/api/downloads", "{nope", { authorization: `Bearer ${token}` })), 400)).toContain(
       "couldn't read that request",
     );

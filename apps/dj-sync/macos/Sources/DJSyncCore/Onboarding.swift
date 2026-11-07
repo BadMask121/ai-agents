@@ -3,7 +3,7 @@ import Foundation
 /// The three onboarding steps (spec §1).
 public enum OnboardingStep: Int, CaseIterable, Comparable, Sendable {
   case tools
-  case rekordbox
+  case djApp
   case assistant
 
   public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
@@ -11,7 +11,7 @@ public enum OnboardingStep: Int, CaseIterable, Comparable, Sendable {
   public var title: String {
     switch self {
     case .tools: "Install the tools"
-    case .rekordbox: "Find Rekordbox"
+    case .djApp: "Find your DJ app"
     case .assistant: "Connect your assistant"
     }
   }
@@ -31,7 +31,31 @@ public enum Onboarding {
   }
 }
 
-/// Rekordbox as installed on this Mac (for the onboarding's Rekordbox step).
+/// Serato as installed on this Mac (for the onboarding's DJ app step).
+public struct SeratoInstall: Equatable, Sendable {
+  /// The only major version DJ Sync writes to; dj-sync refuses the others.
+  public static let supportedMajor = 5
+
+  public var name: String
+  public var version: String?
+
+  public var isSupported: Bool {
+    version?.split(separator: ".").first.flatMap { Int($0) } == Self.supportedMajor
+  }
+
+  /// Pro if it's here, else Lite: the same order dj-sync checks them in.
+  public static func detect(in applications: URL = URL(filePath: "/Applications")) -> SeratoInstall? {
+    for name in ["Serato DJ Pro", "Serato DJ Lite"] {
+      let app = applications.appending(path: "\(name).app")
+      guard FileManager.default.fileExists(atPath: app.path(percentEncoded: false)) else { continue }
+      let info = NSDictionary(contentsOf: app.appending(path: "Contents/Info.plist"))
+      return SeratoInstall(name: name, version: info?["CFBundleShortVersionString"] as? String)
+    }
+    return nil
+  }
+}
+
+/// Rekordbox as installed on this Mac (for the onboarding's DJ app step).
 public struct RekordboxInstall: Equatable, Sendable {
   public var name: String
   public var version: String?

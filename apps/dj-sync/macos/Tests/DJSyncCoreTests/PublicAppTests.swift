@@ -253,7 +253,7 @@ private func tempDir() throws -> URL {
     #expect(!Onboarding.shouldShow(onboarded: false, status: nil, links: [used]))
     let unused = AssistantLink(id: "b", kind: "claude")
     #expect(Onboarding.shouldShow(onboarded: false, status: nil, links: [unused]))
-    #expect(OnboardingStep.tools.next == .rekordbox)
+    #expect(OnboardingStep.tools.next == .djApp)
     #expect(OnboardingStep.assistant.next == nil)
   }
 
@@ -266,6 +266,41 @@ private func tempDir() throws -> URL {
     }
     #expect(RekordboxInstall.detect(in: apps) == RekordboxInstall(name: "Rekordbox 7", version: "7.2.11"))
     #expect(RekordboxInstall.detect(in: try tempDir()) == nil)
+  }
+
+  private func install(_ name: String, version: String, in apps: URL) throws {
+    let app = apps.appending(path: "\(name).app/Contents")
+    try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+    try (["CFBundleShortVersionString": version] as NSDictionary).write(to: app.appending(path: "Info.plist"))
+  }
+
+  @Test func findsSeratoProBeforeLite() throws {
+    let apps = try tempDir()
+    try install("Serato DJ Lite", version: "3.1.4", in: apps)
+    #expect(SeratoInstall.detect(in: apps)?.name == "Serato DJ Lite")
+    #expect(SeratoInstall.detect(in: apps)?.isSupported == false)
+    try install("Serato DJ Pro", version: "5.0.0", in: apps)
+    #expect(SeratoInstall.detect(in: apps) == SeratoInstall(name: "Serato DJ Pro", version: "5.0.0"))
+    #expect(SeratoInstall.detect(in: apps)?.isSupported == true)
+    #expect(SeratoInstall.detect(in: try tempDir()) == nil)
+  }
+
+  @Test func onlySeratoFiveCountsAsSupported() {
+    let supported = { (v: String?) in SeratoInstall(name: "Serato DJ Pro", version: v).isSupported }
+    #expect(supported("5.0.0") && supported("5.2.1"))
+    #expect(!supported("4.0.9") && !supported("3.2.1") && !supported("6.0.0") && !supported(nil))
+  }
+
+  @Test func theDjAppChoiceIsRememberedBesideOtherSettings() throws {
+    let file = SettingsFile(url: try tempDir().appending(path: "settings.json"))
+    #expect(file.defaultApp() == nil)
+    #expect(file.secondApp() == false, "the second app stays off until it's asked for")
+    try file.setDownloadDir("/Users/dj/Music/DJ")
+    try file.setDefaultApp("serato")
+    try file.setSecondApp(true)
+    #expect(file.defaultApp() == "serato")
+    #expect(file.secondApp())
+    #expect(file.downloadDir() == "/Users/dj/Music/DJ")
   }
 
   @Test func settingsRememberOnboardingAndKeepOtherKeys() throws {

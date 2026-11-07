@@ -146,7 +146,7 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
         return apiError(
           400,
           "no playlist has that playlist_id; get one from GET /api/playlists",
-          "That playlist isn't in your Rekordbox library any more — pick another one.",
+          "That playlist isn't in your library any more — pick another one.",
         );
       }
       playlistName = p.name;
@@ -168,9 +168,9 @@ export async function apiSubmit(req: Request, deps: Deps): Promise<Response> {
   const links = plural(job.urls.length, "link");
   const message =
     deduplicated && job.state === "done"
-      ? `Already in Rekordbox, in “${job.playlist}”.`
+      ? `Already in your library, in “${job.playlist}”.`
       : (deduplicated ? `Already sent to “${job.playlist}”` : `Sent ${links} to “${job.playlist}”`) +
-        " — it'll be in Rekordbox in a few minutes." +
+        " — it'll be in your library in a few minutes." +
         (agent.online ? "" : offlineNote(agent, deps.now()));
   return json(
     { ...jobView(job), playlist_id: job.playlist_id ?? null, message, position, deduplicated, rejected, mac_online: agent.online },

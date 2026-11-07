@@ -26,6 +26,8 @@ pub struct Config {
     #[serde(default)]
     pub rekordbox_db: RekordboxDbCfg,
     #[serde(default)]
+    pub serato: SeratoCfg,
+    #[serde(default)]
     pub toolbox: ToolboxCfg,
 }
 
@@ -76,6 +78,48 @@ impl Default for RekordboxDbCfg {
             python: home.join(".dj-sync/pyenv/bin/python"),
             uv_bin: tools().bin("uv", "uv"),
             pyrekordbox_version: "0.5.0".to_string(),
+            keep_backups: 12,
+            check_secs: 3,
+        }
+    }
+}
+
+/// Write downloads and playlist edits into Serato's library. Same rules as
+/// Rekordbox: applied only while Serato is closed, with semver backups around
+/// each write (see `serato.rs`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SeratoCfg {
+    pub enabled: bool,
+    /// The `_Serato_` folder.
+    pub root: PathBuf,
+    /// Serato's own SQLite library, read for the safety checks, never written.
+    pub library_dir: PathBuf,
+    /// External drives with their own `_Serato_` folder are read from here.
+    pub volumes_dir: PathBuf,
+    /// Checked in order for the installed version.
+    pub app_paths: Vec<PathBuf>,
+    pub sqlite3_bin: PathBuf,
+    pub keep_backups: usize,
+    /// How often to check whether Serato has closed.
+    pub check_secs: u64,
+}
+
+impl Default for SeratoCfg {
+    fn default() -> Self {
+        let home = dirs::home_dir().unwrap_or_default();
+        let root = home.join("Music/_Serato_");
+        Self {
+            // On whenever Serato has a library on this Mac.
+            enabled: root.join("database V2").is_file(),
+            root,
+            library_dir: home.join("Library/Application Support/Serato/Library"),
+            volumes_dir: PathBuf::from("/Volumes"),
+            app_paths: vec![
+                PathBuf::from("/Applications/Serato DJ Pro.app"),
+                PathBuf::from("/Applications/Serato DJ Lite.app"),
+            ],
+            sqlite3_bin: PathBuf::from("/usr/bin/sqlite3"),
             keep_backups: 12,
             check_secs: 3,
         }
@@ -298,6 +342,8 @@ impl Config {
             &mut cfg.rekordbox_db.db_path,
             &mut cfg.rekordbox_db.python,
             &mut cfg.rekordbox_db.uv_bin,
+            &mut cfg.serato.root,
+            &mut cfg.serato.library_dir,
         ] {
             *p = expand_tilde(p);
         }

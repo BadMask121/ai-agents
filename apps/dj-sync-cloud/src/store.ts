@@ -4,12 +4,25 @@
 
 export type JobState = "queued" | "running" | "done" | "failed";
 export type JobSource = "mcp" | "shortcut";
-/** `download`: links for spotdl/yt-dlp. `library`: playlist ops for Rekordbox. */
+/** The DJ apps DJ Sync can write to. */
+export const DJ_APPS = ["rekordbox", "serato"] as const;
+export type DjApp = (typeof DJ_APPS)[number];
+/** Where a request should go. Downloads may name both; library changes can't. */
+export type AppChoice = DjApp | "both";
+
+/** What a Mac reports: where unnamed requests go, and every app that's on. */
+export interface DjApps {
+  default: DjApp;
+  /** Includes `default`. */
+  enabled: DjApp[];
+}
+
+/** `download`: links for spotdl/yt-dlp. `library`: playlist ops for the DJ's library. */
 export type JobKind = "download" | "library";
 
 /** One playlist operation, exactly as the Mac's rbdb.py consumes it. */
 /**
- * rbdb.py ops. `playlist_id` (Rekordbox's id, from the snapshot) pins the
+ * rbdb.py ops. `playlist_id` (the library's id, from the snapshot) pins the
  * exact playlist when names are ambiguous; older Macs ignore it and match by
  * name.
  */
@@ -20,7 +33,7 @@ export type LibraryOp =
   | { op: "rename_playlist"; name: string; new_name: string; playlist_id?: string }
   | { op: "delete_playlist"; name: string; playlist_id?: string };
 
-/** A track in the Mac's Rekordbox library snapshot. */
+/** A track in the Mac's library snapshot. */
 export interface LibTrack {
   id: string;
   title: string;
@@ -62,7 +75,7 @@ export interface JobResult {
   tracks: JobTrack[];
   errors: JobError[];
   xml_version: string | null;
-  /** Rekordbox library (master.db) version after a library job. */
+  /** DJ library version after a library job. */
   library_version?: string | null;
 }
 
@@ -85,8 +98,10 @@ export interface JobRow {
   ops: LibraryOp[] | null;
   /** Library jobs only: "Add 3 tracks to “Friday”". */
   summary: string | null;
-  /** Download jobs into an existing Rekordbox playlist: its id. */
+  /** Download jobs into an existing playlist: its id. */
   playlist_id?: string | null;
+  /** The app this was asked for by name. `null` means the Mac's default. */
+  app?: AppChoice | null;
 }
 
 /** What every agent call records. */
@@ -120,15 +135,18 @@ export interface Store {
    */
   claimNext(now: string, leaseUntil: string, includeLibrary: boolean): Promise<JobRow | null>;
   finishJob(id: string, state: "done" | "failed", message: string, result: JobResult, finishedAt: string): Promise<void>;
-  getAgent(): Promise<AgentRow | null>;
+  /** Library fields are the given app's, or the default app's. */
+  getAgent(app?: DjApp): Promise<AgentRow | null>;
   /** Record a call from the Mac; leaves the library fields alone. */
   touchAgent(seen: AgentSeen): Promise<void>;
-  setLibraryMeta(meta: LibraryMeta): Promise<void>;
-  /** Replace the library snapshot (KV in production). */
-  putLibrary(playlists: LibPlaylist[], tracks: LibTrack[]): Promise<void>;
-  /** `null` until the Mac has uploaded a snapshot. */
-  getLibraryPlaylists(): Promise<LibPlaylist[] | null>;
-  getLibraryTracks(): Promise<LibTrack[] | null>;
+  setLibraryMeta(meta: LibraryMeta, app?: DjApp): Promise<void>;
+  /** Replace one library snapshot (KV in production). */
+  putLibrary(playlists: LibPlaylist[], tracks: LibTrack[], app?: DjApp): Promise<void>;
+  /** `null` until the Mac has uploaded a snapshot. Without `app`, the default app's. */
+  getLibraryPlaylists(app?: DjApp): Promise<LibPlaylist[] | null>;
+  getLibraryTracks(app?: DjApp): Promise<LibTrack[] | null>;
+  /** `null` for a Mac too old to report its apps: it can't honour an app choice. */
+  getDjApps(): Promise<DjApps | null>;
   /** Delete done/failed jobs finished before `before`; returns how many. */
   purgeFinishedBefore(before: string): Promise<number>;
 }
@@ -138,13 +156,15 @@ const isActive = (j: JobRow) => j.state === "queued" || j.state === "running";
 /** Status messages while a claimed job runs on the Mac. */
 export const CLAIMED_MESSAGE: Record<JobKind, string> = {
   download: "Downloading on your Mac…",
-  library: "Updating Rekordbox on your Mac…",
+  library: "Updating your library on your Mac…",
 };
 
 export class MemoryStore implements Store {
   private jobs: JobRow[] = []; // insertion order doubles as the tiebreak (rowid in D1)
   private agent: AgentRow | null = null;
-  private library: { playlists: LibPlaylist[]; tracks: LibTrack[] } | null = null;
+  private libraries = new Map<string, { playlists: LibPlaylist[]; tracks: LibTrack[] }>();
+  private metas = new Map<string, LibraryMeta>();
+  private apps: DjApps | null = null;
 
   async findActiveByDedupe(key: string) {
     return clone(this.jobs.find((j) => isActive(j) && j.dedupe_key === key) ?? null);
@@ -206,28 +226,42 @@ export class MemoryStore implements Store {
     j.lease_until = null;
   }
 
-  async getAgent() {
-    return clone(this.agent);
+  async getAgent(app?: DjApp) {
+    const meta = this.metas.get(this.slot(app));
+    return clone(this.agent && meta ? { ...this.agent, ...meta } : this.agent);
+  }
+
+  private slot(app?: DjApp): string {
+    return app ?? this.apps?.default ?? "";
+  }
+
+  async getDjApps() {
+    return clone(this.apps);
+  }
+
+  setDjApps(apps: DjApps | null) {
+    this.apps = clone(apps);
   }
 
   async touchAgent(seen: AgentSeen) {
     this.agent = { library_hash: null, library_generated_at: null, library_version: null, ...this.agent, ...clone(seen) };
   }
 
-  async setLibraryMeta(meta: LibraryMeta) {
+  async setLibraryMeta(meta: LibraryMeta, app?: DjApp) {
+    this.metas.set(app ?? "", clone(meta));
     this.agent = { last_seen: null, version: null, protocol: null, ...this.agent, ...clone(meta) };
   }
 
-  async putLibrary(playlists: LibPlaylist[], tracks: LibTrack[]) {
-    this.library = clone({ playlists, tracks });
+  async putLibrary(playlists: LibPlaylist[], tracks: LibTrack[], app?: DjApp) {
+    this.libraries.set(app ?? "", clone({ playlists, tracks }));
   }
 
-  async getLibraryPlaylists() {
-    return clone(this.library?.playlists ?? null);
+  async getLibraryPlaylists(app?: DjApp) {
+    return clone(this.libraries.get(this.slot(app))?.playlists ?? null);
   }
 
-  async getLibraryTracks() {
-    return clone(this.library?.tracks ?? null);
+  async getLibraryTracks(app?: DjApp) {
+    return clone(this.libraries.get(this.slot(app))?.tracks ?? null);
   }
 
   async purgeFinishedBefore(before: string) {

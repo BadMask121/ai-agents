@@ -63,7 +63,7 @@ describe("“download this playlist” in Telegram", () => {
 
   it("works for the assistant too: no playlist named → the linked playlist's name", async () => {
     const ai = new FakeAi().script(
-      { calls: [{ name: "download_to_rekordbox", args: { urls: [SHARED] } }] },
+      { calls: [{ name: "download_tracks", args: { urls: [SHARED] } }] },
       (inputs) => ({ text: (inputs.messages.at(-1).content as string).includes("(named after the linked playlist)") ? "On its way into October 29." : "?" }),
     );
     // Long enough to go to the assistant rather than the plain-code path.

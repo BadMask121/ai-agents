@@ -1,103 +1,25 @@
-//! Keeps Rekordbox's own library (`master.db`) in step with downloads and
-//! playlist edits, alongside the import XML (which works while Rekordbox is
-//! open; this is what makes tracks appear in the real Collection/Playlists).
-//!
-//! - Changes are queued in `~/.dj-sync/rekordbox-pending.json` and applied by
-//!   `rekordbox/rbdb.py` (pyrekordbox) — only while Rekordbox is closed,
-//!   because writing under a running Rekordbox can corrupt its library.
-//! - Every apply is bracketed by semver snapshots of master.db in
-//!   `~/.dj-sync/rekordbox-backups/` (APFS clones): before it (MAJOR when
-//!   Rekordbox itself changed the library since dj-sync last wrote) and after
-//!   it (MINOR when a playlist was created, PATCH when only tracks moved).
-//! - Any snapshot can be restored (Rekordbox closed); the current library is
-//!   snapshotted first, so a restore can itself be undone.
+//! Rekordbox's own library (`master.db`), alongside the import XML (which
+//! works while Rekordbox is open; this is what makes tracks appear in the
+//! real Collection/Playlists). Queueing, backups and restore are shared with
+//! the other DJ apps (`dj_library.rs`); what's here is how Rekordbox is
+//! written: `rekordbox/rbdb.py` (pyrekordbox), a backup is a copy of master.db.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::{anyhow, bail, Context};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::watch;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use crate::config::RekordboxDbCfg;
-use crate::xml_versions::{Bump, Version, Versions};
+use crate::dj_library::{ApplyOutcome, Backend, DjLibrary};
 
 /// The helper script, bundled into the binary and installed next to the
 /// state files (launchd can't read the repo under ~/Desktop).
 const HELPER_SOURCE: &str = include_str!("../rekordbox/rbdb.py");
-/// After this many failed attempts a batch is set aside instead of retried.
-const MAX_ATTEMPTS: u32 = 3;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Batch {
-    pub id: String,
-    pub created_at: String,
-    /// One line for people: "Add 3 tracks to “Friday”".
-    pub summary: String,
-    pub ops: Vec<Value>,
-    #[serde(default)]
-    pub attempts: u32,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct Pending {
-    batches: Vec<Batch>,
-    #[serde(default)]
-    failed: Vec<FailedBatch>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FailedBatch {
-    pub batch: Batch,
-    pub error: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackupInfo {
-    pub version: String,
-    pub created_at: String,
-    pub reason: String,
-    pub size_bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Applied {
-    pub at: String,
-    pub version: Option<String>,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LibraryStatus {
-    pub db_path: PathBuf,
-    pub rekordbox_running: bool,
-    pub pending: Vec<PendingInfo>,
-    pub failed: Vec<FailedInfo>,
-    pub last_applied: Option<Applied>,
-    pub last_error: Option<String>,
-    pub current_version: Option<String>,
-    /// Newest first.
-    pub backups: Vec<BackupInfo>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PendingInfo {
-    pub id: String,
-    pub created_at: String,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FailedInfo {
-    pub id: String,
-    pub summary: String,
-    pub error: String,
-}
 
 /// How to run `rbdb.py`. Tests swap in a fake.
 #[derive(Debug, Clone)]
@@ -107,441 +29,126 @@ pub struct Helper {
 }
 
 type RunningCheck = Arc<dyn Fn() -> bool + Send + Sync>;
-/// dj-sync's download folders (read fresh: the menu bar app can change them).
-type OwnDirs = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
 
 /// Marks the one-time repair of tracks added before 1.2.1 as queued.
 const REPAIR_MARKER: &str = "rekordbox-repair-content-link";
 
-pub struct RekordboxLibrary {
+/// The real thing: helper in `~/.dj-sync`, run by the managed venv's python,
+/// Rekordbox detected with `pgrep`.
+pub fn library(cfg: RekordboxDbCfg, state_dir: PathBuf) -> DjLibrary {
+    let helper = Helper {
+        program: cfg.python.clone(),
+        prefix_args: vec!["-I".into(), state_dir.join("rbdb.py").into()],
+    };
+    library_with_parts(cfg, state_dir, helper, Arc::new(rekordbox_is_running))
+}
+
+pub fn library_with_parts(
     cfg: RekordboxDbCfg,
     state_dir: PathBuf,
     helper: Helper,
     running: RunningCheck,
-    own_dirs: OwnDirs,
-    /// Serialises pending-file edits, applies and restores.
-    lock: Mutex<Memory>,
+) -> DjLibrary {
+    let backend = Rekordbox {
+        cfg,
+        state_dir: state_dir.clone(),
+        helper,
+        running,
+    };
+    DjLibrary::new(Box::new(backend), state_dir)
 }
 
-#[derive(Default)]
-struct Memory {
-    last_applied: Option<Applied>,
-    last_error: Option<String>,
-    /// Batch id → library version, for batches applied since startup.
-    applied: std::collections::HashMap<String, Option<String>>,
+struct Rekordbox {
+    cfg: RekordboxDbCfg,
+    state_dir: PathBuf,
+    helper: Helper,
+    running: RunningCheck,
 }
 
-/// Where one queued batch stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BatchOutcome {
-    Pending,
-    Applied {
-        version: Option<String>,
-    },
-    Failed {
-        error: String,
-    },
-    /// Not known to this process (e.g. queued before a restart and applied).
-    Unknown,
-}
-
-impl RekordboxLibrary {
-    /// The real thing: helper in `~/.dj-sync`, run by the managed venv's
-    /// python, Rekordbox detected with `pgrep`.
-    pub fn new(cfg: RekordboxDbCfg, state_dir: PathBuf) -> Self {
-        let helper = Helper {
-            program: cfg.python.clone(),
-            prefix_args: vec!["-I".into(), state_dir.join("rbdb.py").into()],
-        };
-        Self::with_parts(cfg, state_dir, helper, Arc::new(rekordbox_is_running))
+impl Backend for Rekordbox {
+    fn app(&self) -> &'static str {
+        "Rekordbox"
     }
 
-    pub fn with_parts(
-        cfg: RekordboxDbCfg,
-        state_dir: PathBuf,
-        helper: Helper,
-        running: RunningCheck,
-    ) -> Self {
-        Self {
-            cfg,
-            state_dir,
-            helper,
-            running,
-            own_dirs: Arc::new(Vec::new),
-            lock: Mutex::new(Memory::default()),
+    fn key(&self) -> &'static str {
+        "rekordbox"
+    }
+
+    fn backup_name(&self) -> (&'static str, &'static str) {
+        ("master", "db")
+    }
+
+    fn keep_backups(&self) -> usize {
+        self.cfg.keep_backups
+    }
+
+    fn check_secs(&self) -> u64 {
+        self.cfg.check_secs
+    }
+
+    fn running(&self) -> bool {
+        (self.running)()
+    }
+
+    fn location(&self) -> PathBuf {
+        self.cfg.db_path.clone()
+    }
+
+    fn library_file(&self) -> anyhow::Result<PathBuf> {
+        Ok(self.cfg.db_path.clone())
+    }
+
+    fn prepare(&self) -> anyhow::Result<()> {
+        self.prepare_helper()
+    }
+
+    /// Every apply first repairs the tracks in the download folders that
+    /// Rekordbox can't load (see `repair_tracks` in rbdb.py).
+    fn apply(&self, mut ops: Vec<Value>, own_dirs: &[PathBuf]) -> anyhow::Result<ApplyOutcome> {
+        if !own_dirs.is_empty() {
+            ops.insert(0, json!({"op": "repair_tracks"}));
+        }
+        self.run_helper(
+            &["apply"],
+            Some(&json!({ "ops": ops, "own_dirs": own_dirs })),
+        )
+    }
+
+    fn snapshot(&self) -> anyhow::Result<Value> {
+        match self.run_helper(&["snapshot"], None)? {
+            ApplyOutcome::Done(v) => Ok(v),
+            ApplyOutcome::AppRunning => bail!("unexpected: snapshot refused"),
         }
     }
 
-    /// Where dj-sync downloads to. Every apply repairs the tracks there that
-    /// Rekordbox can't load (see `repair_tracks` in rbdb.py).
-    pub fn with_own_dirs(
-        mut self,
-        dirs: impl Fn() -> Vec<PathBuf> + Send + Sync + 'static,
-    ) -> Self {
-        self.own_dirs = Arc::new(dirs);
-        self
+    fn change_stamp(&self) -> Option<SystemTime> {
+        std::fs::metadata(&self.cfg.db_path)
+            .and_then(|m| m.modified())
+            .ok()
     }
 
     /// Queue the repair once for libraries that already have dj-sync's tracks
     /// (added before 1.2.1, they preview but never load to a deck).
-    pub fn queue_repair_once(&self) -> anyhow::Result<()> {
-        let marker = self.state_dir.join(REPAIR_MARKER);
-        if marker.exists() {
-            return Ok(());
-        }
-        let has_tracks = (self.own_dirs)().iter().any(|d| {
+    fn startup_batch(&self, own_dirs: &[PathBuf]) -> Option<(&'static str, String, Vec<Value>)> {
+        let has_tracks = own_dirs.iter().any(|d| {
             std::fs::read_dir(d)
                 .map(|mut rd| rd.any(|e| e.map(|e| e.path().is_file()).unwrap_or(false)))
                 .unwrap_or(false)
         });
-        if has_tracks {
-            self.enqueue(
-                "Repair songs that wouldn't load to a deck".into(),
-                vec![json!({"op": "repair_tracks"})],
-            )?;
-            info!("queued the one-time repair of dj-sync's tracks in Rekordbox");
-        }
-        std::fs::create_dir_all(&self.state_dir)?;
-        std::fs::write(&marker, now())?;
-        Ok(())
-    }
-
-    fn pending_path(&self) -> PathBuf {
-        self.state_dir.join("rekordbox-pending.json")
-    }
-
-    fn versions(&self) -> Versions {
-        Versions::in_dir(&self.backups_dir(), "master", "db", self.cfg.keep_backups)
-    }
-
-    fn backups_dir(&self) -> PathBuf {
-        self.state_dir.join("rekordbox-backups")
-    }
-
-    pub fn rekordbox_running(&self) -> bool {
-        (self.running)()
-    }
-
-    // ---------- queue ----------
-
-    /// Queue a batch; returns its id (see `batch_outcome`).
-    pub fn enqueue(&self, summary: String, ops: Vec<Value>) -> anyhow::Result<String> {
-        let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
-        if ops.is_empty() {
-            return Ok(id);
-        }
-        let _guard = self.lock.lock().expect("library lock");
-        let mut pending = self.read_pending();
-        pending.batches.push(Batch {
-            id: id.clone(),
-            created_at: now(),
-            summary,
+        let ops = if has_tracks {
+            vec![json!({"op": "repair_tracks"})]
+        } else {
+            Vec::new()
+        };
+        Some((
+            REPAIR_MARKER,
+            "Repair songs that wouldn't load to a deck".into(),
             ops,
-            attempts: 0,
-        });
-        self.write_pending(&pending)?;
-        Ok(id)
+        ))
     }
+}
 
-    pub fn batch_outcome(&self, id: &str) -> BatchOutcome {
-        let memory = self.lock.lock().expect("library lock");
-        if let Some(version) = memory.applied.get(id) {
-            return BatchOutcome::Applied {
-                version: version.clone(),
-            };
-        }
-        let pending = self.read_pending();
-        if pending.batches.iter().any(|b| b.id == id) {
-            return BatchOutcome::Pending;
-        }
-        if let Some(f) = pending.failed.iter().find(|f| f.batch.id == id) {
-            return BatchOutcome::Failed {
-                error: f.error.clone(),
-            };
-        }
-        BatchOutcome::Unknown
-    }
-
-    /// Read-only snapshot of playlists and tracks (safe while Rekordbox runs).
-    pub fn snapshot(&self) -> anyhow::Result<Value> {
-        match self.run_helper(&["snapshot"], None)? {
-            HelperOutcome::Done(v) => Ok(v),
-            HelperOutcome::RekordboxRunning => bail!("unexpected: snapshot refused"),
-        }
-    }
-
-    pub fn current_version(&self) -> Option<String> {
-        self.versions().latest().map(|(v, _)| v.to_string())
-    }
-
-    pub fn db_path(&self) -> &Path {
-        &self.cfg.db_path
-    }
-
-    fn read_pending(&self) -> Pending {
-        match std::fs::read_to_string(self.pending_path()) {
-            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|e| {
-                error!(error = %e, "rekordbox-pending.json is unreadable; starting empty");
-                Pending::default()
-            }),
-            Err(_) => Pending::default(),
-        }
-    }
-
-    fn write_pending(&self, pending: &Pending) -> anyhow::Result<()> {
-        std::fs::create_dir_all(&self.state_dir)?;
-        let path = self.pending_path();
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(pending)?)?;
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
-    }
-
-    // ---------- apply ----------
-
-    /// Apply everything queued, if Rekordbox is closed. `Ok(None)` when
-    /// there was nothing to do or Rekordbox is open (changes stay queued).
-    pub fn apply_pending(&self) -> anyhow::Result<Option<Applied>> {
-        let mut memory = self.lock.lock().expect("library lock");
-        let mut pending = self.read_pending();
-        if pending.batches.is_empty() || self.rekordbox_running() {
-            return Ok(None);
-        }
-
-        let versions = self.versions();
-        let before = versions
-            .reconcile(&self.cfg.db_path)
-            .context("backing up master.db")?;
-        self.note_backup(before, "Library before dj-sync's changes");
-
-        let own_dirs = (self.own_dirs)();
-        let mut ops: Vec<Value> = Vec::new();
-        if !own_dirs.is_empty() {
-            ops.push(json!({"op": "repair_tracks"}));
-        }
-        ops.extend(pending.batches.iter().flat_map(|b| b.ops.clone()));
-        let mut summary = pending
-            .batches
-            .iter()
-            .map(|b| b.summary.as_str())
-            .collect::<Vec<_>>()
-            .join("; ");
-
-        match self.run_helper(
-            &["apply"],
-            Some(&json!({ "ops": ops, "own_dirs": own_dirs })),
-        ) {
-            Ok(HelperOutcome::Done(result)) => {
-                let repaired = repaired_in(&result);
-                if repaired > 0 {
-                    warn!(
-                        repaired,
-                        "repaired dj-sync tracks Rekordbox couldn't load to a deck"
-                    );
-                    summary.push_str(&format!(
-                        "; fixed {repaired} song(s) that wouldn't load to a deck"
-                    ));
-                }
-                let bump = bump_for(&result);
-                let version = match bump {
-                    Some(bump) => {
-                        let v = versions.record(&self.cfg.db_path, before, bump)?;
-                        self.note_backup(Some(v), &summary);
-                        Some(v)
-                    }
-                    None => before,
-                };
-                let version_str = version.map(|v| v.to_string());
-                for b in pending.batches.drain(..) {
-                    memory.applied.insert(b.id, version_str.clone());
-                }
-                self.write_pending(&pending)?;
-                let applied = Applied {
-                    at: now(),
-                    version: version.map(|v| v.to_string()),
-                    summary,
-                };
-                info!(version = ?applied.version, summary = %applied.summary, "rekordbox library updated");
-                memory.last_applied = Some(applied.clone());
-                memory.last_error = None;
-                Ok(Some(applied))
-            }
-            Ok(HelperOutcome::RekordboxRunning) => Ok(None),
-            Err(e) => {
-                let message = format!("{e:#}");
-                memory.last_error = Some(message.clone());
-                for b in &mut pending.batches {
-                    b.attempts += 1;
-                }
-                let (give_up, keep): (Vec<Batch>, Vec<Batch>) = pending
-                    .batches
-                    .drain(..)
-                    .partition(|b| b.attempts >= MAX_ATTEMPTS);
-                pending.batches = keep;
-                for batch in give_up {
-                    warn!(batch = %batch.id, error = %message, "giving up on rekordbox batch");
-                    pending.failed.push(FailedBatch {
-                        batch,
-                        error: message.clone(),
-                    });
-                }
-                self.write_pending(&pending)?;
-                Err(e)
-            }
-        }
-    }
-
-    /// Put set-aside batches back in the queue (e.g. after a fix).
-    pub fn retry_failed(&self) -> anyhow::Result<usize> {
-        let _guard = self.lock.lock().expect("library lock");
-        let mut pending = self.read_pending();
-        let n = pending.failed.len();
-        for mut f in pending.failed.drain(..) {
-            f.batch.attempts = 0;
-            pending.batches.push(f.batch);
-        }
-        self.write_pending(&pending)?;
-        Ok(n)
-    }
-
-    /// Forget set-aside batches.
-    pub fn dismiss_failed(&self) -> anyhow::Result<usize> {
-        let _guard = self.lock.lock().expect("library lock");
-        let mut pending = self.read_pending();
-        let n = pending.failed.len();
-        pending.failed.clear();
-        self.write_pending(&pending)?;
-        Ok(n)
-    }
-
-    /// Back up the library as it is now (v1.0.0 on a fresh install), before
-    /// DJ Sync ever changes it. Needs Rekordbox closed, like every write.
-    pub fn ensure_baseline(&self) -> anyhow::Result<String> {
-        let _memory = self.lock.lock().expect("library lock");
-        if self.rekordbox_running() {
-            bail!(
-                "Rekordbox is open: your library will be backed up before DJ Sync's first change."
-            );
-        }
-        anyhow::ensure!(
-            self.cfg.db_path.is_file(),
-            "no Rekordbox library at {}",
-            self.cfg.db_path.display()
-        );
-        let version = self
-            .versions()
-            .reconcile(&self.cfg.db_path)
-            .context("backing up master.db")?
-            .ok_or_else(|| anyhow!("couldn't back up master.db"))?;
-        self.note_backup(Some(version), "Your library as it was before DJ Sync");
-        Ok(version.to_string())
-    }
-
-    // ---------- restore ----------
-
-    pub fn restore(&self, version: &str) -> anyhow::Result<String> {
-        let target = Version::parse(version.trim_start_matches('v'))
-            .ok_or_else(|| anyhow!("not a version: {version}"))?;
-        let mut memory = self.lock.lock().expect("library lock");
-        if self.rekordbox_running() {
-            bail!("Quit Rekordbox first: its library can only be restored while it's closed.");
-        }
-        let versions = self.versions();
-        anyhow::ensure!(versions.path_for(target).exists(), "no backup v{target}");
-        // Keep what's there now, so the restore itself can be undone.
-        let safety = versions.reconcile(&self.cfg.db_path)?;
-        self.note_backup(safety, &format!("Before restoring v{target}"));
-        versions.restore(target, &self.cfg.db_path)?;
-        let message = format!(
-            "Restored your Rekordbox library to v{target}. The library before the restore is v{}.",
-            safety.map(|v| v.to_string()).unwrap_or_else(|| "–".into())
-        );
-        info!(%message);
-        memory.last_applied = Some(Applied {
-            at: now(),
-            version: Some(target.to_string()),
-            summary: format!("Restored v{target}"),
-        });
-        Ok(message)
-    }
-
-    // ---------- status ----------
-
-    pub fn status(&self) -> LibraryStatus {
-        let memory = self.lock.lock().expect("library lock");
-        let pending = self.read_pending();
-        let index = self.read_index();
-        let versions = self.versions();
-        let mut backups: Vec<BackupInfo> = versions
-            .list()
-            .into_iter()
-            .map(|(v, path)| {
-                let note = index.get(&v.to_string()).cloned().unwrap_or_default();
-                BackupInfo {
-                    version: v.to_string(),
-                    created_at: note.created_at,
-                    reason: note.reason,
-                    size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
-                }
-            })
-            .collect();
-        backups.reverse();
-        LibraryStatus {
-            db_path: self.cfg.db_path.clone(),
-            rekordbox_running: self.rekordbox_running(),
-            pending: pending
-                .batches
-                .iter()
-                .map(|b| PendingInfo {
-                    id: b.id.clone(),
-                    created_at: b.created_at.clone(),
-                    summary: b.summary.clone(),
-                })
-                .collect(),
-            failed: pending
-                .failed
-                .iter()
-                .map(|f| FailedInfo {
-                    id: f.batch.id.clone(),
-                    summary: f.batch.summary.clone(),
-                    error: f.error.clone(),
-                })
-                .collect(),
-            last_applied: memory.last_applied.clone(),
-            last_error: memory.last_error.clone(),
-            current_version: versions.latest().map(|(v, _)| v.to_string()),
-            backups,
-        }
-    }
-
-    // ---------- backup notes (version → when/why) ----------
-
-    fn index_path(&self) -> PathBuf {
-        self.backups_dir().join("index.json")
-    }
-
-    fn read_index(&self) -> std::collections::BTreeMap<String, Note> {
-        std::fs::read_to_string(self.index_path())
-            .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default()
-    }
-
-    fn note_backup(&self, version: Option<Version>, reason: &str) {
-        let Some(v) = version else { return };
-        let mut index = self.read_index();
-        index.entry(v.to_string()).or_insert_with(|| Note {
-            created_at: now(),
-            reason: reason.to_string(),
-        });
-        let _ = std::fs::create_dir_all(self.backups_dir());
-        if let Ok(bytes) = serde_json::to_vec_pretty(&index) {
-            let _ = std::fs::write(self.index_path(), bytes);
-        }
-    }
-
-    // ---------- helper process ----------
-
+impl Rekordbox {
     /// Install the bundled helper and, if needed, its Python environment.
     pub fn prepare_helper(&self) -> anyhow::Result<()> {
         std::fs::create_dir_all(&self.state_dir)?;
@@ -575,7 +182,7 @@ impl RekordboxLibrary {
         Ok(())
     }
 
-    fn run_helper(&self, args: &[&str], input: Option<&Value>) -> anyhow::Result<HelperOutcome> {
+    fn run_helper(&self, args: &[&str], input: Option<&Value>) -> anyhow::Result<ApplyOutcome> {
         let mut command = Command::new(&self.helper.program);
         command
             .args(&self.helper.prefix_args)
@@ -599,8 +206,8 @@ impl RekordboxLibrary {
             .rev()
             .find_map(|l| serde_json::from_str(l).ok());
         match (output.status.code(), parsed) {
-            (Some(0), Some(v)) => Ok(HelperOutcome::Done(v)),
-            (Some(3), _) => Ok(HelperOutcome::RekordboxRunning),
+            (Some(0), Some(v)) => Ok(ApplyOutcome::Done(v)),
+            (Some(3), _) => Ok(ApplyOutcome::AppRunning),
             (_, Some(v)) => bail!(
                 "{}",
                 v.get("error")
@@ -616,53 +223,6 @@ impl RekordboxLibrary {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Note {
-    created_at: String,
-    reason: String,
-}
-
-enum HelperOutcome {
-    Done(Value),
-    RekordboxRunning,
-}
-
-/// MINOR when the helper created a playlist, PATCH when it added or moved
-/// anything else, nothing when every op was already in place.
-fn bump_for(result: &Value) -> Option<Bump> {
-    let results = result.get("results")?.as_array()?;
-    let flag = |key: &str| {
-        results
-            .iter()
-            .any(|r| r.get(key).and_then(Value::as_bool) == Some(true))
-    };
-    if results
-        .iter()
-        .any(|r| r.get("playlist_id").is_some() && r.get("created") == Some(&json!(true)))
-    {
-        Some(Bump::Minor)
-    } else if flag("created")
-        || flag("added")
-        || flag("removed")
-        || flag("renamed")
-        || flag("deleted")
-        || repaired_in(result) > 0
-    {
-        Some(Bump::Patch)
-    } else {
-        None
-    }
-}
-
-/// Tracks `repair_tracks` fixed in this apply.
-fn repaired_in(result: &Value) -> u64 {
-    result
-        .get("results")
-        .and_then(Value::as_array)
-        .map(|rs| rs.iter().filter_map(|r| r.get("repaired")?.as_u64()).sum())
-        .unwrap_or(0)
-}
-
 fn run_checked(command: &mut Command) -> anyhow::Result<()> {
     let out = command.output().context("running uv")?;
     if !out.status.success() {
@@ -671,7 +231,6 @@ fn run_checked(command: &mut Command) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Is Rekordbox (the app, not its agent) running?
 pub fn rekordbox_is_running() -> bool {
     Command::new("/usr/bin/pgrep")
         .args(["-x", "rekordbox"])
@@ -679,43 +238,6 @@ pub fn rekordbox_is_running() -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-}
-
-fn now() -> String {
-    chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
-}
-
-/// Background loop: apply queued changes whenever Rekordbox is closed.
-pub async fn run(library: Arc<RekordboxLibrary>, mut shutdown: watch::Receiver<bool>) {
-    let every = Duration::from_secs(library.cfg.check_secs.max(2));
-    let prep = library.clone();
-    match tokio::task::spawn_blocking(move || prep.prepare_helper()).await {
-        Ok(Ok(())) => info!(db = %library.cfg.db_path.display(), "rekordbox library sync ready"),
-        Ok(Err(e)) => {
-            error!(error = %format!("{e:#}"), "rekordbox helper setup failed; will retry")
-        }
-        Err(e) => error!(error = %e, "rekordbox helper setup panicked"),
-    }
-    if let Err(e) = library.queue_repair_once() {
-        warn!(error = %format!("{e:#}"), "couldn't queue the rekordbox track repair");
-    }
-    loop {
-        tokio::select! {
-            _ = shutdown.wait_for(|s| *s) => return,
-            _ = tokio::time::sleep(every) => {}
-        }
-        let lib = library.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            lib.prepare_helper()?;
-            lib.apply_pending()
-        })
-        .await;
-        match result {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => warn!(error = %format!("{e:#}"), "couldn't update rekordbox library yet"),
-            Err(e) => error!(error = %e, "rekordbox apply task panicked"),
-        }
-    }
 }
 
 /// uv keeps its Pythons and cache inside the toolbox (see `toolbox.rs`).
@@ -726,6 +248,8 @@ fn uv_env() -> Vec<(&'static str, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dj_library::{bump_for, BatchOutcome, MAX_ATTEMPTS};
+    use crate::xml_versions::Bump;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     /// A stand-in for rbdb.py: appends to the "database" and answers with
@@ -750,7 +274,10 @@ mod tests {
         _tmp: tempfile::TempDir,
         db: PathBuf,
         running: Arc<AtomicBool>,
-        lib: RekordboxLibrary,
+        cfg: RekordboxDbCfg,
+        state: PathBuf,
+        helper: Helper,
+        lib: DjLibrary,
     }
 
     fn rig(result: &str, fail: bool) -> Rig {
@@ -765,16 +292,21 @@ mod tests {
         };
         let running = Arc::new(AtomicBool::new(false));
         let flag = running.clone();
-        let lib = RekordboxLibrary::with_parts(
-            cfg,
-            tmp.path().join("state"),
-            fake_helper(tmp.path(), result, fail),
+        let state = tmp.path().join("state");
+        let helper = fake_helper(tmp.path(), result, fail);
+        let lib = library_with_parts(
+            cfg.clone(),
+            state.clone(),
+            helper.clone(),
             Arc::new(move || flag.load(Ordering::SeqCst)),
         );
         Rig {
             _tmp: tmp,
             db,
             running,
+            cfg,
+            state,
+            helper,
             lib,
         }
     }
@@ -842,10 +374,10 @@ mod tests {
             .enqueue("two".into(), vec![json!({"op": "b"}), json!({"op": "c"})])
             .unwrap();
         // A second instance (dj-sync restarted) sees the same queue.
-        let again = RekordboxLibrary::with_parts(
-            r.lib.cfg.clone(),
-            r.lib.state_dir.clone(),
-            r.lib.helper.clone(),
+        let again = library_with_parts(
+            r.cfg.clone(),
+            r.state.clone(),
+            r.helper.clone(),
             Arc::new(|| false),
         );
         assert_eq!(again.status().pending.len(), 2);
@@ -984,10 +516,10 @@ mod tests {
         );
         let downloads = r._tmp.path().join("DJ_Downloads");
         let dir = downloads.clone();
-        let lib = RekordboxLibrary::with_parts(
-            r.lib.cfg.clone(),
-            r.lib.state_dir.clone(),
-            r.lib.helper.clone(),
+        let lib = library_with_parts(
+            r.cfg.clone(),
+            r.state.clone(),
+            r.helper.clone(),
             Arc::new(|| false),
         )
         .with_own_dirs(move || vec![dir.clone()]);
@@ -1020,14 +552,14 @@ mod tests {
         let r = rig(CREATED_PLAYLIST, false);
         let empty = r._tmp.path().join("empty");
         std::fs::create_dir_all(&empty).unwrap();
-        let fresh = RekordboxLibrary::with_parts(
-            r.lib.cfg.clone(),
+        let fresh = library_with_parts(
+            r.cfg.clone(),
             r._tmp.path().join("fresh-state"),
-            r.lib.helper.clone(),
+            r.helper.clone(),
             Arc::new(|| false),
         )
         .with_own_dirs(move || vec![empty.clone()]);
-        fresh.queue_repair_once().unwrap();
+        fresh.queue_startup_once().unwrap();
         assert!(
             fresh.status().pending.is_empty(),
             "nothing downloaded: nothing to repair"
@@ -1036,15 +568,15 @@ mod tests {
         let downloads = r._tmp.path().join("DJ_Downloads");
         std::fs::create_dir_all(&downloads).unwrap();
         std::fs::write(downloads.join("a.mp3"), "x").unwrap();
-        let lib = RekordboxLibrary::with_parts(
-            r.lib.cfg.clone(),
-            r.lib.state_dir.clone(),
-            r.lib.helper.clone(),
+        let lib = library_with_parts(
+            r.cfg.clone(),
+            r.state.clone(),
+            r.helper.clone(),
             Arc::new(|| false),
         )
         .with_own_dirs(move || vec![downloads.clone()]);
-        lib.queue_repair_once().unwrap();
-        lib.queue_repair_once().unwrap();
+        lib.queue_startup_once().unwrap();
+        lib.queue_startup_once().unwrap();
         let pending = lib.status().pending;
         assert_eq!(pending.len(), 1, "queued once");
         assert_eq!(

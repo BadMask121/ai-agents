@@ -38,7 +38,7 @@ export interface JevClient {
 const ACTIONS: Record<RouteAction, unknown> = {
   download: {
     what:
-      "The message has a Spotify, YouTube or SoundCloud link and only asks to get that song/album/playlist into Rekordbox, " +
+      "The message has a Spotify, YouTube or SoundCloud link and only asks to get that song/album/playlist into their DJ library, " +
       "optionally into a named playlist",
     examples: ["add this to Gqom <link>", "<link> amapiano", "put this song in my wedding playlist <link>", "<link>", "download this playlist <link>"],
   },
@@ -104,7 +104,7 @@ export function jevClient(
         playlist: {
           type: "choice",
           instructions:
-            "Which of the DJ's existing Rekordbox playlists did they name? Words after a link are a playlist name " +
+            "Which of the DJ's existing playlists did they name? Words after a link are a playlist name " +
             '("<link> gqom" names a Gqom playlist). Names can be loose (case, spacing, missing punctuation). ' +
             `Pick ${NO_PLAYLIST} only if no playlist is named.`,
           criteria: Object.fromEntries([[NO_PLAYLIST, "No playlist named"], ...[...byLabel.keys()].map((k) => [k, null])]),

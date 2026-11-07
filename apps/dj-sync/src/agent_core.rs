@@ -6,7 +6,7 @@
 //! A result stays pending until the transport says the Worker accepted it
 //! (`reported`), so a dropped connection means "send it again", never "lost".
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
+use crate::dj_library::{BatchOutcome, DjLibrary, Libraries};
 use crate::jobs::{JobError, JobKind, JobQueue, JobState, JobTrack, LibraryWork};
 use crate::parser::extract_media_ref;
-use crate::rekordbox_db::{BatchOutcome, RekordboxLibrary};
 
 /// A job handed to this Mac by the Worker (v1 poll response or v2 `job`
 /// message; unknown fields such as `type` are ignored).
@@ -38,9 +38,12 @@ pub struct ClaimedJob {
     pub ops: Vec<Value>,
     #[serde(default)]
     pub summary: Option<String>,
-    /// Download jobs: the existing Rekordbox playlist the name resolved to.
+    /// The existing playlist the name resolved to, in the app it was asked of.
     #[serde(default)]
     pub playlist_id: Option<String>,
+    /// The DJ app the request named. `None`: the default.
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
 /// A job's result as the Worker receives it.
@@ -84,18 +87,18 @@ pub struct AgentCore {
 }
 
 impl AgentCore {
-    pub fn new(jobs: JobQueue, library: Option<Arc<RekordboxLibrary>>) -> Self {
+    pub fn new(jobs: JobQueue) -> Self {
         Self {
             jobs,
             active: HashMap::new(),
             rejected: HashMap::new(),
-            library: library.map(LibrarySync::new),
+            library: None,
         }
     }
 
     /// Share the library snapshot and take playlist (library) jobs too.
-    pub fn with_library(mut self, library: Option<Arc<RekordboxLibrary>>) -> Self {
-        self.library = library.map(LibrarySync::new);
+    pub fn with_library(mut self, libraries: Libraries) -> Self {
+        self.library = (!libraries.is_empty()).then(|| LibrarySync::new(libraries));
         self
     }
 
@@ -160,7 +163,12 @@ impl AgentCore {
             )));
         }
         self.jobs
-            .submit_to(media, Some(&job.playlist), job.playlist_id.clone())
+            .submit_to(
+                media,
+                Some(&job.playlist),
+                job.playlist_id.clone(),
+                job.app.clone(),
+            )
             .map(|sub| sub.job.job_id)
             .map_err(|e| {
                 Box::new(Completion::failed(
@@ -173,15 +181,16 @@ impl AgentCore {
     fn start_library(&self, job: &ClaimedJob) -> Result<String, Box<Completion>> {
         let Some(sync) = self.library.as_ref() else {
             return Err(Box::new(Completion::failed(
-                "This Mac doesn't write to Rekordbox's library ([rekordbox_db] is off).",
+                "This Mac has no DJ library DJ Sync can write to.",
                 vec![],
             )));
         };
+        let known = sync.paths_for(job.app.as_deref());
         let paths = job
             .ops
             .iter()
             .filter_map(|op| op.get("content_id").and_then(Value::as_str))
-            .filter_map(|id| sync.paths.get(id).map(|p| (id.to_string(), p.clone())))
+            .filter_map(|id| known?.get(id).map(|p| (id.to_string(), p.clone())))
             .collect();
         let work = LibraryWork {
             summary: job
@@ -191,6 +200,7 @@ impl AgentCore {
             playlist: job.playlist.clone(),
             ops: job.ops.clone(),
             paths,
+            app: job.app.clone(),
         };
         self.jobs
             .submit_library(work)
@@ -228,25 +238,26 @@ impl AgentCore {
         if s.state.is_active() {
             return None;
         }
-        // A playlist change is done when it reaches Rekordbox's library,
-        // not when it's queued: keep the cloud job (and its lease) open.
+        // A playlist change is done when it reaches the DJ's library, not
+        // when it's queued: keep the cloud job (and its lease) open.
         if s.kind == JobKind::Library && s.state == JobState::Done {
             if let (Some(batch), Some(sync)) = (&s.library_batch, &self.library) {
-                match sync.lib.batch_outcome(batch) {
+                let (outcome, app) = sync.libraries.batch_outcome(batch);
+                match outcome {
                     BatchOutcome::Pending => return None,
                     BatchOutcome::Applied { version } => {
                         // The Worker shows the summary and version itself.
                         return Some(Completion {
                             xml_version: s.xml_version.clone(),
                             library_version: version,
-                            ..Completion::new("done", "Applied to your Rekordbox library.")
+                            ..Completion::new("done", format!("Applied to your {app} library."))
                         });
                     }
                     BatchOutcome::Failed { error } => {
                         return Some(Completion {
                             xml_version: s.xml_version.clone(),
                             ..Completion::failed(
-                                format!("Couldn't change your Rekordbox library: {error}"),
+                                format!("Couldn't change your {app} library: {error}"),
                                 vec![],
                             )
                         });
@@ -285,49 +296,118 @@ impl AgentCore {
         }
     }
 
-    /// Rebuild the library snapshot if master.db changed (at most once a minute).
+    /// Rebuild the library snapshot if the library changed (at most once a minute).
     pub async fn refresh_library(&mut self) {
         if let Some(sync) = self.library.as_mut() {
             sync.refresh().await;
         }
     }
 
+    /// The default app's snapshot hash.
     pub fn library_hash(&self) -> Option<String> {
-        self.library.as_ref().and_then(|s| s.hash.clone())
+        self.library.as_ref()?.default_snapshot()?.hash.clone()
     }
 
-    /// The snapshot as the Worker stores it, or `None` before the first build.
+    /// Every snapshot's hash, by app.
+    pub fn library_hashes(&self) -> BTreeMap<&'static str, String> {
+        let Some(sync) = self.library.as_ref() else {
+            return BTreeMap::new();
+        };
+        sync.snapshots
+            .iter()
+            .filter_map(|s| Some((s.lib.key(), s.hash.clone()?)))
+            .collect()
+    }
+
+    /// Where unnamed requests go, and which apps are on.
+    pub fn apps(&self) -> Option<Value> {
+        self.library.as_ref()?.libraries.report()
+    }
+
+    /// The default app's snapshot as the Worker stores it, or `None` before
+    /// the first build.
     pub fn library_upload(&self) -> Option<(String, Value)> {
+        self.library.as_ref()?.default_snapshot()?.upload()
+    }
+
+    /// One app's snapshot as the Worker stores it, labelled with the app.
+    pub fn library_upload_for(&self, app: &str) -> Option<(String, Value)> {
         let sync = self.library.as_ref()?;
-        let (hash, body) = (sync.hash.as_ref()?, sync.body.as_ref()?);
-        let mut upload = body.clone();
-        upload["hash"] = json!(hash);
-        upload["generated_at"] = json!(chrono::Utc::now().to_rfc3339());
-        upload["library_version"] = json!(sync.lib.current_version());
-        Some((hash.clone(), upload))
+        let snapshot = sync.snapshots.iter().find(|s| s.lib.key() == app)?;
+        let (hash, mut upload) = snapshot.upload()?;
+        upload["app"] = json!(app);
+        Some((hash, upload))
     }
 }
 
-/// Keeps a snapshot of Rekordbox's library (playlists + a track index) for
-/// the Worker, so ChatGPT can browse it while this Mac is offline. Rebuilt
-/// when master.db changes (at most once a minute); uploaded only when the
-/// Worker says its copy is stale. File paths never leave the Mac.
+/// Keeps a snapshot of each DJ app's library (playlists + a track index) for
+/// the Worker, so ChatGPT can browse it while this Mac is offline. A snapshot
+/// is rebuilt when its library changes (at most once a minute); uploaded only
+/// when the Worker says its copy is stale. File paths never leave the Mac.
 struct LibrarySync {
-    lib: Arc<RekordboxLibrary>,
+    libraries: Libraries,
+    /// One for each app that's on.
+    snapshots: Vec<Snapshot>,
+    /// Skip the once-a-minute limit on the next rebuild.
+    urgent: bool,
+}
+
+struct Snapshot {
+    lib: Arc<DjLibrary>,
     db_mtime: Option<SystemTime>,
     last_built: Option<Instant>,
     hash: Option<String>,
     body: Option<Value>,
-    /// Rekordbox content id → local file, for mirroring edits into the XML.
+    /// Library track id → local file, for mirroring edits into the XML.
     paths: HashMap<String, PathBuf>,
-    /// Skip the once-a-minute limit on the next rebuild.
-    urgent: bool,
 }
 
 const SNAPSHOT_MIN_INTERVAL: Duration = Duration::from_secs(60);
 
 impl LibrarySync {
-    fn new(lib: Arc<RekordboxLibrary>) -> Self {
+    fn new(libraries: Libraries) -> Self {
+        Self {
+            libraries,
+            snapshots: Vec::new(),
+            urgent: false,
+        }
+    }
+
+    fn default_snapshot(&self) -> Option<&Snapshot> {
+        let default = self.libraries.primary()?;
+        self.snapshots
+            .iter()
+            .find(|s| Arc::ptr_eq(&s.lib, &default))
+    }
+
+    /// The local files a job's track ids mean, in the app it named.
+    fn paths_for(&self, app: Option<&str>) -> Option<&HashMap<String, PathBuf>> {
+        let snapshot = match app {
+            Some(key) => self.snapshots.iter().find(|s| s.lib.key() == key),
+            None => self.default_snapshot(),
+        };
+        snapshot.map(|s| &s.paths)
+    }
+
+    async fn refresh(&mut self) {
+        let active = self.libraries.active();
+        // An app the DJ turned off is left alone from here on.
+        self.snapshots
+            .retain(|s| active.iter().any(|l| Arc::ptr_eq(l, &s.lib)));
+        for lib in active {
+            if !self.snapshots.iter().any(|s| Arc::ptr_eq(&s.lib, &lib)) {
+                self.snapshots.push(Snapshot::new(lib));
+            }
+        }
+        let urgent = std::mem::take(&mut self.urgent);
+        for snapshot in &mut self.snapshots {
+            snapshot.refresh(urgent).await;
+        }
+    }
+}
+
+impl Snapshot {
+    fn new(lib: Arc<DjLibrary>) -> Self {
         Self {
             lib,
             db_mtime: None,
@@ -335,33 +415,36 @@ impl LibrarySync {
             hash: None,
             body: None,
             paths: HashMap::new(),
-            urgent: false,
         }
     }
 
-    async fn refresh(&mut self) {
-        let mtime = std::fs::metadata(self.lib.db_path())
-            .and_then(|m| m.modified())
-            .ok();
+    fn upload(&self) -> Option<(String, Value)> {
+        let (hash, body) = (self.hash.as_ref()?, self.body.as_ref()?);
+        let mut upload = body.clone();
+        upload["hash"] = json!(hash);
+        upload["generated_at"] = json!(chrono::Utc::now().to_rfc3339());
+        upload["library_version"] = json!(self.lib.current_version());
+        Some((hash.clone(), upload))
+    }
+
+    async fn refresh(&mut self, urgent: bool) {
+        let mtime = self.lib.change_stamp();
         let stale = self.hash.is_none() || mtime != self.db_mtime;
-        let due = self.urgent
+        let due = urgent
             || self
                 .last_built
                 .is_none_or(|t| t.elapsed() >= SNAPSHOT_MIN_INTERVAL);
-        if !stale {
-            self.urgent = false;
-        }
         if !(stale && due) {
             return;
         }
-        self.urgent = false;
         self.last_built = Some(Instant::now());
-        let lib = self.lib.clone();
-        match tokio::task::spawn_blocking(move || lib.snapshot()).await {
+        let source = self.lib.clone();
+        match tokio::task::spawn_blocking(move || source.snapshot()).await {
             Ok(Ok(snapshot)) => {
                 let (body, paths) = split_snapshot(snapshot);
                 let hash = sha256_hex(&serde_json::to_vec(&body).unwrap_or_default());
                 info!(
+                    app = self.lib.app(),
                     tracks = body["tracks"].as_array().map_or(0, Vec::len),
                     playlists = body["playlists"].as_array().map_or(0, Vec::len),
                     "library snapshot built"
@@ -372,7 +455,7 @@ impl LibrarySync {
                 self.paths = paths;
             }
             Ok(Err(e)) => {
-                warn!(error = %format!("{e:#}"), "couldn't snapshot the Rekordbox library")
+                warn!(app = self.lib.app(), error = %format!("{e:#}"), "couldn't snapshot the library")
             }
             Err(e) => warn!(error = %e, "library snapshot task panicked"),
         }

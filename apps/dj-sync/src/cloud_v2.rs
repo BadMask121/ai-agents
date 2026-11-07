@@ -12,7 +12,7 @@
 //!   (see `AgentCore`) until the Worker acks them, so a dropped connection
 //!   resends instead of losing them.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,12 +35,12 @@ use tracing::{debug, error, info, warn};
 use crate::agent_core::{AgentCore, ClaimedJob, Completion};
 use crate::cloud::{PROTOCOL_HEADER, VERSION_HEADER};
 use crate::config::CloudCfg;
+use crate::dj_library::Libraries;
 use crate::jobs::JobQueue;
-use crate::rekordbox_db::RekordboxLibrary;
 
 /// Bump MAJOR for breaking changes to the v2 agent API, MINOR for additions
 /// the agent relies on. Must stay in step with the Worker's.
-pub const AGENT_PROTOCOL_V2: &str = "2.0.0";
+pub const AGENT_PROTOCOL_V2: &str = "2.1.0";
 
 pub(crate) const TENANT_HEADER: &str = "x-dj-sync-tenant";
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -615,7 +615,7 @@ pub async fn run(
     cfg: CloudCfg,
     session: Arc<CloudSession>,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     run_with(LaneTiming::from_cfg(&cfg), session, jobs, library, shutdown).await
@@ -625,10 +625,10 @@ pub async fn run_with(
     t: LaneTiming,
     session: Arc<CloudSession>,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let mut core = AgentCore::new(jobs, None).with_library(library);
+    let mut core = AgentCore::new(jobs).with_library(library);
     let mut delay = Duration::ZERO;
     let mut offline_since: Option<Instant> = None;
     let mut unauthorized = 0u32;
@@ -737,7 +737,10 @@ async fn connection(
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<Ended, CloudError> {
     core.refresh_library().await;
-    let mut hash_sent = core.library_hash();
+    let mut announced = Announced {
+        apps: core.apps(),
+        hashes: core.library_hashes(),
+    };
     let mut ready_sent = core.is_idle();
     send(
         &mut ws,
@@ -747,7 +750,9 @@ async fn connection(
             "agent_version": AGENT_VERSION,
             "active": core.active_ids(),
             "can_claim": ready_sent,
-            "library_hash": hash_sent,
+            "library_hash": core.library_hash(),
+            "library_hashes": announced.hashes,
+            "apps": announced.apps,
         }),
     )
     .await?;
@@ -790,7 +795,10 @@ async fn connection(
                     "welcome" => {
                         debug!(worker = %v["worker_version"], "cloud says hello");
                         if v["library_wanted"] == true {
-                            share_library(session, core).await;
+                            share_library(session, core, None).await;
+                        }
+                        for app in v["libraries_wanted"].as_array().into_iter().flatten() {
+                            share_library(session, core, app.as_str()).await;
                         }
                     }
                     "job" => match serde_json::from_value::<ClaimedJob>(v) {
@@ -807,14 +815,10 @@ async fn connection(
                             core.reported(id);
                             // After a playlist change, share the new library now.
                             core.refresh_library().await;
-                            let hash = core.library_hash();
-                            if hash.is_some() && hash != hash_sent {
-                                send(&mut ws, json!({ "type": "library_hash", "hash": hash })).await?;
-                                hash_sent = hash;
-                            }
+                            announce(&mut ws, core, &mut announced).await?;
                         }
                     }
-                    "library_wanted" => share_library(session, core).await,
+                    "library_wanted" => share_library(session, core, v["app"].as_str()).await,
                     "error" => warn!(code = %v["code"], message = %v["message"], "cloud reported an error"),
                     other => debug!(kind = other, "ignoring an unknown cloud message"),
                 }
@@ -840,14 +844,40 @@ async fn connection(
             }
             _ = library.tick() => {
                 core.refresh_library().await;
-                let hash = core.library_hash();
-                if hash.is_some() && hash != hash_sent {
-                    send(&mut ws, json!({ "type": "library_hash", "hash": hash })).await?;
-                    hash_sent = hash;
-                }
+                announce(&mut ws, core, &mut announced).await?;
             }
         }
     }
+}
+
+/// What this socket has told the cloud about the DJ's apps and libraries.
+struct Announced {
+    apps: Option<Value>,
+    hashes: BTreeMap<&'static str, String>,
+}
+
+/// Tell the cloud what changed: the DJ's apps, and any library's hash.
+async fn announce(
+    ws: &mut Ws,
+    core: &AgentCore,
+    announced: &mut Announced,
+) -> Result<(), CloudError> {
+    let apps = core.apps();
+    if apps != announced.apps {
+        if let Some(apps) = &apps {
+            send(ws, json!({ "type": "apps", "apps": apps })).await?;
+        }
+        announced.apps = apps;
+    }
+    let hashes = core.library_hashes();
+    for (app, hash) in &hashes {
+        if announced.hashes.get(app) != Some(hash) {
+            let frame = json!({ "type": "library_hash", "hash": hash, "app": app });
+            send(ws, frame).await?;
+        }
+    }
+    announced.hashes = hashes;
+    Ok(())
 }
 
 /// Send each reportable result once per socket.
@@ -874,8 +904,12 @@ fn completion(cloud_id: &str, result: &Completion) -> Value {
     v
 }
 
-async fn share_library(session: &CloudSession, core: &AgentCore) {
-    let Some((_, upload)) = core.library_upload() else {
+async fn share_library(session: &CloudSession, core: &AgentCore, app: Option<&str>) {
+    let upload = match app {
+        Some(app) => core.library_upload_for(app),
+        None => core.library_upload(),
+    };
+    let Some((_, upload)) = upload else {
         return;
     };
     if let Err(e) = session.upload_library(&upload).await {
@@ -1160,7 +1194,13 @@ mod tests {
     fn start(base: &str, dir: &Path) -> (Arc<CloudSession>, watch::Sender<bool>) {
         let session = CloudSession::new(base, dir.to_path_buf()).unwrap();
         let (tx, rx) = watch::channel(false);
-        tokio::spawn(run_with(fast(), session.clone(), queue(dir), None, rx));
+        tokio::spawn(run_with(
+            fast(),
+            session.clone(),
+            queue(dir),
+            Libraries::default(),
+            rx,
+        ));
         (session, tx)
     }
 

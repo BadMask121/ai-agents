@@ -9,7 +9,6 @@
 //! semver). The Worker refuses an agent whose MAJOR differs or whose MINOR is
 //! newer than its own, and we stop claiming work until one side is updated.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
@@ -21,8 +20,8 @@ use tracing::{error, info, warn};
 
 use crate::agent_core::{AgentCore, ClaimedJob, Completion};
 use crate::config::CloudCfg;
+use crate::dj_library::Libraries;
 use crate::jobs::JobQueue;
-use crate::rekordbox_db::RekordboxLibrary;
 
 /// Bump MAJOR for breaking changes to the agent API, MINOR for additions the
 /// agent relies on, PATCH for fixes. Must stay in step with the Worker's.
@@ -85,13 +84,13 @@ impl CloudAgent {
                 .context("building http client")?,
             base,
             token,
-            core: AgentCore::new(jobs, None),
+            core: AgentCore::new(jobs),
         })
     }
 
     /// Share the library snapshot and take playlist (library) jobs too.
-    pub fn with_library(mut self, lib: Option<Arc<RekordboxLibrary>>) -> Self {
-        self.core = self.core.with_library(lib);
+    pub fn with_library(mut self, libraries: Libraries) -> Self {
+        self.core = self.core.with_library(libraries);
         self
     }
 
@@ -215,7 +214,7 @@ pub async fn run(
     cfg: CloudCfg,
     token: String,
     jobs: JobQueue,
-    library: Option<Arc<RekordboxLibrary>>,
+    library: Libraries,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let mut agent = CloudAgent::new(&cfg.base_url, token, jobs)?.with_library(library);
@@ -265,6 +264,7 @@ pub async fn run(
 mod tests {
     use super::*;
     use crate::config::DownloadCfg;
+    use crate::dj_library::DjLibrary;
     use crate::downloader::Fetcher;
     use crate::MediaRef;
     use axum::extract::{Path as AxPath, State};
@@ -434,8 +434,77 @@ mod tests {
         assert!(agent.core.is_idle());
     }
 
+    #[tokio::test]
+    async fn every_app_thats_on_gets_its_own_snapshot() {
+        use crate::agent_core::AgentCore;
+        let dir = tempfile::tempdir().unwrap();
+        let track = dir.path().join("t.mp3");
+        std::fs::write(&track, b"x").unwrap();
+        let root = dir.path().join("_Serato_");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("database V2"), b"").unwrap();
+        let settings = dir.path().join("settings.json");
+        let choose = |body: Value| std::fs::write(&settings, body.to_string()).unwrap();
+        choose(json!({"default_app": "rekordbox", "second_app": true}));
+        let serato = crate::serato::library_with_parts(
+            crate::config::SeratoCfg {
+                enabled: true,
+                root,
+                volumes_dir: dir.path().join("Volumes"),
+                ..Default::default()
+            },
+            dir.path().join("state"),
+            Arc::new(|| false),
+        );
+        let libraries = Libraries::new(
+            Some(fake_library(dir.path(), &track)),
+            Some(Arc::new(serato)),
+            Some(settings.clone()),
+        );
+        let mut core = AgentCore::new(queue(dir.path())).with_library(libraries);
+
+        core.refresh_library().await;
+        let hashes = core.library_hashes();
+        assert_eq!(
+            hashes.keys().copied().collect::<Vec<_>>(),
+            ["rekordbox", "serato"]
+        );
+        assert_ne!(hashes["rekordbox"], hashes["serato"]);
+        assert_eq!(
+            core.apps().unwrap(),
+            json!({"default": "rekordbox", "enabled": ["rekordbox", "serato"]})
+        );
+        let (hash, upload) = core.library_upload_for("serato").unwrap();
+        assert_eq!(hash, hashes["serato"]);
+        assert_eq!(upload["app"], "serato");
+        assert_eq!(upload["hash"], hash.as_str());
+        assert!(upload["tracks"].as_array().unwrap().is_empty());
+        assert_eq!(core.library_hash(), Some(hashes["rekordbox"].clone()));
+
+        // Turning the second app off stops sharing it, with no restart.
+        choose(json!({"default_app": "rekordbox"}));
+        core.refresh_library().await;
+        assert_eq!(
+            core.library_hashes().keys().copied().collect::<Vec<_>>(),
+            ["rekordbox"]
+        );
+        assert_eq!(core.library_upload_for("serato"), None);
+        assert_eq!(
+            core.apps().unwrap(),
+            json!({"default": "rekordbox", "enabled": ["rekordbox"]})
+        );
+
+        // A new default is the snapshot old-protocol paths use.
+        choose(json!({"default_app": "serato"}));
+        core.refresh_library().await;
+        assert_eq!(
+            core.library_hash(),
+            core.library_hashes().get("serato").cloned()
+        );
+    }
+
     /// rbdb.py stand-in: a fixed snapshot, and `apply` that changes the db.
-    fn fake_library(dir: &Path, track: &Path) -> Arc<RekordboxLibrary> {
+    fn fake_library(dir: &Path, track: &Path) -> Arc<DjLibrary> {
         let db = dir.join("master.db");
         std::fs::write(&db, "library\n").unwrap();
         let script = dir.join("rbdb.sh");
@@ -456,7 +525,7 @@ mod tests {
             db_path: db,
             ..Default::default()
         };
-        Arc::new(RekordboxLibrary::with_parts(
+        Arc::new(crate::rekordbox_db::library_with_parts(
             cfg,
             dir.join("state"),
             crate::rekordbox_db::Helper {
@@ -497,10 +566,11 @@ mod tests {
         let fetcher = CopyFixture {
             gate: Arc::new(tokio::sync::Semaphore::new(9)),
         };
-        let (jobs, _) = JobQueue::start_with(cfg.clone(), fetcher, Some(lib.clone())).unwrap();
+        let (jobs, _) =
+            JobQueue::start_with(cfg.clone(), fetcher, Libraries::single(lib.clone())).unwrap();
         let mut agent = CloudAgent::new(&base, "agent-token".into(), jobs)
             .unwrap()
-            .with_library(Some(lib.clone()));
+            .with_library(Libraries::single(lib.clone()));
 
         // First tick: snapshot built, shared (without paths), job claimed.
         assert_eq!(agent.tick().await.unwrap().as_deref(), Some("11b000000001"));

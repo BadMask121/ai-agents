@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [Unreleased] · Serato
+
+### Added
+- **Serato DJ Pro 5 works.** New songs and playlist changes go into a DJ Sync crate. Serato saves over changes made while it's open, so they land when you quit it and show up the next time you open it.
+- **A Serato card** with the same waiting changes, backups and restore as Rekordbox's.
+- **Setup asks on a Mac with both apps:** where new songs go by default, and whether to use the other one too. The menu bar can change this any time. Macs that never choose stay on Rekordbox, with Serato left alone.
+- **You can pick the app from chat.** Say "download this to Serato", or "to both". Anything else goes to your default, and on a Mac with two apps on, replies say where it went.
+- **Setup finds Serato too,** and works on a Mac with no Rekordbox.
+
 ## [1.4.0] — 2026-10-29 · SoundCloud
 
 ### Added

@@ -183,6 +183,11 @@ export class D1Store implements Store {
       .run();
   }
 
+  /** Protocol 1 Macs don't report their apps. */
+  async getDjApps() {
+    return null;
+  }
+
   async setLibraryMeta(m: LibraryMeta) {
     await this.db
       .prepare(

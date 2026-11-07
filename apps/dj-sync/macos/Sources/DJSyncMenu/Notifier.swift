@@ -29,7 +29,7 @@ final class Notifier: NSObject {
       content.body = "\(count(j.links, "link")) → “\(j.playlist)”"
     case .finished(let j):
       (job, kind) = (j, "finished")
-      content.title = "Added to Rekordbox"
+      content.title = "Added to your library"
       content.body =
         "\(count(j.tracks, "track")) in “\(j.playlist)”"
         + (j.xmlVersion.map { " · XML v\($0)" } ?? "")
@@ -44,10 +44,10 @@ final class Notifier: NSObject {
     audit(kind, id: job.jobId, label: job.playlist)
   }
 
-  /// dj-sync wrote to Rekordbox's own library (after Rekordbox closed).
-  func postLibrary(_ applied: ServiceStatus.Library.Applied) {
+  /// dj-sync wrote to a DJ app's own library (after the app closed).
+  func postLibrary(_ applied: ServiceStatus.Library.Applied, app: String) {
     let content = UNMutableNotificationContent()
-    content.title = "Rekordbox library updated"
+    content.title = "\(app) library updated"
     content.body = applied.summary + (applied.version.map { " · v\($0)" } ?? "")
     content.sound = .default
     center.add(UNNotificationRequest(identifier: "library-\(applied.at)", content: content, trigger: nil))

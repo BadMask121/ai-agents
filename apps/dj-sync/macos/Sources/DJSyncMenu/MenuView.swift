@@ -32,7 +32,20 @@ struct MenuView: View {
       ToolsNotice(model: model)
       AssistantsCard(model: model)
       DownloadsCard(model: model)
-      RekordboxCard(model: model)
+      if model.canChooseApp {
+        DjAppPicker(model: model)
+      }
+      if model.status?.seratoDb == nil
+        || model.status?.activeLibraries.contains(where: { $0.appName == "Rekordbox" }) == true
+      {
+        RekordboxCard(model: model)
+      }
+      if let serato = model.status?.seratoDb,
+        model.status?.activeLibraries.contains(where: { $0.appName == "Serato" }) == true
+          || !serato.pending.isEmpty || !serato.failed.isEmpty
+      {
+        SeratoCard(model: model, library: serato)
+      }
       AboutCard(model: model)
       if let note = model.actionNote {
         Banner(text: note, tone: .success)
@@ -213,7 +226,6 @@ private struct DownloadsCard: View {
 
 private struct RekordboxCard: View {
   @Bindable var model: MenuModel
-  @State private var showBackups = false
 
   var body: some View {
     Card(title: "Rekordbox", systemImage: "square.stack.3d.up") {
@@ -223,45 +235,7 @@ private struct RekordboxCard: View {
       }
     } content: {
       if let library = model.status?.rekordboxDb {
-        LibraryState(library: library)
-        if !library.failed.isEmpty {
-          ForEach(library.failed) { failed in
-            Banner(text: "Couldn't apply “\(failed.summary)”: \(failed.error)")
-          }
-          HStack(spacing: 8) {
-            Button("Retry", action: model.retryFailedChanges)
-            Button("Dismiss", action: model.dismissFailedChanges)
-          }
-          .controlSize(.small)
-          .disabled(model.libraryBusy)
-        }
-        if !library.pending.isEmpty, !library.rekordboxRunning {
-          Button(model.libraryBusy ? "Applying…" : "Apply Now", action: model.applyLibraryNow)
-            .controlSize(.small)
-            .disabled(model.libraryBusy)
-        }
-        if !library.backups.isEmpty {
-          DisclosureGroup(isExpanded: $showBackups) {
-            VStack(spacing: 6) {
-              ForEach(library.backups) { backup in
-                BackupRow(
-                  backup: backup,
-                  isLatest: backup.id == library.backups.first?.id,
-                  canRestore: !library.rekordboxRunning && !model.libraryBusy
-                ) { model.restoreBackup(backup) }
-              }
-              if library.rekordboxRunning {
-                Text("Quit Rekordbox to restore a backup.")
-                  .font(.caption2)
-                  .foregroundStyle(.tertiary)
-              }
-            }
-            .padding(.top, 6)
-          } label: {
-            Text("Backups (\(library.backups.count))")
-              .font(.callout)
-          }
-        }
+        LibraryControls(model: model, library: library)
       }
 
       if let xml = model.status?.importXml {
@@ -286,7 +260,116 @@ private struct RekordboxCard: View {
   }
 }
 
-/// Where Rekordbox's own library stands: up to date, or changes waiting.
+private struct SeratoCard: View {
+  @Bindable var model: MenuModel
+  let library: ServiceStatus.Library
+
+  var body: some View {
+    Card(title: "Serato", systemImage: "square.stack.3d.up") {
+      if let version = library.currentVersion {
+        Badge(text: "Library v\(version)", tint: .purple, monospaced: true)
+          .help("Semver of your Serato library's latest backup")
+      }
+    } content: {
+      LibraryControls(model: model, library: library)
+    }
+  }
+}
+
+/// On a Mac with both apps: the default, and whether the other one is on.
+private struct DjAppPicker: View {
+  @Bindable var model: MenuModel
+
+  var body: some View {
+    Card(title: "DJ apps", systemImage: "music.quarternote.3") {
+      EmptyView()
+    } content: {
+      Picker("Default", selection: defaultApp) {
+        Text("Rekordbox").tag("rekordbox")
+        Text("Serato").tag("serato")
+      }
+      .pickerStyle(.segmented)
+      .help("Where new songs go when you don't name an app")
+      Toggle("Also use \(other.name)", isOn: secondApp)
+        .font(.callout)
+      Text(note)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var defaultApp: Binding<String> {
+    Binding(
+      get: { model.defaultApp ?? model.status?.activeLibraries.first?.key ?? "rekordbox" },
+      set: { model.chooseDefaultApp($0) })
+  }
+
+  private var secondApp: Binding<Bool> {
+    Binding(get: { model.secondApp }, set: { model.turnSecondApp(on: $0) })
+  }
+
+  private var other: (key: String, name: String) {
+    defaultApp.wrappedValue == "serato" ? ("rekordbox", "Rekordbox") : ("serato", "Serato")
+  }
+
+  private var note: String {
+    model.secondApp
+      ? "Say “to \(other.key)” or “to both” in chat to send songs there. Anything else goes to your default."
+      : "New songs go to your default. DJ Sync leaves \(other.name) alone."
+  }
+}
+
+/// Where one DJ app's library stands, and what can be done about it.
+private struct LibraryControls: View {
+  @Bindable var model: MenuModel
+  let library: ServiceStatus.Library
+  @State private var showBackups = false
+
+  var body: some View {
+    LibraryState(library: library)
+    if !library.failed.isEmpty {
+      ForEach(library.failed) { failed in
+        Banner(text: "Couldn't apply “\(failed.summary)”: \(failed.error)")
+      }
+      HStack(spacing: 8) {
+        Button("Retry") { model.retryFailedChanges(library) }
+        Button("Dismiss") { model.dismissFailedChanges(library) }
+      }
+      .controlSize(.small)
+      .disabled(model.libraryBusy)
+    }
+    if !library.pending.isEmpty, !library.isAppRunning {
+      Button(model.libraryBusy ? "Applying…" : "Apply Now") { model.applyLibraryNow(library) }
+        .controlSize(.small)
+        .disabled(model.libraryBusy)
+    }
+    if !library.backups.isEmpty {
+      DisclosureGroup(isExpanded: $showBackups) {
+        VStack(spacing: 6) {
+          ForEach(library.backups) { backup in
+            BackupRow(
+              backup: backup,
+              isLatest: backup.id == library.backups.first?.id,
+              canRestore: !library.isAppRunning && !model.libraryBusy
+            ) { model.restoreBackup(backup, in: library) }
+          }
+          if library.isAppRunning {
+            Text("Quit \(library.appName) to restore a backup.")
+              .font(.caption2)
+              .foregroundStyle(.tertiary)
+          }
+        }
+        .padding(.top, 6)
+      } label: {
+        Text("Backups (\(library.backups.count))")
+          .font(.callout)
+      }
+    }
+  }
+}
+
+/// Where a DJ app's own library stands: up to date, or changes waiting.
 private struct LibraryState: View {
   let library: ServiceStatus.Library
 
@@ -313,7 +396,7 @@ private struct LibraryState: View {
   private var waiting: Int { library.pending.count }
 
   private var tint: Color {
-    switch (waiting, library.rekordboxRunning) {
+    switch (waiting, library.isAppRunning) {
     case (0, _): .green
     case (_, true): .orange
     case (_, false): .accentColor
@@ -321,10 +404,10 @@ private struct LibraryState: View {
   }
 
   private var headline: String {
-    switch (waiting, library.rekordboxRunning) {
-    case (0, true): "Up to date · Rekordbox is open"
+    switch (waiting, library.isAppRunning) {
+    case (0, true): "Up to date · \(library.appName) is open"
     case (0, false): "Up to date"
-    case (let n, true): "\(n) change\(n == 1 ? "" : "s") waiting — quit Rekordbox to apply"
+    case (let n, true): "\(n) change\(n == 1 ? "" : "s") waiting — quit \(library.appName) to apply"
     case (let n, false): "Applying \(n) change\(n == 1 ? "" : "s")…"
     }
   }
@@ -939,7 +1022,7 @@ private struct AboutCard: View {
         Button(model.uninstalling ? "Uninstalling…" : "Uninstall DJ Sync…", role: .destructive, action: model.uninstall)
           .foregroundStyle(.red)
           .disabled(model.uninstalling)
-          .help("Remove DJ Sync from this Mac. Your music and Rekordbox library stay.")
+          .help("Remove DJ Sync from this Mac. Your music and DJ library stay.")
       }
       .buttonStyle(.borderless)
       .font(.caption)

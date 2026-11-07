@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let notifier = Notifier()
   private var watcher = JobWatcher()
   private var libraryWatcher = LibraryWatcher()
+  private var seratoWatcher = LibraryWatcher()
 
   private static let autosaveName = "DJSyncStatusItem"
 
@@ -218,7 +219,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.notifier.post(event)
           }
           if let applied = self.libraryWatcher.update(status.rekordboxDb?.lastApplied) {
-            self.notifier.postLibrary(applied)
+            self.notifier.postLibrary(applied, app: "Rekordbox")
+          }
+          if let applied = self.seratoWatcher.update(status.seratoDb?.lastApplied) {
+            self.notifier.postLibrary(applied, app: "Serato")
           }
         }
         try? await Task.sleep(for: .seconds(4))

@@ -23,6 +23,15 @@ pub struct Settings {
     /// itself once it's been gone a while (`uninstall::watch_app`).
     #[serde(default)]
     pub app_path: Option<PathBuf>,
+    /// Where requests go when they don't name a DJ app: `rekordbox` or
+    /// `serato`. Unset, whichever is here (Rekordbox first). See
+    /// `dj_library::Libraries`.
+    #[serde(default)]
+    pub default_app: Option<String>,
+    /// Whether the other app is on too, for requests that name it. An app
+    /// that's off is never touched.
+    #[serde(default)]
+    pub second_app: Option<bool>,
 }
 
 impl Settings {

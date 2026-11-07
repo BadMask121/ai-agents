@@ -26,6 +26,26 @@ public struct SettingsFile: Sendable {
     try set("download_dir", path)
   }
 
+  /// Where requests go when they don't name a DJ app: `rekordbox` or
+  /// `serato`. `nil` until the DJ chooses, which means whichever is here.
+  public func defaultApp() -> String? {
+    readObject()["default_app"] as? String
+  }
+
+  public func setDefaultApp(_ app: String) throws {
+    try set("default_app", app)
+  }
+
+  /// Whether the other app is on too, for requests that name it. An app
+  /// that's off is never touched.
+  public func secondApp() -> Bool {
+    readObject()["second_app"] as? Bool ?? false
+  }
+
+  public func setSecondApp(_ on: Bool) throws {
+    try set("second_app", on)
+  }
+
   /// Onboarding finished (or skipped) on this Mac.
   public func onboarded() -> Bool {
     readObject()["onboarded"] as? Bool ?? false

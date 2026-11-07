@@ -41,7 +41,7 @@ public struct JobWatcher: Sendable {
   }
 }
 
-/// Notices when dj-sync has written to Rekordbox's library (each apply has a
+/// Notices when dj-sync has written to a DJ app's library (each apply has a
 /// new `at` timestamp). Seeds silently, like `JobWatcher`.
 public struct LibraryWatcher: Sendable {
   private var lastSeen: String??

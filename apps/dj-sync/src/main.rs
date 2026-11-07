@@ -6,9 +6,9 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use dj_sync::{
-    bot, cloud, cloud_v2, config, config::Config, downloader::ProcessFetcher, http, jobs::JobQueue,
-    library::LibraryIndex, rekordbox_db, rekordbox_db::RekordboxLibrary,
-    rekordbox_xml::RekordboxLib, spotify::SpotifyClient,
+    bot, cloud, cloud_v2, config, config::Config, dj_library, dj_library::Libraries,
+    downloader::ProcessFetcher, http, jobs::JobQueue, library::LibraryIndex, rekordbox_db,
+    rekordbox_xml::RekordboxLib, serato, spotify::SpotifyClient,
 };
 
 #[tokio::main]
@@ -41,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
         cloud = cfg.cloud.enabled,
         local_mcp = cfg.mcp.enabled,
         rekordbox_db = cfg.rekordbox_db.enabled,
+        serato = cfg.serato.enabled,
         "loaded config"
     );
 
@@ -80,11 +81,11 @@ async fn main() -> anyhow::Result<()> {
     // One download queue shared by the HTTP and cloud lanes. It is the only
     // writer of the import XML, so only one dj-sync may run it at a time.
     let downloads = http_enabled || cloud_enabled;
-    // Rekordbox's own library (master.db), written alongside the import XML.
-    let library = if downloads && cfg.rekordbox_db.enabled {
+    // The DJ apps' own libraries, written alongside the import XML.
+    let rekordbox = if downloads && cfg.rekordbox_db.enabled {
         let download = cfg.download.clone();
         Some(Arc::new(
-            RekordboxLibrary::new(cfg.rekordbox_db.clone(), config::state_dir()?).with_own_dirs(
+            rekordbox_db::library(cfg.rekordbox_db.clone(), config::state_dir()?).with_own_dirs(
                 move || {
                     // The current folder, plus the configured one songs may
                     // have landed in before the DJ picked another.
@@ -97,10 +98,20 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    let serato = if downloads && cfg.serato.enabled {
+        Some(Arc::new(serato::library(
+            cfg.serato.clone(),
+            config::state_dir()?,
+        )))
+    } else {
+        None
+    };
+    let libraries = Libraries::new(rekordbox, serato, cfg.download.settings_file.clone());
     let (jobs, _instance_lock) = if downloads {
         let lock = acquire_instance_lock()?;
         let fetcher = ProcessFetcher::from_config(&cfg.download)?;
-        let (jobs, _worker) = JobQueue::start_with(cfg.download.clone(), fetcher, library.clone())?;
+        let (jobs, _worker) =
+            JobQueue::start_with(cfg.download.clone(), fetcher, libraries.clone())?;
         (Some(jobs), Some(lock))
     } else {
         (None, None)
@@ -117,8 +128,8 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    if let Some(lib) = library.clone() {
-        tokio::spawn(rekordbox_db::run(lib, shutdown_rx.clone()));
+    for lib in libraries.all() {
+        tokio::spawn(dj_library::run(lib, shutdown_rx.clone()));
     }
     // The app dragged to the Bin: stop (keeping data) instead of running on.
     if let (Ok(settings), Some(home)) = (dj_sync::settings::settings_path(), dirs::home_dir()) {
@@ -151,14 +162,14 @@ async fn main() -> anyhow::Result<()> {
             shutdown_rx.clone(),
             shutdown_tx.clone(),
         );
-        let library = library.clone();
+        let libraries = libraries.clone();
         let session = cloud_session.clone();
         let toolbox = toolbox.clone();
         async move {
             let Some(jobs) = jobs else {
                 return Ok(());
             };
-            let r = http::serve(cfg, jobs, library, session, toolbox, shutdown).await;
+            let r = http::serve(cfg, jobs, libraries, session, toolbox, shutdown).await;
             if r.is_err() {
                 let _ = tx.send(true);
             }
@@ -177,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cloud_lane = {
         let (cloud_cfg, tx) = (cfg.cloud.clone(), shutdown_tx.clone());
-        let library = library.clone();
+        let libraries = libraries.clone();
         let toolbox_gate = toolbox.clone();
         async move {
             let Some(jobs) = jobs else {
@@ -188,9 +199,11 @@ async fn main() -> anyhow::Result<()> {
                 tb.wait_first_pass().await;
             }
             let r = match (cloud_token, cloud_session) {
-                (Some(token), _) => cloud::run(cloud_cfg, token, jobs, library, shutdown_rx).await,
+                (Some(token), _) => {
+                    cloud::run(cloud_cfg, token, jobs, libraries, shutdown_rx).await
+                }
                 (None, Some(session)) => {
-                    cloud_v2::run(cloud_cfg, session, jobs, library, shutdown_rx).await
+                    cloud_v2::run(cloud_cfg, session, jobs, libraries, shutdown_rx).await
                 }
                 (None, None) => return Ok(()),
             };

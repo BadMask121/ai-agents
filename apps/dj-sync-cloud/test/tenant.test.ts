@@ -1,3 +1,4 @@
+import { AGENT_PROTOCOL_V2 } from "../src/constants";
 import { describe, expect, it } from "vitest";
 import { gzip } from "../src/bytes";
 import {
@@ -81,7 +82,7 @@ describe("links (spec §3.2)", () => {
     expect((await c.call(req("GET", "/v2/agent/links", undefined, { ...agentHeaders(t), authorization: "Bearer nope" }))).status).toBe(401);
     const old = await c.call(req("GET", "/v2/agent/links", undefined, agentHeaders(t, "1.1.0")));
     expect(old.status).toBe(409);
-    expect(await old.json()).toMatchObject({ error: "incompatible_protocol", worker_protocol: "2.0.0", agent_protocol: "1.1.0" });
+    expect(await old.json()).toMatchObject({ error: "incompatible_protocol", worker_protocol: AGENT_PROTOCOL_V2, agent_protocol: "1.1.0" });
   });
 });
 
@@ -136,7 +137,7 @@ describe("MCP per DJ", () => {
     expect(ws.closed?.code).toBe(CLOSE_UNAUTHORIZED);
 
     // A's job and library stay A's.
-    const queued = await c.tool(la.url, "download_to_rekordbox", { urls: [YT(1)] });
+    const queued = await c.tool(la.url, "download_tracks", { urls: [YT(1)] });
     expect(queued.isError).toBe(false);
     expect((await upload(c, a, await gzip(new TextEncoder().encode(JSON.stringify(LIBRARY))))).status).toBe(200);
     const statusB = await c.tool(lb.url, "get_download_status", {});
@@ -147,20 +148,20 @@ describe("MCP per DJ", () => {
   });
 });
 
-describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
+describe("agent WebSocket (protocol 2, spec §3.4)", () => {
   it("hello → welcome → job → complete → ack, then ready for the next", async () => {
     const c = makeCloud();
     const t = await c.registered();
     const { url } = await c.link(t);
-    const first = (await c.tool(url, "download_to_rekordbox", { urls: [YT(1)], playlist_name: "Sat" })).structuredContent;
-    const second = (await c.tool(url, "download_to_rekordbox", { urls: [YT(2)] })).structuredContent;
+    const first = (await c.tool(url, "download_tracks", { urls: [YT(1)], playlist_name: "Sat" })).structuredContent;
+    const second = (await c.tool(url, "download_tracks", { urls: [YT(2)] })).structuredContent;
     expect(first.mac_online).toBe(false);
 
     const ws = await c.connect(t);
     expect(ws.sent).toEqual([]); // nothing before hello
     await c.hello(t, ws, { library_hash: "abc" });
     const [welcome, job] = ws.frames();
-    expect(welcome).toEqual({ type: "welcome", worker_version: WORKER_VERSION, protocol: "2.0.0", library_wanted: true });
+    expect(welcome).toEqual({ type: "welcome", worker_version: WORKER_VERSION, protocol: AGENT_PROTOCOL_V2, library_wanted: true });
     expect(job).toEqual({ type: "job", job_id: first.job_id, kind: "download", playlist: "Sat", urls: [`https://www.youtube.com/watch?v=${YT(1).slice(-11)}`], attempt: 1 });
 
     // One at a time: the second waits for `ready`.
@@ -198,7 +199,7 @@ describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
     const ws = await c.connect(t);
     await c.hello(t, ws);
     expect(ws.frames().map((f) => f.type)).toEqual(["welcome"]);
-    const q = (await c.tool(url, "download_to_rekordbox", { urls: [YT(3)] })).structuredContent;
+    const q = (await c.tool(url, "download_tracks", { urls: [YT(3)] })).structuredContent;
     expect(q.mac_online).toBe(true);
     expect(ws.last()).toMatchObject({ type: "job", job_id: q.job_id });
   });
@@ -209,7 +210,7 @@ describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
     const { url } = await c.link(t);
     const ws = await c.connect(t);
     await c.hello(t, ws);
-    const q = (await c.tool(url, "download_to_rekordbox", { urls: [YT(4)] })).structuredContent;
+    const q = (await c.tool(url, "download_tracks", { urls: [YT(4)] })).structuredContent;
     const storage = c.TENANT.ctxs.get(t.tenant_id)!.storage;
     expect(storage.alarm).toBe(Date.parse(c.now().toISOString()) + LEASE_SECONDS * 1000 + 1000);
 
@@ -245,7 +246,7 @@ describe("agent WebSocket (protocol 2.0.0, spec §3.4)", () => {
     const old = await c.connect(t, { "x-dj-sync-agent-protocol": "1.1.0" });
     expect(old.closed?.code).toBe(CLOSE_INCOMPATIBLE);
     expect(old.frames()[0]).toMatchObject({ type: "error", code: "incompatible_protocol" });
-    const newer = await c.connect(t, { "x-dj-sync-agent-protocol": "2.1.0" });
+    const newer = await c.connect(t, { "x-dj-sync-agent-protocol": "2.2.0" });
     expect(newer.closed?.code).toBe(CLOSE_INCOMPATIBLE);
 
     const one = await c.connect(t);
@@ -328,12 +329,12 @@ describe("per-DJ limits (spec §3.7)", () => {
     const c = makeCloud();
     const t = await c.registered();
     const { url } = await c.link(t);
-    for (let i = 0; i < MAX_QUEUED_JOBS; i++) expect((await c.tool(url, "download_to_rekordbox", { urls: [YT(i)] })).isError).toBe(false);
-    const over = await c.tool(url, "download_to_rekordbox", { urls: [YT(999)] });
+    for (let i = 0; i < MAX_QUEUED_JOBS; i++) expect((await c.tool(url, "download_tracks", { urls: [YT(i)] })).isError).toBe(false);
+    const over = await c.tool(url, "download_tracks", { urls: [YT(999)] });
     expect(over.isError).toBe(true);
     expect(over.content[0].text).toContain("50 jobs are already waiting");
     // A retry of queued work is still answered (dedupe, not a new job).
-    expect((await c.tool(url, "download_to_rekordbox", { urls: [YT(0)] })).structuredContent.deduplicated).toBe(true);
+    expect((await c.tool(url, "download_tracks", { urls: [YT(0)] })).structuredContent.deduplicated).toBe(true);
   });
 
   it("caps jobs per UTC day at 200", async () => {
@@ -354,11 +355,11 @@ describe("per-DJ limits (spec §3.7)", () => {
     const over = await c.tool(url, "create_playlist", { name: "X" });
     // No library yet → that tool refuses earlier; use a download to hit the cap.
     expect(over.isError).toBe(true);
-    const dl = await c.tool(url, "download_to_rekordbox", { urls: [YT(7)] });
+    const dl = await c.tool(url, "download_tracks", { urls: [YT(7)] });
     expect(dl.isError).toBe(true);
     expect(dl.content[0].text).toContain("daily limit of 200");
     c.advance(86_400);
-    expect((await c.tool(url, "download_to_rekordbox", { urls: [YT(7)] })).isError).toBe(false);
+    expect((await c.tool(url, "download_tracks", { urls: [YT(7)] })).isError).toBe(false);
   });
 
   it("caps tool calls at 600 an hour", async () => {
@@ -380,7 +381,7 @@ describe("per-DJ limits (spec §3.7)", () => {
     const { url } = await c.link(t);
     const ws = await c.connect(t);
     await c.hello(t, ws);
-    const q = (await c.tool(url, "download_to_rekordbox", { urls: [YT(5)] })).structuredContent;
+    const q = (await c.tool(url, "download_tracks", { urls: [YT(5)] })).structuredContent;
     await c.send(t, ws, { type: "complete", job_id: q.job_id, state: "done", message: "ok" });
     c.advance(31 * 86_400);
     await c.tool(url, "get_download_status", {}); // first call of a new day runs the cleanup
