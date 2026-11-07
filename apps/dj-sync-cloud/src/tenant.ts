@@ -23,7 +23,7 @@ import { linkTrackList, type LinkTrackList } from "./link-tracks";
 import { meteredRunner, usageReport, type UsageEvent, type UsageRow } from "./usage";
 import { recordAgentEvent, recordRouterEvent, type AgentEvent, type AnalyticsSink } from "./metrics";
 import { DurableObject } from "cloudflare:workers";
-import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseCompletion, parseLibrary } from "./agent";
+import { PROTOCOL_HEADER, VERSION_HEADER, claimedJobView, parseApps, parseCompletion, parseLibrary } from "./agent";
 import { LINK_SECRET, gunzip, isGzip, newLinkSecret, randomBase64url, sha256Hex, utcDay } from "./bytes";
 import {
   AGENT_MODEL,
@@ -55,7 +55,7 @@ import {
 } from "./constants";
 import { SHORTCUT_DISCONNECTED, apiPlaylists, apiStatus, apiSubmit, mcpPost, readJson, unauthorized } from "./http";
 import { SHORTCUT_FILENAME, installExpired, installPage, shortcutFile } from "./install";
-import { normalizePlaylistName, type Deps } from "./jobs";
+import { isDjApp, normalizePlaylistName, type Deps } from "./jobs";
 import { parseSemver, protocolCompatible } from "./semver";
 import { LINK_KINDS, SqlStore, type LinkKind, type LinkRow, type SqlDb, type TelegramChat } from "./sqlstore";
 import { botApi, send, telegramConfigured, type TelegramApi, type TelegramEnv, type TgUpdate } from "./telegram";
@@ -456,14 +456,17 @@ export class Tenant extends DurableObject<TenantEnv> {
     }
     const parsed = parseLibrary(body);
     if (typeof parsed === "string") return json({ error: "invalid_body", detail: parsed }, 400);
-    await store.putLibrary(parsed.playlists, parsed.tracks);
-    await store.setLibraryMeta({
-      library_hash: parsed.hash,
-      library_generated_at: parsed.generated_at,
-      library_version: parsed.library_version,
-    });
+    await store.putLibrary(parsed.playlists, parsed.tracks, parsed.app);
+    await store.setLibraryMeta(
+      {
+        library_hash: parsed.hash,
+        library_generated_at: parsed.generated_at,
+        library_version: parsed.library_version,
+      },
+      parsed.app,
+    );
     // So the first search after an upload finds the index ready.
-    this.ctx.waitUntil(store.getSearchIndex().then(() => {}, () => {}));
+    this.ctx.waitUntil(store.getSearchIndex(parsed.app).then(() => {}, () => {}));
     return json({ ok: true, playlists: parsed.playlists.length, tracks: parsed.tracks.length });
   }
 
@@ -795,7 +798,15 @@ export class Tenant extends DurableObject<TenantEnv> {
         return this.onComplete(ws, msg, store);
       case "library_hash": {
         if (typeof msg.hash !== "string" || msg.hash === "") return sendError(ws, "bad_message", "hash must be a string");
-        if (msg.hash !== store.meta("library_hash")) ws.send(JSON.stringify({ type: "library_wanted" }));
+        if (msg.app !== undefined && !isDjApp(msg.app)) return sendError(ws, "bad_message", "app must be rekordbox or serato");
+        const app = msg.app;
+        if (msg.hash !== store.libraryHash(app)) ws.send(JSON.stringify({ type: "library_wanted", ...(app ? { app } : {}) }));
+        return;
+      }
+      case "apps": {
+        const apps = parseApps(msg.apps);
+        if (!apps) return sendError(ws, "bad_message", "apps needs a default and the enabled apps");
+        store.setDjApps(apps);
         return;
       }
       default:
@@ -809,6 +820,11 @@ export class Tenant extends DurableObject<TenantEnv> {
     const hash = msg.library_hash ?? null;
     if (hash !== null && typeof hash !== "string") return sendError(ws, "bad_message", "library_hash must be a string or null");
     if (typeof msg.agent_version === "string") att.agent_version = msg.agent_version.slice(0, 64);
+    // Said on every hello, so a Mac that's older than its last one forgets the apps too.
+    const apps = parseApps(msg.apps);
+    store.setDjApps(apps);
+    const hashes = (msg.library_hashes ?? {}) as Record<string, unknown>;
+    const wanted = (apps?.enabled ?? []).filter((a) => typeof hashes[a] === "string" && hashes[a] !== store.libraryHash(a));
 
     await store.extendLeases(active, this.leaseUntil());
     att.hello = true;
@@ -820,7 +836,8 @@ export class Tenant extends DurableObject<TenantEnv> {
         type: "welcome",
         worker_version: WORKER_VERSION,
         protocol: AGENT_PROTOCOL_V2,
-        library_wanted: hash !== null && hash !== store.meta("library_hash"),
+        library_wanted: apps === null && hash !== null && hash !== store.libraryHash(),
+        ...(apps ? { libraries_wanted: wanted } : {}),
       }),
     );
     this.cleanupDaily(store);

@@ -12,6 +12,10 @@ final class OnboardingModel {
   private(set) var status: ServiceStatus?
   let rekordbox = RekordboxInstall.detect()
   let serato = SeratoInstall.detect()
+  /// Where new songs go, on a Mac with both apps.
+  var defaultApp = "rekordbox"
+  /// The other app is on too, for requests that name it.
+  var secondApp = false
 
   enum Baseline: Equatable {
     case waiting
@@ -39,6 +43,10 @@ final class OnboardingModel {
   }
 
   var toolsReady: Bool { toolbox?.allReady == true }
+  /// Both apps have a library here that DJ Sync can write to.
+  var canChooseApp: Bool {
+    status?.rekordboxDb != nil && status?.seratoDb != nil && serato?.isSupported == true
+  }
   var connected: Bool { link?.isConnected == true }
 
   /// Keeps the window live while it's open (SwiftUI cancels it on close).
@@ -46,7 +54,8 @@ final class OnboardingModel {
     while !Task.isCancelled {
       status = await statusClient.fetch()
       toolbox = status == nil ? nil : await toolboxClient.fetch()
-      if step == .djApp, baseline == .waiting, let library = status?.activeLibraries.first {
+      // With both apps it waits for the choice: an app left off is never touched.
+      if step == .djApp, baseline == .waiting, !canChooseApp, let library = status?.activeLibraries.first {
         await takeBaseline(of: library)
       }
       if step == .assistant, let id = link?.id, !connected,
@@ -60,6 +69,7 @@ final class OnboardingModel {
 
   func advance() {
     error = nil
+    if step == .djApp, canChooseApp { saveAppChoice() }
     if let next = step.next {
       step = next
     } else {
@@ -69,6 +79,24 @@ final class OnboardingModel {
 
   func repairTools() {
     Task { _ = await toolboxClient.install() }
+  }
+
+  /// Remember the DJ's choice and back up each app that's on. An app that's
+  /// open is backed up before its first change instead, as usual.
+  private func saveAppChoice() {
+    let settings = SettingsFile.standard
+    do {
+      try settings.setDefaultApp(defaultApp)
+      try settings.setSecondApp(secondApp)
+    } catch {
+      self.error = "Couldn't save your DJ app: \(error.localizedDescription)"
+      return
+    }
+    let other = defaultApp == "serato" ? "rekordbox" : "serato"
+    let apps = secondApp ? [defaultApp, other] : [defaultApp]
+    Task { [library] in
+      for app in apps { _ = await library.takeBaseline(app: app) }
+    }
   }
 
   private func takeBaseline(of target: ServiceStatus.Library) async {
@@ -220,6 +248,67 @@ private struct ToolsStep: View {
 private struct DjAppStep: View {
   @Bindable var model: OnboardingModel
 
+  var body: some View {
+    if model.canChooseApp {
+      DjAppChoice(model: model)
+    } else {
+      OneAppCards(model: model)
+    }
+    Card(title: "Downloads", systemImage: "arrow.down.circle") {
+      EmptyView()
+    } content: {
+      if let dir = model.menu.downloadDir ?? model.status?.downloadDir {
+        PathRow(
+          icon: model.menu.icon(forPath: dir),
+          title: (dir as NSString).lastPathComponent,
+          subtitle: model.menu.display((dir as NSString).deletingLastPathComponent),
+          help: "Show in Finder",
+          action: model.menu.revealDownloads)
+      }
+      Button("Change Folder…", action: model.menu.chooseFolder)
+        .controlSize(.small)
+    }
+  }
+}
+
+/// A Mac with both apps: where songs go by default, and whether the other is on.
+private struct DjAppChoice: View {
+  @Bindable var model: OnboardingModel
+
+  private var other: String { model.defaultApp == "serato" ? "Rekordbox" : "Serato" }
+
+  var body: some View {
+    Card(title: "Your DJ apps", systemImage: "square.stack.3d.up") {
+      EmptyView()
+    } content: {
+      Text("You have Rekordbox and Serato. Where should new songs go?")
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+      Picker("Default", selection: $model.defaultApp) {
+        Text("Rekordbox").tag("rekordbox")
+        Text("Serato").tag("serato")
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      Toggle("Also use \(other)", isOn: $model.secondApp)
+        .font(.callout)
+      Text(note)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var note: String {
+    model.secondApp
+      ? "Say which app in chat, like “download this to \(other.lowercased())” or “to both”. Anything else goes to your default. You can change this in the menu any time."
+      : "DJ Sync leaves \(other) alone. You can turn it on in the menu any time."
+  }
+}
+
+private struct OneAppCards: View {
+  @Bindable var model: OnboardingModel
+
   private var hasRekordbox: Bool { model.rekordbox != nil || model.status?.rekordboxDb != nil }
 
   var body: some View {
@@ -250,7 +339,7 @@ private struct DjAppStep: View {
             .font(.callout)
             .fixedSize(horizontal: false, vertical: true)
         } else if hasRekordbox {
-          Text("You can switch DJ Sync to Serato, or use both, from the menu once setup is done.")
+          Text("Open Serato once so it sets up its library, and you can turn it on from the menu.")
             .font(.callout)
             .fixedSize(horizontal: false, vertical: true)
         } else {
@@ -260,20 +349,6 @@ private struct DjAppStep: View {
           BaselineLine(baseline: model.baseline)
         }
       }
-    }
-    Card(title: "Downloads", systemImage: "arrow.down.circle") {
-      EmptyView()
-    } content: {
-      if let dir = model.menu.downloadDir ?? model.status?.downloadDir {
-        PathRow(
-          icon: model.menu.icon(forPath: dir),
-          title: (dir as NSString).lastPathComponent,
-          subtitle: model.menu.display((dir as NSString).deletingLastPathComponent),
-          help: "Show in Finder",
-          action: model.menu.revealDownloads)
-      }
-      Button("Change Folder…", action: model.menu.chooseFolder)
-        .controlSize(.small)
     }
   }
 }

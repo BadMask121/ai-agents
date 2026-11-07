@@ -9,7 +9,7 @@
 import { JEV_ACT_CONFIDENCE } from "./constants";
 import type { JevRoute } from "./jev";
 import { normalizeName, resolvePlaylist } from "./library";
-import type { LibPlaylist } from "./store";
+import type { AppChoice, LibPlaylist } from "./store";
 
 export type Decision =
   | { kind: "queue"; playlist: LibPlaylist }
@@ -20,6 +20,41 @@ export type Decision =
 
 const sure = (p: number) => p >= JEV_ACT_CONFIDENCE;
 const words = (s: string) => normalizeName(s).split(" ").filter(Boolean);
+
+// ---------- which app ----------
+
+const REKORDBOX = "(?:rekordbox|rekorbox|recordbox)";
+const LEAD = "(?:only\\s+)?(?:to|into|in|on|for)\\s+(?:only\\s+)?(?:(?:my|the)\\s+)?";
+const TAIL = "(?:\\s+(?:library|only|too|please|pls))*";
+/** Where an app name counts: the end of the message, or just before a link. */
+const STOP = "(?=[\\s.,!?]*$|\\s+https?:)";
+const IN_BOTH = new RegExp(
+  `(?:^|\\s)(?:(?:${LEAD})?(?:both\\s+(?:apps?|platforms?|libraries)|${REKORDBOX}\\s+(?:and|&)\\s+serato|serato\\s+(?:and|&)\\s+${REKORDBOX})|${LEAD}both)${TAIL}${STOP}`,
+  "iu",
+);
+const IN_ONE = new RegExp(`(?:^|\\s)(?:${LEAD})?(${REKORDBOX}|serato)${TAIL}${STOP}`, "iu");
+const ANY_APP = new RegExp(`(?:^|\\s)(?:${REKORDBOX}|serato)(?=[\\s.,!?]|$)`, "iu");
+const withoutLinks = (text: string) => text.replace(/https?:\S+/giu, " ");
+
+/** The message says Rekordbox or Serato somewhere. Links don't count: soundcloud.com/serato isn't a request. */
+export const mentionsApp = (text: string) => ANY_APP.test(withoutLinks(text));
+
+/**
+ * The app a message plainly names ("<link> to serato", "friday in rekordbox
+ * only", "put this in both apps"), and the message without it. `unclear` when
+ * an app is mentioned but not like that ("to Serato Friday"): only the
+ * assistant should read that, or it could land in the default app.
+ */
+export function appInMessage(text: string): { app: AppChoice | null; text: string; unclear: boolean } {
+  const both = IN_BOTH.exec(text);
+  if (both) return { app: "both", text: text.replace(both[0], " ").trim(), unclear: false };
+  const one = IN_ONE.exec(text);
+  if (one) {
+    const app = one[1]!.toLocaleLowerCase() === "serato" ? "serato" : "rekordbox";
+    return { app, text: text.replace(one[0], " ").trim(), unclear: false };
+  }
+  return { app: null, text, unclear: mentionsApp(text) };
+}
 
 // ---------- 1. code ----------
 

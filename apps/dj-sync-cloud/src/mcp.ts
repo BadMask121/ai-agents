@@ -19,6 +19,8 @@ import {
 } from "./constants";
 import {
   agentStatus,
+  scopeToApp,
+  whereItGoes,
   jobView,
   normalizePlaylistName,
   offlineNote,
@@ -97,7 +99,12 @@ export async function dispatch(msg: Json, deps: Deps): Promise<Json | null> {
       const name = params.name;
       const args = isObj(params.arguments) ? params.arguments : undefined;
       const handler = typeof name === "string" && Object.hasOwn(TOOLS, name) ? TOOLS[name] : undefined;
-      if (handler) return ok(id, await handler(args, deps));
+      if (handler) {
+        // Every tool below reads and writes through `deps`, so one place points them all at the app.
+        const allowBoth = name === DOWNLOAD_TOOL || name === LEGACY_DOWNLOAD_TOOL;
+        const scoped = name === STATUS_TOOL ? { deps } : await scopeToApp(args?.app, deps, allowBoth);
+        return ok(id, "refused" in scoped ? toolError(scoped.refused) : await handler(args, scoped.deps));
+      }
       if (typeof name === "string") return error(id, INVALID_PARAMS, `Unknown tool: ${name}`);
       return error(id, INVALID_PARAMS, "tools/call requires params.name");
     }
@@ -123,7 +130,9 @@ function initialize(params: Obj): Json {
       "playlists, use list_playlists, search_tracks and get_playlist (they read the " +
       "library the Mac last shared), then create_playlist, add_tracks_to_playlist, " +
       "remove_tracks_from_playlist, rename_playlist or delete_playlist with track_ids from those " +
-      "results; changes are queued for the Mac like downloads. Use get_download_status with a " +
+      "results; changes are queued for the Mac like downloads. A DJ may use both Rekordbox and Serato, which have " +
+      "separate playlists and track_ids: when they name one, pass it as `app` on every call for that request, " +
+      "look-ups included. Otherwise leave `app` out and it goes to their default. Use get_download_status with a " +
       "job_id when the user asks how something went. Playlist names can be loose (\"gqom\", no emoji, " +
       "\"Folder/Name\"): the tools match them to the DJ's playlists, and when they can't tell which " +
       "one is meant they return the closest playlists instead of acting — then ask the user to pick " +
@@ -144,7 +153,30 @@ const PLAYLIST_ID_SCHEMA = {
     "the user picked.",
 };
 
+const APP_ARG = {
+  type: "string",
+  enum: ["rekordbox", "serato"],
+  description:
+    "Which DJ app, only if the user names one. Leave it out otherwise: it goes to their default. Each app has its own " +
+    "playlists and track_ids, so use the same app for the look-up and the change.",
+};
+const DOWNLOAD_APP_ARG = {
+  type: "string",
+  enum: ["rekordbox", "serato", "both"],
+  description: "Which DJ app, only if the user names one (or says both). Leave it out otherwise: it goes to their default.",
+};
+
 export function toolDefinitions(maxUrls: number): Json {
+  return allTools(maxUrls).map((t) => {
+    if (t.name === STATUS_TOOL) return t;
+    const app = t.name === DOWNLOAD_TOOL ? DOWNLOAD_APP_ARG : APP_ARG;
+    return { ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, app } } };
+  });
+}
+
+type ToolDef = Obj & { name: string; inputSchema: Obj & { properties?: Obj } };
+
+function allTools(maxUrls: number): ToolDef[] {
   return [
     {
       name: DOWNLOAD_TOOL,
@@ -240,7 +272,7 @@ const writes = (title: string, destructive = false) => ({
   openWorldHint: false,
 });
 
-function libraryToolDefinitions(): Json[] {
+function libraryToolDefinitions(): ToolDef[] {
   return [
     {
       name: LIST_PLAYLISTS,
@@ -527,10 +559,12 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
   if (!sub.ok) return toolError(sub.error);
   const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
+  const where = await whereItGoes(deps, job.app);
 
   let text = deduplicated
     ? `That download is already in progress as job ${job.id} (${stateWord(job.state)}).`
     : `Queued job ${job.id}: ${job.urls.length} link(s) → playlist "${job.playlist}"` +
+      (where ? ` in ${where}` : "") +
       (namedAfter ? " (named after the linked playlist)" : "") +
       (position > 0 ? ` (${position} job(s) ahead)` : "") +
       ". Downloads take a few minutes; check with get_download_status.";
@@ -543,6 +577,7 @@ async function callDownload(args: Obj | undefined, deps: Deps): Promise<Json> {
       job_id: job.id,
       state: job.state,
       playlist: job.playlist,
+      app: job.app ?? null,
       playlist_id: job.playlist_id ?? null,
       urls: job.urls,
       created_at: job.created_at,
@@ -617,7 +652,7 @@ interface Freshness {
   agent: AgentStatus;
   /** When the Mac generated the snapshot being answered from. */
   asOf: string | null;
-  /** " (Library as of 5 min ago; your Mac is online.)" */
+  /** " (Library as of 5 min ago; your Mac is online.)", naming the app when there are two. */
   note: string;
 }
 
@@ -625,7 +660,9 @@ async function freshness(deps: Deps): Promise<Freshness> {
   const [agent, row] = await Promise.all([agentStatus(deps), deps.store.getAgent()]);
   const asOf = row?.library_generated_at ?? null;
   const when = asOf ? relativeTime(asOf, deps.now()) : "an unknown time";
-  const note = ` (Library as of ${when}; your Mac is ${agent.online ? "online" : "offline"}.)`;
+  const where = await whereItGoes(deps, deps.app);
+  const library = where ? `${where} library` : "Library";
+  const note = ` (${library} as of ${when}; your Mac is ${agent.online ? "online" : "offline"}.)`;
   return { agent, asOf, note };
 }
 
@@ -873,11 +910,12 @@ async function queueLibrary(
   if (!sub.ok) return toolError(sub.error);
   const { job, position, deduplicated } = sub.value;
   const agent = await agentStatus(deps);
+  const where = await whereItGoes(deps, job.app);
   let text =
     (extra.before ?? "") +
     (deduplicated
       ? `That change is already queued as job ${job.id} (${stateWord(job.state, job.kind)}).`
-      : `Queued job ${job.id}: ${summary}` + (position > 0 ? ` (${position} job(s) ahead)` : "") + ".") +
+      : `Queued job ${job.id}: ${summary}${where ? ` in ${where}` : ""}` + (position > 0 ? ` (${position} job(s) ahead)` : "") + ".") +
     APPLY_NOTE +
     (extra.after ?? "");
   if (!agent.online) text += offlineNote(agent, deps.now(), "library");
@@ -888,6 +926,7 @@ async function queueLibrary(
       kind: job.kind,
       state: job.state,
       playlist: job.playlist,
+      app: job.app ?? null,
       summary: job.summary,
       created_at: job.created_at,
       position,

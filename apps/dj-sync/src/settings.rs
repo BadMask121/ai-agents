@@ -23,33 +23,18 @@ pub struct Settings {
     /// itself once it's been gone a while (`uninstall::watch_app`).
     #[serde(default)]
     pub app_path: Option<PathBuf>,
-    /// Which DJ app to use: `rekordbox`, `serato`, `both`, or unset for
-    /// whichever is here (Rekordbox first). See `dj_library::Libraries`.
+    /// Where requests go when they don't name a DJ app: `rekordbox` or
+    /// `serato`. Unset, whichever is here (Rekordbox first). See
+    /// `dj_library::Libraries`.
     #[serde(default)]
-    pub dj_app: Option<String>,
-}
-
-/// Which DJ app's library DJ Sync writes to.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum DjApp {
-    #[default]
-    Auto,
-    Rekordbox,
-    Serato,
-    Both,
+    pub default_app: Option<String>,
+    /// Whether the other app is on too, for requests that name it. An app
+    /// that's off is never touched.
+    #[serde(default)]
+    pub second_app: Option<bool>,
 }
 
 impl Settings {
-    /// The DJ's choice. Anything unknown counts as not having chosen.
-    pub fn dj_app(&self) -> DjApp {
-        match self.dj_app.as_deref() {
-            Some("rekordbox") => DjApp::Rekordbox,
-            Some("serato") => DjApp::Serato,
-            Some("both") => DjApp::Both,
-            _ => DjApp::Auto,
-        }
-    }
-
     /// Missing file → defaults. A file that doesn't parse is logged and
     /// ignored rather than stopping downloads.
     pub fn load_from(path: &Path) -> Settings {

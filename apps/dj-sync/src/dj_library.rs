@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
-use crate::settings::{DjApp, Settings};
+use crate::settings::Settings;
 use crate::xml_versions::{Bump, Version, Versions};
 
 /// After this many failed attempts a batch is set aside instead of retried.
@@ -199,6 +199,11 @@ impl DjLibrary {
 
     pub fn app(&self) -> &'static str {
         self.backend.app()
+    }
+
+    /// What the local API, settings and the cloud call this app.
+    pub fn key(&self) -> &'static str {
+        self.backend.key()
     }
 
     pub fn app_running(&self) -> bool {
@@ -699,33 +704,73 @@ impl Libraries {
             .collect()
     }
 
-    /// The libraries downloads go into. Macs that never chose keep what they
-    /// had: Rekordbox if it's here, else Serato. A choice that can't be met
-    /// (that app's library is gone) falls back to the same.
+    /// The apps that are on, default first. Macs that never chose keep what
+    /// they had: Rekordbox if it's here, else Serato, and no second app. A
+    /// choice that can't be met (that app's library is gone) falls back to
+    /// the same.
     pub fn active(&self) -> Vec<Arc<DjLibrary>> {
-        let choice = self
+        let settings = self
             .settings_file
             .as_deref()
             .map(Settings::load_from)
-            .map(|s| s.dj_app())
             .unwrap_or_default();
         let (rekordbox, serato) = (self.rekordbox.as_ref(), self.serato.as_ref());
-        let chosen: Vec<&Arc<DjLibrary>> = match choice {
-            DjApp::Auto => Vec::new(),
-            DjApp::Rekordbox => rekordbox.into_iter().collect(),
-            DjApp::Serato => serato.into_iter().collect(),
-            DjApp::Both => rekordbox.into_iter().chain(serato).collect(),
+        let (first, other) = match (settings.default_app.as_deref(), rekordbox, serato) {
+            (Some("serato"), rb, Some(s)) => (Some(s), rb),
+            (_, Some(rb), s) => (Some(rb), s),
+            (_, None, s) => (s, None),
         };
-        if chosen.is_empty() {
-            return rekordbox.or(serato).cloned().into_iter().collect();
+        let mut apps: Vec<Arc<DjLibrary>> = first.cloned().into_iter().collect();
+        if settings.second_app == Some(true) {
+            apps.extend(other.cloned());
         }
-        chosen.into_iter().cloned().collect()
+        apps
     }
 
-    /// The library assistants browse and edit. With both apps in use that's
-    /// Rekordbox: playlist ids are per-library, so edits go to one of them.
+    /// The library requests go to when they don't name one.
     pub fn primary(&self) -> Option<Arc<DjLibrary>> {
         self.active().into_iter().next()
+    }
+
+    /// The libraries a request means: its default, the app it names, or
+    /// `both`. An app that's off is an error, never a quiet fallback.
+    pub fn resolve(&self, app: Option<&str>) -> anyhow::Result<Vec<Arc<DjLibrary>>> {
+        let active = self.active();
+        let off = |key: &str| {
+            let name = match key {
+                "serato" => "Serato",
+                "rekordbox" => "Rekordbox",
+                other => other,
+            };
+            anyhow!(
+                "{name} isn't turned on in DJ Sync. Turn it on in the menu bar, then try again."
+            )
+        };
+        match app {
+            None => Ok(active.into_iter().take(1).collect()),
+            Some("both") if active.len() >= 2 => Ok(active),
+            Some("both") => {
+                let on = active.first().map_or("", |l| l.key());
+                Err(off(if on == "serato" {
+                    "rekordbox"
+                } else {
+                    "serato"
+                }))
+            }
+            Some(key) => active
+                .into_iter()
+                .find(|l| l.key() == key)
+                .map(|l| vec![l])
+                .ok_or_else(|| off(key)),
+        }
+    }
+
+    /// What the cloud needs to know: where unnamed requests go, and what's on.
+    pub fn report(&self) -> Option<Value> {
+        let active = self.active();
+        let first = active.first()?;
+        let enabled: Vec<&str> = active.iter().map(|l| l.key()).collect();
+        Some(json!({ "default": first.key(), "enabled": enabled }))
     }
 
     /// Where a batch stands, whichever library it was queued in.
@@ -752,7 +797,11 @@ mod tests {
             self.0
         }
         fn key(&self) -> &'static str {
-            "fake"
+            if self.0 == "Serato" {
+                "serato"
+            } else {
+                "rekordbox"
+            }
         }
         fn backup_name(&self) -> (&'static str, &'static str) {
             ("fake", "bin")
@@ -787,15 +836,16 @@ mod tests {
         Arc::new(DjLibrary::new(Box::new(Fake(app)), PathBuf::from("/tmp/x")))
     }
 
-    fn apps(libs: &Libraries) -> Vec<&'static str> {
-        libs.active().iter().map(|l| l.app()).collect()
+    fn apps(libs: &[Arc<DjLibrary>]) -> Vec<&'static str> {
+        libs.iter().map(|l| l.app()).collect()
     }
 
-    fn with_choice(rb: bool, serato: bool, choice: Option<&str>) -> (tempfile::TempDir, Libraries) {
+    /// `settings` is the file's body; `None` for no file.
+    fn with(rb: bool, serato: bool, settings: Option<&str>) -> (tempfile::TempDir, Libraries) {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("settings.json");
-        if let Some(choice) = choice {
-            std::fs::write(&file, format!(r#"{{"dj_app": "{choice}"}}"#)).unwrap();
+        if let Some(settings) = settings {
+            std::fs::write(&file, settings).unwrap();
         }
         let libs = Libraries::new(
             rb.then(|| lib("Rekordbox")),
@@ -805,37 +855,79 @@ mod tests {
         (tmp, libs)
     }
 
+    const SERATO_DEFAULT: &str = r#"{"default_app": "serato"}"#;
+    const BOTH_ON: &str = r#"{"default_app": "serato", "second_app": true}"#;
+
     #[test]
-    fn a_mac_that_never_chose_keeps_rekordbox_and_serato_only_macs_get_serato() {
-        assert_eq!(apps(&with_choice(true, true, None).1), ["Rekordbox"]);
-        assert_eq!(apps(&with_choice(true, false, None).1), ["Rekordbox"]);
-        assert_eq!(apps(&with_choice(false, true, None).1), ["Serato"]);
-        assert!(apps(&with_choice(false, false, None).1).is_empty());
+    fn a_mac_that_never_chose_keeps_rekordbox_and_leaves_serato_alone() {
+        assert_eq!(apps(&with(true, true, None).1.active()), ["Rekordbox"]);
+        assert_eq!(apps(&with(true, false, None).1.active()), ["Rekordbox"]);
     }
 
     #[test]
-    fn the_djs_choice_wins_and_rekordbox_stays_primary_with_both() {
-        assert_eq!(apps(&with_choice(true, true, Some("serato")).1), ["Serato"]);
-        let (_tmp, both) = with_choice(true, true, Some("both"));
-        assert_eq!(apps(&both), ["Rekordbox", "Serato"]);
-        assert_eq!(both.primary().unwrap().app(), "Rekordbox");
+    fn a_serato_only_mac_uses_serato_without_being_asked() {
+        assert_eq!(apps(&with(false, true, None).1.active()), ["Serato"]);
+        assert!(apps(&with(false, false, None).1.active()).is_empty());
+    }
+
+    #[test]
+    fn the_default_comes_first_and_the_second_app_is_opt_in() {
+        let (_a, off) = with(true, true, Some(SERATO_DEFAULT));
+        assert_eq!(apps(&off.active()), ["Serato"]);
+        let (_b, on) = with(true, true, Some(BOTH_ON));
+        assert_eq!(apps(&on.active()), ["Serato", "Rekordbox"]);
+        assert_eq!(on.primary().unwrap().app(), "Serato");
     }
 
     #[test]
     fn a_choice_that_cant_be_met_falls_back_instead_of_going_quiet() {
         assert_eq!(
-            apps(&with_choice(true, false, Some("serato")).1),
+            apps(&with(true, false, Some(BOTH_ON)).1.active()),
             ["Rekordbox"]
         );
-        assert_eq!(
-            apps(&with_choice(false, true, Some("rekordbox")).1),
-            ["Serato"]
-        );
-        assert_eq!(apps(&with_choice(false, true, Some("both")).1), ["Serato"]);
+        let (_a, serato_only) = with(false, true, Some(r#"{"default_app": "rekordbox"}"#));
+        assert_eq!(apps(&serato_only.active()), ["Serato"]);
     }
 
     #[test]
-    fn an_unreadable_choice_is_treated_as_never_chosen() {
-        assert_eq!(apps(&with_choice(true, true, Some("cdj")).1), ["Rekordbox"]);
+    fn an_unknown_default_is_treated_as_never_chosen() {
+        let (_a, libs) = with(true, true, Some(r#"{"default_app": "cdj"}"#));
+        assert_eq!(apps(&libs.active()), ["Rekordbox"]);
+    }
+
+    #[test]
+    fn a_request_goes_to_the_default_unless_it_names_another() {
+        let (_a, libs) = with(true, true, Some(BOTH_ON));
+        assert_eq!(apps(&libs.resolve(None).unwrap()), ["Serato"]);
+        assert_eq!(
+            apps(&libs.resolve(Some("rekordbox")).unwrap()),
+            ["Rekordbox"]
+        );
+        assert_eq!(
+            apps(&libs.resolve(Some("both")).unwrap()),
+            ["Serato", "Rekordbox"]
+        );
+    }
+
+    #[test]
+    fn an_app_thats_off_is_an_error_not_a_quiet_fallback() {
+        let (_a, libs) = with(true, true, None);
+        let error = libs.resolve(Some("serato")).err().unwrap().to_string();
+        assert!(error.contains("Serato isn't turned on"), "{error}");
+        let error = libs.resolve(Some("both")).err().unwrap().to_string();
+        assert!(error.contains("Serato isn't turned on"), "{error}");
+        let (_b, serato) = with(true, true, Some(SERATO_DEFAULT));
+        let error = serato.resolve(Some("both")).err().unwrap().to_string();
+        assert!(error.contains("Rekordbox isn't turned on"), "{error}");
+    }
+
+    #[test]
+    fn the_cloud_hears_the_default_and_whats_on() {
+        let (_a, libs) = with(true, true, Some(BOTH_ON));
+        assert_eq!(
+            libs.report().unwrap(),
+            json!({"default": "serato", "enabled": ["serato", "rekordbox"]})
+        );
+        assert_eq!(with(false, false, None).1.report(), None);
     }
 }

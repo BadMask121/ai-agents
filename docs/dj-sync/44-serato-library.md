@@ -82,21 +82,48 @@ passed.
 
 ## What the DJ gets
 
-- **Which app:** `settings.json` `dj_app` is `rekordbox`, `serato` or `both`, set
-  from a picker on Macs with both. Unset, Rekordbox wins if it's here, else
-  Serato, so existing Macs don't change.
-- **`both`:** downloads go into both. Assistants browse and edit Rekordbox,
-  because playlist ids belong to one library.
+- **Separate apps, chosen per request.** Rekordbox and Serato keep their own
+  playlists, and nothing is copied between them automatically. A DJ picks a
+  default, and can turn the other app on for requests that name it. Setup asks
+  on a Mac with both, and the menu bar can change it any time.
+  - Stored as `default_app` and `second_app` in `settings.json`. Unset, Rekordbox
+    wins if it's here, else Serato, and no second app, so existing Macs don't
+    change. An app that's off is never touched.
+  - From chat: "download this to Serato" goes only there, "to both" goes to both,
+    and naming nothing goes to the default. The iPhone Shortcut has no chat, so it
+    uses the default.
+  - Playlist edits act on one app at a time, because ids belong to one library.
+  - Asking for an app that's off explains how to turn it on, and fails before
+    anything downloads. It never falls back to the default.
+  - On a Mac with two apps on, replies always say where something went.
 - **Backups:** `~/.dj-sync/serato-backups/serato-library.vX.Y.Z.tar`, a tar of the
   three kinds of file. It's deterministic, so the shared semver logic in
   `xml_versions.rs` works unchanged, and a change made in Serato becomes a MAJOR.
 - **Restore** puts the files back and removes crates that weren't in the backup.
   Serato loads the result at its next launch.
-- **Snapshot:** crates become playlists (`id` is the file stem), and track ids are
-  a hash of the full path, so paths still never leave the Mac. A crate that only
-  groups others counts as a folder.
+- **Snapshot:** one per app that's on, so the Worker resolves names and track ids
+  in the app a request names. Crates become playlists (`id` is the file stem), and
+  track ids are a hash of the full path, so paths still never leave the Mac. A crate
+  that only groups others counts as a folder.
 - **External drives** have their own `_Serato_` folder. They're read for browsing
   but never written, and such a write fails with a clear message.
+
+## The cloud side
+
+Agent protocol 2.1.0 is additive. The Mac sends `apps` (`default`, `enabled`) and
+`library_hashes` on `hello`, and an `apps` frame when the DJ changes them. The
+Worker answers with `libraries_wanted`, and snapshots, jobs, `library_hash` and
+`library_wanted` carry an `app`.
+
+Every tool call passes through one place in `mcp.ts`, which scopes the store to the
+app named, so the handlers don't need to know about apps. A Mac that doesn't report
+its apps can't honour a choice, so the Worker refuses the request. If it queued it,
+the Mac would quietly use its default. Macs on 2.0.0 keep working with no app named.
+
+In Telegram, `routing.ts` reads an app only where it's plain: the end of the message
+or just before a link. Anything else that mentions an app ("to Serato Friday") goes
+to the assistant, or gets a question, because a fuzzy playlist match there could land
+in the wrong app.
 
 ## What isn't proven
 

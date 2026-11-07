@@ -293,10 +293,13 @@ private func tempDir() throws -> URL {
 
   @Test func theDjAppChoiceIsRememberedBesideOtherSettings() throws {
     let file = SettingsFile(url: try tempDir().appending(path: "settings.json"))
-    #expect(file.djApp() == nil)
+    #expect(file.defaultApp() == nil)
+    #expect(file.secondApp() == false, "the second app stays off until it's asked for")
     try file.setDownloadDir("/Users/dj/Music/DJ")
-    try file.setDjApp("serato")
-    #expect(file.djApp() == "serato")
+    try file.setDefaultApp("serato")
+    try file.setSecondApp(true)
+    #expect(file.defaultApp() == "serato")
+    #expect(file.secondApp())
     #expect(file.downloadDir() == "/Users/dj/Music/DJ")
   }
 

@@ -32,7 +32,7 @@ struct MenuView: View {
       ToolsNotice(model: model)
       AssistantsCard(model: model)
       DownloadsCard(model: model)
-      if model.status?.rekordboxDb != nil, model.status?.seratoDb != nil {
+      if model.canChooseApp {
         DjAppPicker(model: model)
       }
       if model.status?.seratoDb == nil
@@ -276,21 +276,22 @@ private struct SeratoCard: View {
   }
 }
 
-/// On a Mac with both apps: which one DJ Sync uses.
+/// On a Mac with both apps: the default, and whether the other one is on.
 private struct DjAppPicker: View {
   @Bindable var model: MenuModel
 
   var body: some View {
-    Card(title: "DJ app", systemImage: "music.quarternote.3") {
+    Card(title: "DJ apps", systemImage: "music.quarternote.3") {
       EmptyView()
     } content: {
-      Picker("Add songs to", selection: selection) {
+      Picker("Default", selection: defaultApp) {
         Text("Rekordbox").tag("rekordbox")
         Text("Serato").tag("serato")
-        Text("Both").tag("both")
       }
       .pickerStyle(.segmented)
-      .labelsHidden()
+      .help("Where new songs go when you don't name an app")
+      Toggle("Also use \(other.name)", isOn: secondApp)
+        .font(.callout)
       Text(note)
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -298,19 +299,24 @@ private struct DjAppPicker: View {
     }
   }
 
-  private var selection: Binding<String> {
+  private var defaultApp: Binding<String> {
     Binding(
-      get: {
-        if let app = model.djApp { return app }
-        return model.status?.activeLibraries.first?.key ?? "rekordbox"
-      },
-      set: { model.chooseDjApp($0) })
+      get: { model.defaultApp ?? model.status?.activeLibraries.first?.key ?? "rekordbox" },
+      set: { model.chooseDefaultApp($0) })
+  }
+
+  private var secondApp: Binding<Bool> {
+    Binding(get: { model.secondApp }, set: { model.turnSecondApp(on: $0) })
+  }
+
+  private var other: (key: String, name: String) {
+    defaultApp.wrappedValue == "serato" ? ("rekordbox", "Rekordbox") : ("serato", "Serato")
   }
 
   private var note: String {
-    selection.wrappedValue == "both"
-      ? "New songs go into both. Your assistant browses and edits Rekordbox's playlists."
-      : "Your assistant browses and edits this app's playlists."
+    model.secondApp
+      ? "Say “to \(other.key)” or “to both” in chat to send songs there. Anything else goes to your default."
+      : "New songs go to your default. DJ Sync leaves \(other.name) alone."
   }
 }
 
