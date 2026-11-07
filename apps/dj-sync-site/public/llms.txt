@@ -1,9 +1,9 @@
 # DJ Sync
 
-> DJ Sync is a free Mac menu bar app for DJs who use Rekordbox 6 or 7. You send a Spotify, YouTube or SoundCloud link (or a plain request) from Telegram, Claude, ChatGPT or your iPhone, and the track downloads on your Mac straight into your Rekordbox library and the playlist you choose. It can also list, search, create, rename, delete and reorganise Rekordbox playlists, including moving tracks between playlists. Your library is backed up before every change.
+> DJ Sync is a free Mac menu bar app for DJs who use Rekordbox 6 or 7, or Serato DJ Pro 5. You send a Spotify, YouTube or SoundCloud link (or a plain request) from Telegram, Claude, ChatGPT or your iPhone, and the track downloads on your Mac straight into your Rekordbox or Serato library and the playlist you choose. It can also list, search, create, rename, delete and reorganise Rekordbox playlists, including moving tracks between playlists. Your library is backed up before every change.
 
 - Price: free. No account, email or password.
-- Requirements: a Mac with macOS 14 Sonoma or later (Apple silicon or Intel) and Rekordbox 6 or 7. Windows is planned.
+- Requirements: a Mac with macOS 14 Sonoma or later (Apple silicon or Intel) and Rekordbox 6 or 7, or Serato DJ Pro 5. Windows is planned.
 - Download: https://djsync.jeffrey.build/download/DJ-Sync-1.4.0.dmg
 - Works while the Mac is asleep or offline: requests wait in the DJ Sync cloud until the Mac is back.
 - Privacy: the cloud keeps links, playlist names, job results and a copy of track metadata (title, artist, album, genre, BPM, key, length). Never file paths, audio, names or emails.
@@ -19,7 +19,7 @@
 
 - [Home](https://djsync.jeffrey.build/): what DJ Sync does
 - [Install guide](https://djsync.jeffrey.build/install/): download, allow it once with Open Anyway, connect an assistant (about five minutes)
-- [FAQ](https://djsync.jeffrey.build/faq/): Rekordbox open or closed, backups and restore, offline Macs, pricing, removal
+- [FAQ](https://djsync.jeffrey.build/faq/): Rekordbox open or closed, Serato, backups and restore, offline Macs, pricing, removal
 - [Privacy](https://djsync.jeffrey.build/privacy/): exactly what the cloud stores and for how long
 - [Terms](https://djsync.jeffrey.build/terms/)
 
