@@ -14,17 +14,17 @@ SUPPORT = "jeff.emakpor@gmail.com"
 
 PAGES = {
   "index.html": dict(path="/", og="home", type="website",
-    title="Spotify, YouTube & SoundCloud to Rekordbox, from any chat · DJ Sync",
-    og_title="DJ Sync: ask your AI, it lands in Rekordbox",
-    desc="Free Mac app: send a Spotify, YouTube or SoundCloud link from Telegram, Claude, ChatGPT or your iPhone and it lands in your Rekordbox library and playlists.",
+    title="Spotify, YouTube & SoundCloud to Rekordbox or Serato, from any chat · DJ Sync",
+    og_title="DJ Sync: ask your AI, it lands in your library",
+    desc="Free Mac app: send a Spotify, YouTube or SoundCloud link from Telegram, Claude, ChatGPT or your iPhone and it lands in your Rekordbox or Serato library and playlists.",
     alt="DJ Sync: a Spotify link becomes a new track in a Rekordbox playlist. Works from Telegram, Claude, ChatGPT and iPhone."),
   "install/index.html": dict(path="/install/", og="install", type="article", crumb="Install", howto=True,
-    title="Install the free Mac app for Rekordbox · DJ Sync",
+    title="Install the free Mac app for Rekordbox and Serato · DJ Sync",
     desc="Download DJ Sync for Mac, allow it once with Open Anyway, then connect Telegram, Claude, ChatGPT or your iPhone. Free, about five minutes.",
     alt="Set up DJ Sync in five minutes: download, Open Anyway, connect."),
   "faq/index.html": dict(path="/faq/", og="faq", type="article", crumb="FAQ", faq=True,
-    title="FAQ: Rekordbox, backups, offline Macs · DJ Sync",
-    desc="Answers about DJ Sync: Rekordbox open or closed, backups and restore, offline Macs, which way to connect, pricing, privacy and removal.",
+    title="FAQ: Rekordbox, Serato, backups, offline Macs · DJ Sync",
+    desc="Answers about DJ Sync: Rekordbox open or closed, Serato, backups and restore, offline Macs, which way to connect, pricing, privacy and removal.",
     alt="DJ Sync FAQ: Rekordbox open or closed, library safety, offline Macs, pricing."),
   "connect/telegram/index.html": dict(path="/connect/telegram/", og="connect-telegram", type="article", crumb="Connect Telegram", howto=True,
     title="Telegram bot for Rekordbox downloads (free) · DJ Sync",
@@ -199,7 +199,7 @@ for name, meta in PAGES.items():
 # manifest
 (P / "site.webmanifest").write_text(json.dumps({
   "name": "DJ Sync", "short_name": "DJ Sync",
-  "description": "Spotify, YouTube and SoundCloud links to Rekordbox, from any chat. Free Mac app.",
+  "description": "Spotify, YouTube and SoundCloud links to Rekordbox or Serato, from any chat. Free Mac app.",
   "start_url": "/", "scope": "/", "display": "browser",
   "background_color": "#0a0a0c", "theme_color": "#0a0a0c",
   "icons": [
