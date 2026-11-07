@@ -506,9 +506,16 @@ fn summary(
     let _ = xml_version; // internal detail; not worth telling the DJ
     let mut msg = match (n, library) {
         (0, _) => "Nothing was downloaded.".to_string(),
-        (_, Some(LibraryNote::Soon(apps))) => format!(
-            "Added {songs} to \"{playlist}\". They're on their way into your {apps} library."
-        ),
+        (_, Some(LibraryNote::Soon(apps))) => {
+            let library = if apps.contains(" and ") {
+                "libraries"
+            } else {
+                "library"
+            };
+            format!(
+                "Added {songs} to \"{playlist}\". They're on their way into your {apps} {library}."
+            )
+        }
         (_, Some(LibraryNote::WhenAppQuits(app))) => format!(
             "Added {songs} to \"{playlist}\". {app} is open, so they'll show up in your \
              library once you close it."
@@ -1375,7 +1382,7 @@ mod tests {
             .job_id;
         let done = wait_done(&q, &job).await;
         assert!(
-            done.message.contains("Serato and Rekordbox"),
+            done.message.contains("Serato and Rekordbox libraries"),
             "{}",
             done.message
         );
