@@ -59,8 +59,16 @@ final class MenuModel {
   private let library = LibraryClient()
 
   private let settings = SettingsFile.standard
-  /// `rekordbox`, `serato` or `both`, once the DJ has chosen.
-  private(set) var djApp = SettingsFile.standard.djApp()
+  /// `rekordbox` or `serato`, once the DJ has chosen.
+  private(set) var defaultApp = SettingsFile.standard.defaultApp()
+  /// The other app is on too, for requests that name it.
+  private(set) var secondApp = SettingsFile.standard.secondApp()
+  let serato = SeratoInstall.detect()
+
+  /// Both apps have a library here that DJ Sync can write to.
+  var canChooseApp: Bool {
+    status?.rekordboxDb != nil && status?.seratoDb != nil && serato?.isSupported == true
+  }
   private let client = StatusClient()
   private let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
   @ObservationIgnored private var iconCache: [String: NSImage] = [:]
@@ -431,11 +439,23 @@ final class MenuModel {
 
   // MARK: DJ app library
 
-  /// The app the DJ picked; `nil` until they do, which means whichever is here.
-  func chooseDjApp(_ app: String) {
+  func chooseDefaultApp(_ app: String) {
+    saveChoice {
+      try settings.setDefaultApp(app)
+      defaultApp = app
+    }
+  }
+
+  func turnSecondApp(on: Bool) {
+    saveChoice {
+      try settings.setSecondApp(on)
+      secondApp = on
+    }
+  }
+
+  private func saveChoice(_ save: () throws -> Void) {
     do {
-      try settings.setDjApp(app)
-      djApp = app
+      try save()
     } catch {
       actionError = "Couldn't save that: \(error.localizedDescription)"
     }

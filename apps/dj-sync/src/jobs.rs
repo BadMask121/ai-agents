@@ -100,6 +100,8 @@ enum Work {
     Download {
         media: Vec<MediaRef>,
         playlist_id: Option<String>,
+        /// The DJ app the request named. `None`: the default.
+        app: Option<String>,
     },
     Library(LibraryWork),
 }
@@ -113,6 +115,8 @@ pub struct LibraryWork {
     pub playlist: String,
     pub ops: Vec<serde_json::Value>,
     pub paths: HashMap<String, PathBuf>,
+    /// The DJ app the request named. `None`: the default.
+    pub app: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,15 +190,17 @@ impl JobQueue {
         media: Vec<MediaRef>,
         playlist: Option<&str>,
     ) -> anyhow::Result<Submitted> {
-        self.submit_to(media, playlist, None)
+        self.submit_to(media, playlist, None, None)
     }
 
-    /// `submit` into a specific existing playlist (by its id).
+    /// `submit` into a specific existing playlist (by its id), and a DJ app
+    /// (`rekordbox`, `serato` or `both`) if the request named one.
     pub fn submit_to(
         &self,
         media: Vec<MediaRef>,
         playlist: Option<&str>,
         playlist_id: Option<String>,
+        app: Option<String>,
     ) -> anyhow::Result<Submitted> {
         anyhow::ensure!(!media.is_empty(), "no links to download");
         let playlist = normalize_playlist_name(playlist, &self.default_playlist)?;
@@ -203,7 +209,10 @@ impl JobQueue {
         let mut store = self.store.lock().expect("job store");
         // ChatGPT may retry a tool call; don't queue the same work twice.
         if let Some(e) = store.iter().find(|e| {
-            e.status.state.is_active() && e.status.urls == urls && e.status.playlist == playlist
+            e.status.state.is_active()
+                && e.status.urls == urls
+                && e.status.playlist == playlist
+                && matches!(&e.work, Work::Download { app: a, .. } if *a == app)
         }) {
             let job = e.status.clone();
             let position = position_of(&store, &job.job_id);
@@ -219,7 +228,11 @@ impl JobQueue {
             JobKind::Download,
             playlist,
             urls,
-            Work::Download { media, playlist_id },
+            Work::Download {
+                media,
+                playlist_id,
+                app,
+            },
         )
     }
 
@@ -383,10 +396,15 @@ async fn worker<F: Fetcher>(
         }) else {
             continue;
         };
-        let (media, playlist_id) = match work {
-            Work::Download { media, playlist_id } => (media, playlist_id),
+        let (media, playlist_id, app) = match work {
+            Work::Download {
+                media,
+                playlist_id,
+                app,
+            } => (media, playlist_id, app),
             Work::Library(work) => {
-                run_library_job(&store, &job_id, &cfg, work, libraries.primary()).await;
+                let target = libraries.resolve(work.app.as_deref());
+                run_library_job(&store, &job_id, &cfg, work, target).await;
                 continue;
             }
         };
@@ -407,16 +425,22 @@ async fn worker<F: Fetcher>(
         let outcome = match crate::settings::ensure_writable(&dir) {
             Ok(()) => {
                 info!(%job_id, dir = %dir.display(), source = source.as_str(), "download folder");
-                run_job(
-                    &job_cfg,
-                    &fetcher,
-                    &job_id,
-                    &media,
-                    &playlist,
-                    playlist_id.clone(),
-                    libraries.active(),
-                )
-                .await
+                // Checked first, so an app that's off costs no download.
+                match libraries.resolve(app.as_deref()) {
+                    Ok(target) => {
+                        run_job(
+                            &job_cfg,
+                            &fetcher,
+                            &job_id,
+                            &media,
+                            &playlist,
+                            playlist_id.clone(),
+                            target,
+                        )
+                        .await
+                    }
+                    Err(e) => Err(e),
+                }
             }
             Err(e) => Err(e),
         };
@@ -803,7 +827,7 @@ async fn run_library_job(
     job_id: &str,
     cfg: &DownloadCfg,
     work: LibraryWork,
-    library: Option<Arc<DjLibrary>>,
+    target: anyhow::Result<Vec<Arc<DjLibrary>>>,
 ) {
     update(store, job_id, |s| {
         s.state = JobState::Running;
@@ -814,6 +838,7 @@ async fn run_library_job(
     let cfg = cfg.clone();
     let result = tokio::task::spawn_blocking(
         move || -> anyhow::Result<(Option<Version>, Option<String>, Option<LibraryNote>)> {
+            let library = target?.into_iter().next();
             // The XML is how Rekordbox sees changes while it's open.
             let uses_xml = library.as_ref().is_none_or(|lib| lib.app() == "Rekordbox");
             let xml_version = if uses_xml {
@@ -953,6 +978,7 @@ mod tests {
     use super::*;
     use crate::parser::extract_media_ref;
     use crate::rekordbox_xml::RekordboxLib;
+    use serde_json::json;
     use std::time::Duration;
 
     fn fixture() -> PathBuf {
@@ -1250,6 +1276,199 @@ mod tests {
         ))
     }
 
+    /// A Mac with both apps. Each queue is read straight from its pending file.
+    fn two_apps(dir: &Path, settings: serde_json::Value) -> Libraries {
+        let file = dir.join("settings.json");
+        std::fs::write(&file, settings.to_string()).unwrap();
+        let serato = crate::config::SeratoCfg {
+            enabled: true,
+            root: dir.join("_Serato_"),
+            ..Default::default()
+        };
+        Libraries::new(
+            Some(library_stub(dir, false)),
+            Some(Arc::new(crate::serato::library_with_parts(
+                serato,
+                dir.join("state"),
+                Arc::new(|| false),
+            ))),
+            Some(file),
+        )
+    }
+
+    fn queued(dir: &Path, key: &str) -> Vec<serde_json::Value> {
+        let file = dir.join("state").join(format!("{key}-pending.json"));
+        let Ok(raw) = std::fs::read_to_string(file) else {
+            return Vec::new();
+        };
+        let pending: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        pending["batches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|b| b["ops"].as_array().unwrap().clone())
+            .collect()
+    }
+
+    const YOUTUBE: &[&str] = &["https://www.youtube.com/watch?v=dQw4w9WgXcQ"];
+
+    #[tokio::test]
+    async fn a_download_goes_to_the_default_with_nothing_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(
+            dir.path(),
+            json!({"default_app": "serato", "second_app": true}),
+        );
+        let (q, _w) = JobQueue::start_with(cfg(dir.path()), FakeFetcher, libs).unwrap();
+        let job = q.submit(media(YOUTUBE), Some("Fri")).unwrap().job.job_id;
+        let done = wait_done(&q, &job).await;
+        assert!(done.message.contains("Serato"), "{}", done.message);
+        assert!(!queued(dir.path(), "serato").is_empty());
+        assert!(queued(dir.path(), "rekordbox").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_download_naming_an_app_only_touches_that_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(
+            dir.path(),
+            json!({"default_app": "rekordbox", "second_app": true}),
+        );
+        let (q, _w) = JobQueue::start_with(cfg(dir.path()), FakeFetcher, libs).unwrap();
+        let job = q
+            .submit_to(
+                media(YOUTUBE),
+                Some("Fri"),
+                Some("id".into()),
+                Some("serato".into()),
+            )
+            .unwrap()
+            .job
+            .job_id;
+        let done = wait_done(&q, &job).await;
+        assert_eq!(done.state, JobState::Done);
+        assert!(done.message.contains("Serato"), "{}", done.message);
+        assert!(queued(dir.path(), "rekordbox").is_empty());
+        let ops = queued(dir.path(), "serato");
+        assert!(ops
+            .iter()
+            .any(|o| o["op"] == "add_to_playlist" && o["playlist_id"] == "id"));
+    }
+
+    #[tokio::test]
+    async fn a_download_to_both_pins_the_playlist_only_in_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(
+            dir.path(),
+            json!({"default_app": "serato", "second_app": true}),
+        );
+        let (q, _w) = JobQueue::start_with(cfg(dir.path()), FakeFetcher, libs).unwrap();
+        let job = q
+            .submit_to(
+                media(YOUTUBE),
+                Some("Fri"),
+                Some("id".into()),
+                Some("both".into()),
+            )
+            .unwrap()
+            .job
+            .job_id;
+        let done = wait_done(&q, &job).await;
+        assert!(
+            done.message.contains("Serato and Rekordbox"),
+            "{}",
+            done.message
+        );
+        let pinned = |key| {
+            queued(dir.path(), key)
+                .iter()
+                .any(|o| o.get("playlist_id").is_some())
+        };
+        assert!(pinned("serato"));
+        assert!(
+            !pinned("rekordbox"),
+            "the id means nothing in the other app"
+        );
+        assert!(queued(dir.path(), "rekordbox")
+            .iter()
+            .any(|o| o["op"] == "add_to_playlist" && o["playlist"] == "Fri"));
+    }
+
+    #[tokio::test]
+    async fn the_same_links_for_two_apps_are_two_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(
+            dir.path(),
+            json!({"default_app": "rekordbox", "second_app": true}),
+        );
+        let (q, _w) = JobQueue::start_with(cfg(dir.path()), FakeFetcher, libs).unwrap();
+        let a = q
+            .submit_to(media(YOUTUBE), Some("Fri"), None, Some("serato".into()))
+            .unwrap();
+        let b = q
+            .submit_to(media(YOUTUBE), Some("Fri"), None, Some("rekordbox".into()))
+            .unwrap();
+        assert!(!b.deduplicated);
+        assert_ne!(a.job.job_id, b.job.job_id);
+    }
+
+    #[tokio::test]
+    async fn an_app_thats_off_fails_before_anything_downloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(dir.path(), json!({"default_app": "rekordbox"}));
+        let c = cfg(dir.path());
+        let (q, _w) = JobQueue::start_with(c.clone(), FakeFetcher, libs).unwrap();
+        let job = q
+            .submit_to(media(YOUTUBE), Some("Fri"), None, Some("serato".into()))
+            .unwrap()
+            .job
+            .job_id;
+        let done = wait_done(&q, &job).await;
+        assert_eq!(done.state, JobState::Failed);
+        assert!(
+            done.message.contains("Serato isn't turned on"),
+            "{}",
+            done.message
+        );
+        assert!(audio_files_in(&c.dir).is_empty(), "nothing was downloaded");
+        assert!(queued(dir.path(), "rekordbox").is_empty());
+        assert!(queued(dir.path(), "serato").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_playlist_change_for_serato_leaves_the_rekordbox_xml_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(
+            dir.path(),
+            json!({"default_app": "rekordbox", "second_app": true}),
+        );
+        let c = cfg(dir.path());
+        let (q, _w) = JobQueue::start_with(c.clone(), FakeFetcher, libs).unwrap();
+        let xml = std::fs::read_to_string(&c.import_xml).unwrap();
+        let mut work = library_work(vec![json!({"op": "ensure_playlist", "name": "New"})], &[]);
+        work.app = Some("serato".into());
+        let job = q.submit_library(work).unwrap().job.job_id;
+        let done = wait_done(&q, &job).await;
+        assert_eq!(done.state, JobState::Done);
+        assert!(done.message.contains("Serato"), "{}", done.message);
+        assert_eq!(std::fs::read_to_string(&c.import_xml).unwrap(), xml);
+        assert_eq!(queued(dir.path(), "serato").len(), 1);
+        assert!(queued(dir.path(), "rekordbox").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_playlist_change_for_an_app_thats_off_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let libs = two_apps(dir.path(), json!({"default_app": "rekordbox"}));
+        let (q, _w) = JobQueue::start_with(cfg(dir.path()), FakeFetcher, libs).unwrap();
+        let mut work = library_work(vec![json!({"op": "ensure_playlist", "name": "New"})], &[]);
+        work.app = Some("serato".into());
+        let job = q.submit_library(work).unwrap().job.job_id;
+        let done = wait_done(&q, &job).await;
+        assert_eq!(done.state, JobState::Failed);
+        assert!(done.message.contains("isn't turned on"), "{}", done.message);
+    }
+
     fn library_work(ops: Vec<serde_json::Value>, paths: &[(&str, &Path)]) -> LibraryWork {
         LibraryWork {
             summary: "Change playlists".into(),
@@ -1259,6 +1478,7 @@ mod tests {
                 .iter()
                 .map(|(id, p)| (id.to_string(), p.to_path_buf()))
                 .collect(),
+            app: None,
         }
     }
 
