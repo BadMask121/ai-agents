@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import { parseApps, parseLibrary } from "../src/agent";
 import { appInMessage, mentionsApp } from "../src/routing";
+import { SqlStore } from "../src/sqlstore";
 import { makeCloud, type Any } from "./cloud";
+import { FakeStorage } from "./do-harness";
 import { CHAT, LIBRARY, hook, msg, paired, pushedJob, tap, tgCloud, upload } from "./telegram-helpers";
 
 const YT = (n: number) => `https://youtu.be/dQw4w9WgXc${n}`;
@@ -64,6 +66,46 @@ describe("reading a message for an app", () => {
   it("doesn't take a word in a link for a request", () => {
     expect(mentionsApp("https://soundcloud.com/serato/some-track")).toBe(false);
     expect(appInMessage("https://soundcloud.com/serato/some-track friday")).toMatchObject({ app: null, unclear: false });
+  });
+});
+
+describe("a DJ whose account predates this", () => {
+  it("gets the new columns on first use, keeps old jobs, and can take new ones", async () => {
+    const storage = new FakeStorage();
+    const db = { exec: storage.sql.exec.bind(storage.sql), transaction: <T>(fn: () => T) => storage.transactionSync(fn) } as Any;
+    new SqlStore(db).init({});
+    db.exec("ALTER TABLE jobs DROP COLUMN app");
+    db.exec("ALTER TABLE tg_pending DROP COLUMN app");
+    db.exec(
+      "INSERT INTO jobs (id, state, playlist, urls, dedupe_key, source, created_at) VALUES ('old', 'queued', 'Fri', '[]', 'k', 'mcp', '2026-10-01T00:00:00Z')",
+    );
+
+    SqlStore.migrate(db);
+    SqlStore.migrate(db); // runs every time a tenant wakes
+
+    const store = new SqlStore(db);
+    expect(await store.getJob("old")).toMatchObject({ playlist: "Fri", app: null });
+    const job = { ...(await store.getJob("old"))!, id: "new", dedupe_key: "n", app: "serato" as const };
+    await store.insertJob(job);
+    expect(await store.getJob("new")).toMatchObject({ app: "serato" });
+    store.addTgPending({ id: "p", chat_id: "1", urls: [], hint: null, created_at: "2026-11-07T00:00:00Z", app: "both" });
+    expect(store.getTgPending("p")).toMatchObject({ app: "both" });
+  });
+
+  it("moves a snapshot stored the old way to per-app on the Mac's next hello", async () => {
+    const c = makeCloud();
+    const t = await c.registered();
+    const { url } = await c.link(t);
+    const old = await c.connect(t);
+    await c.hello(t, old, { library_hash: "legacy" });
+    expect((await upload(c, t, { ...LIBRARY, hash: "legacy" })).status).toBe(200);
+    expect(text(await c.tool(url, "list_playlists", {}))).toContain("Gqom");
+
+    const updated = await c.connect(t);
+    await c.hello(t, updated, { apps: { default: "rekordbox", enabled: ["rekordbox"] }, library_hashes: { rekordbox: "legacy" } });
+    expect(updated.frames()[0]).toMatchObject({ libraries_wanted: ["rekordbox"] });
+    expect((await upload(c, t, { ...LIBRARY, hash: "legacy", app: "rekordbox" })).status).toBe(200);
+    expect(text(await c.tool(url, "list_playlists", {}))).toContain("Gqom");
   });
 });
 
