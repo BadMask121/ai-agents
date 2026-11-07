@@ -56,10 +56,11 @@ public enum Diagnostics {
           + (s.cloud.connected.map { $0 ? " · connected" : " · not connected" } ?? ""))
       lines.append("Downloads: \(s.downloadDir) (\(s.downloadDirWritable ? "writable" : "NOT writable"))")
       lines.append("Import XML: \(s.importXml)" + (s.xmlVersion.map { " · v\($0)" } ?? ""))
-      if let lib = s.rekordboxDb {
+      if let apps = s.djApps { lines.append("DJ apps in use: \(apps.joined(separator: ", "))") }
+      for lib in s.libraries {
         lines.append(
-          "Rekordbox library: v\(lib.currentVersion ?? "–") · \(lib.pending.count) pending · \(lib.failed.count) failed"
-            + (lib.rekordboxRunning ? " · Rekordbox open" : ""))
+          "\(lib.appName) library: v\(lib.currentVersion ?? "–") · \(lib.pending.count) pending · \(lib.failed.count) failed"
+            + (lib.isAppRunning ? " · \(lib.appName) open" : ""))
         if let e = lib.lastError { lines.append("  last error: \(e)") }
       }
       for job in s.recentJobs.prefix(5) {

@@ -36,7 +36,7 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     public var localUrl: String
   }
 
-  /// Rekordbox's own library (master.db), when dj-sync writes to it.
+  /// A DJ app's own library, when dj-sync writes to it.
   public struct Library: Decodable, Equatable, Sendable {
     public struct Pending: Decodable, Equatable, Sendable, Identifiable {
       public var id: String
@@ -62,8 +62,12 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
       public var date: Date? { parseTimestamp(createdAt) }
     }
 
+    /// "Rekordbox" or "Serato". dj-sync < 1.5 only knew Rekordbox.
+    public var app: String?
     public var dbPath: String
-    public var rekordboxRunning: Bool
+    public var appRunning: Bool?
+    /// What dj-sync < 1.5 calls `appRunning`.
+    public var rekordboxRunning: Bool?
     public var pending: [Pending]
     public var failed: [Failed]
     public var lastApplied: Applied?
@@ -71,11 +75,29 @@ public struct ServiceStatus: Decodable, Equatable, Sendable {
     public var currentVersion: String?
     /// Newest first.
     public var backups: [Backup]
+
+    public var appName: String { app ?? "Rekordbox" }
+    /// What the local API calls this library.
+    public var key: String { appName.lowercased() }
+    public var isAppRunning: Bool { appRunning ?? rekordboxRunning ?? false }
+  }
+
+  /// Every DJ app library on this Mac, in use or not.
+  public var libraries: [Library] { [rekordboxDb, seratoDb].compactMap { $0 } }
+
+  /// The libraries in use, primary first.
+  public var activeLibraries: [Library] {
+    guard let djApps else { return rekordboxDb.map { [$0] } ?? [] }
+    return djApps.compactMap { app in libraries.first { $0.appName == app } }
   }
 
   public var version: String
   /// dj-sync ≥ 0.6 with `[rekordbox_db] enabled`.
   public var rekordboxDb: Library?
+  /// dj-sync ≥ 1.5 on a Mac with a Serato library.
+  public var seratoDb: Library?
+  /// The apps in use, primary first. dj-sync < 1.5 doesn't say.
+  public var djApps: [String]?
   /// Optional so the app still works with dj-sync < 0.3.
   public var mcp: Mcp?
   public var shortcutUrl: String?
@@ -147,30 +169,30 @@ public struct LibraryClient: Sendable {
     public var version: String?
   }
 
-  /// Restore a backup of Rekordbox's library (Rekordbox must be closed).
-  public func restore(version: String) async -> Reply {
-    await post("local/rekordbox/restore", body: ["version": version])
+  /// Restore a backup of a DJ app's library (the app must be closed).
+  public func restore(version: String, app: String = "rekordbox") async -> Reply {
+    await post("local/\(app)/restore", body: ["version": version])
   }
 
-  /// Apply queued changes now (does nothing while Rekordbox is open).
-  public func applyNow() async -> Reply {
-    await post("local/rekordbox/apply", body: [:])
+  /// Apply queued changes now (does nothing while the app is open).
+  public func applyNow(app: String = "rekordbox") async -> Reply {
+    await post("local/\(app)/apply", body: [:])
   }
 
   /// Back up the library now, before DJ Sync ever changes it (onboarding).
-  /// Fails politely while Rekordbox is open.
-  public func takeBaseline() async -> Reply {
-    await post("local/rekordbox/baseline", body: [:])
+  /// Fails politely while the app is open.
+  public func takeBaseline(app: String = "rekordbox") async -> Reply {
+    await post("local/\(app)/baseline", body: [:])
   }
 
   /// Requeue changes that were set aside after failing.
-  public func retryFailed() async -> Reply {
-    await post("local/rekordbox/retry", body: [:])
+  public func retryFailed(app: String = "rekordbox") async -> Reply {
+    await post("local/\(app)/retry", body: [:])
   }
 
   /// Forget changes that were set aside after failing.
-  public func dismissFailed() async -> Reply {
-    await post("local/rekordbox/dismiss", body: [:])
+  public func dismissFailed(app: String = "rekordbox") async -> Reply {
+    await post("local/\(app)/dismiss", body: [:])
   }
 
   private func post(_ path: String, body: [String: String]) async -> Reply {

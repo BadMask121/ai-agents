@@ -26,6 +26,16 @@ public struct SettingsFile: Sendable {
     try set("download_dir", path)
   }
 
+  /// Which DJ app's library to use: `rekordbox`, `serato` or `both`. `nil`
+  /// when the DJ hasn't chosen, which means whichever is here.
+  public func djApp() -> String? {
+    readObject()["dj_app"] as? String
+  }
+
+  public func setDjApp(_ app: String?) throws {
+    try set("dj_app", app)
+  }
+
   /// Onboarding finished (or skipped) on this Mac.
   public func onboarded() -> Bool {
     readObject()["onboarded"] as? Bool ?? false

@@ -3,7 +3,7 @@ import DJSyncCore
 import Observation
 import SwiftUI
 
-/// First-run setup (spec §1): tools → Rekordbox → connect an assistant.
+/// First-run setup (spec §1): tools → DJ app → connect an assistant.
 /// Resumable: it shows again until finished or skipped.
 @Observable
 final class OnboardingModel {
@@ -11,6 +11,7 @@ final class OnboardingModel {
   private(set) var toolbox: ToolboxReport?
   private(set) var status: ServiceStatus?
   let rekordbox = RekordboxInstall.detect()
+  let serato = SeratoInstall.detect()
 
   enum Baseline: Equatable {
     case waiting
@@ -45,8 +46,8 @@ final class OnboardingModel {
     while !Task.isCancelled {
       status = await statusClient.fetch()
       toolbox = status == nil ? nil : await toolboxClient.fetch()
-      if step == .rekordbox, baseline == .waiting, status?.rekordboxDb != nil {
-        await takeBaseline()
+      if step == .djApp, baseline == .waiting, let library = status?.activeLibraries.first {
+        await takeBaseline(of: library)
       }
       if step == .assistant, let id = link?.id, !connected,
         case .success(let links) = await linksClient.list()
@@ -70,10 +71,10 @@ final class OnboardingModel {
     Task { _ = await toolboxClient.install() }
   }
 
-  private func takeBaseline() async {
+  private func takeBaseline(of target: ServiceStatus.Library) async {
     baseline = .working
-    let reply = await library.takeBaseline()
-    baseline = reply.ok ? .done(reply.version ?? "1.0.0") : .later(reply.error ?? "Rekordbox is open.")
+    let reply = await library.takeBaseline(app: target.key)
+    baseline = reply.ok ? .done(reply.version ?? "1.0.0") : .later(reply.error ?? "\(target.appName) is open.")
   }
 
   func choose(_ assistant: Assistant) {
@@ -126,7 +127,7 @@ struct OnboardingView: View {
       Group {
         switch model.step {
         case .tools: ToolsStep(model: model)
-        case .rekordbox: RekordboxStep(model: model)
+        case .djApp: DjAppStep(model: model)
         case .assistant: AssistantStep(model: model)
         }
       }
@@ -216,24 +217,48 @@ private struct ToolsStep: View {
   }
 }
 
-private struct RekordboxStep: View {
+private struct DjAppStep: View {
   @Bindable var model: OnboardingModel
 
+  private var hasRekordbox: Bool { model.rekordbox != nil || model.status?.rekordboxDb != nil }
+
   var body: some View {
-    Card(title: "Rekordbox", systemImage: "square.stack.3d.up") {
-      if let r = model.rekordbox {
-        Badge(text: r.version.map { "\(r.name) · \($0)" } ?? r.name, tint: .purple)
+    if hasRekordbox || model.serato == nil {
+      Card(title: "Rekordbox", systemImage: "square.stack.3d.up") {
+        if let r = model.rekordbox {
+          Badge(text: r.version.map { "\(r.name) · \($0)" } ?? r.name, tint: .purple)
+        }
+      } content: {
+        if !hasRekordbox {
+          Text("No DJ app here yet. DJ Sync still saves your songs and writes a rekordbox xml file; install Rekordbox or Serato any time and they'll show up.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+          Text("New songs and playlist changes go straight into your Rekordbox library (a DJ Sync folder in Playlists). With Rekordbox open, they appear under rekordbox xml and land in the library when you quit it.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+          BaselineLine(baseline: model.baseline)
+        }
       }
-    } content: {
-      if model.rekordbox == nil && model.status?.rekordboxDb == nil {
-        Text("Rekordbox isn't installed here. DJ Sync still saves your songs and writes a rekordbox xml file; install Rekordbox any time and they'll show up.")
-          .font(.callout)
-          .fixedSize(horizontal: false, vertical: true)
-      } else {
-        Text("New songs and playlist changes go straight into your Rekordbox library (a DJ Sync folder in Playlists). With Rekordbox open, they appear under rekordbox xml and land in the library when you quit it.")
-          .font(.callout)
-          .fixedSize(horizontal: false, vertical: true)
-        BaselineLine(baseline: model.baseline)
+    }
+    if let serato = model.serato {
+      Card(title: "Serato", systemImage: "square.stack.3d.up") {
+        Badge(text: serato.version.map { "\(serato.name) · \($0)" } ?? serato.name, tint: .purple)
+      } content: {
+        if !serato.isSupported {
+          Text("DJ Sync works with Serato DJ Pro \(SeratoInstall.supportedMajor). Update Serato to use it here. Until then your songs are still saved to the folder below, ready to drag in.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        } else if hasRekordbox {
+          Text("You can switch DJ Sync to Serato, or use both, from the menu once setup is done.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+          Text("New songs and playlist changes go into your Serato library (a DJ Sync crate). Serato saves over changes made while it's open, so they land when you quit it, and show up the next time you open it.")
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+          BaselineLine(baseline: model.baseline)
+        }
       }
     }
     Card(title: "Downloads", systemImage: "arrow.down.circle") {
@@ -267,7 +292,7 @@ private struct BaselineLine: View {
         Text("Backed up as v\(version). Every change is backed up first; restore any time from the menu.")
       case .later:
         Image(systemName: "clock.fill").foregroundStyle(.orange)
-        Text("Rekordbox is open, so DJ Sync will back up your library before its first change. Restore any time from the menu.")
+        Text("Your DJ app is open, so DJ Sync will back up your library before its first change. Restore any time from the menu.")
       }
     }
     .font(.caption)

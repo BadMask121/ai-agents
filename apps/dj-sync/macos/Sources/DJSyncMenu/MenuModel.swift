@@ -59,6 +59,8 @@ final class MenuModel {
   private let library = LibraryClient()
 
   private let settings = SettingsFile.standard
+  /// `rekordbox`, `serato` or `both`, once the DJ has chosen.
+  private(set) var djApp = SettingsFile.standard.djApp()
   private let client = StatusClient()
   private let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
   @ObservationIgnored private var iconCache: [String: NSImage] = [:]
@@ -378,11 +380,11 @@ final class MenuModel {
       This stops DJ Sync, removes its tools and settings, and asks the DJ Sync cloud to forget \
       this Mac, so ChatGPT, Claude, iPhone and Telegram stop reaching it.
 
-      Your music and Rekordbox library stay as they are.
+      Your music and DJ library stay as they are.
       """
-    let waiting = status?.rekordboxDb?.pending.count ?? 0
+    let waiting = status?.libraries.reduce(0) { $0 + $1.pending.count } ?? 0
     if waiting > 0 {
-      info += "\n\n\(waiting == 1 ? "1 change" : "\(waiting) changes") waiting for Rekordbox to close will be dropped."
+      info += "\n\n\(waiting == 1 ? "1 change" : "\(waiting) changes") waiting for your DJ app to close will be dropped."
     }
     alert.informativeText = info
     let keep = NSButton(
@@ -418,7 +420,7 @@ final class MenuModel {
       done.messageText = "DJ Sync is removed"
       done.informativeText = [
         keepBackups ? "Your library backups are in Music › DJ Sync Backups." : nil,
-        "Your music and Rekordbox library are as they were.",
+        "Your music and DJ library are as they were.",
         binned ? nil : "Drag DJ Sync from Applications to the Bin to finish.",
       ].compactMap { $0 }.joined(separator: " ")
       NSApp.activate()
@@ -427,37 +429,49 @@ final class MenuModel {
     }
   }
 
-  // MARK: Rekordbox library
+  // MARK: DJ app library
 
-  /// Restore a backup of Rekordbox's library, after an explicit confirmation.
-  func restoreBackup(_ backup: ServiceStatus.Library.Backup) {
+  /// The app the DJ picked; `nil` until they do, which means whichever is here.
+  func chooseDjApp(_ app: String) {
+    do {
+      try settings.setDjApp(app)
+      djApp = app
+    } catch {
+      actionError = "Couldn't save that: \(error.localizedDescription)"
+    }
+    Task { await refresh() }
+  }
+
+  /// Restore a backup of a DJ app's library, after an explicit confirmation.
+  func restoreBackup(_ backup: ServiceStatus.Library.Backup, in target: ServiceStatus.Library) {
+    let app = target.appName
     let alert = NSAlert()
     alert.alertStyle = .warning
-    alert.messageText = "Restore your Rekordbox library to v\(backup.version)?"
+    alert.messageText = "Restore your \(app) library to v\(backup.version)?"
     let when = backup.date.map { " from \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
     alert.informativeText = """
       This puts back the backup\(when): “\(backup.reason)”.
 
       Your current library is backed up first, so you can undo this from the same list. \
-      Keep Rekordbox closed until it finishes.
+      Keep \(app) closed until it finishes.
       """
     alert.addButton(withTitle: "Restore")
     alert.addButton(withTitle: "Cancel")
     NSApp.activate()
     guard alert.runModal() == .alertFirstButtonReturn else { return }
-    runLibraryAction { await $0.restore(version: backup.version) }
+    runLibraryAction { await $0.restore(version: backup.version, app: target.key) }
   }
 
-  func applyLibraryNow() {
-    runLibraryAction { await $0.applyNow() }
+  func applyLibraryNow(_ target: ServiceStatus.Library) {
+    runLibraryAction { await $0.applyNow(app: target.key) }
   }
 
-  func retryFailedChanges() {
-    runLibraryAction { await $0.retryFailed() }
+  func retryFailedChanges(_ target: ServiceStatus.Library) {
+    runLibraryAction { await $0.retryFailed(app: target.key) }
   }
 
-  func dismissFailedChanges() {
-    runLibraryAction { await $0.dismissFailed() }
+  func dismissFailedChanges(_ target: ServiceStatus.Library) {
+    runLibraryAction { await $0.dismissFailed(app: target.key) }
   }
 
   private func runLibraryAction(_ action: @escaping (LibraryClient) async -> LibraryClient.Reply) {

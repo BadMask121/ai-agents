@@ -67,3 +67,11 @@ keep_versions = 100
 enabled = false
 base_url = "https://djsync.jeffrey.build"
 poll_secs = 15
+
+# Serato's library. On by itself when ~/Music/_Serato_ has a library, and
+# nothing here needs setting. Which app a Mac uses is chosen in the menu bar
+# app. See docs/dj-sync/44-serato-library.md.
+# [serato]
+# enabled = true
+# root = "~/Music/_Serato_"
+# keep_backups = 12

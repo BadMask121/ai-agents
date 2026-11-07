@@ -447,7 +447,7 @@ pub fn preflight(cfg: &SeratoCfg) -> anyhow::Result<()> {
          FROM dj_container_metadata m
          JOIN container c ON c.id = m.container_id
          LEFT JOIN container_asset ca ON ca.container_id = m.container_id
-         WHERE c.type = 1
+         WHERE c.type = 1 AND (m.filename IS NULL OR m.filename LIKE '%.crate')
          GROUP BY m.container_id",
     )?;
     for row in &crates {
@@ -1839,6 +1839,28 @@ mod tests {
              INSERT INTO dj_container_metadata VALUES (9, 'Lost.crate');",
         );
         assert!(preflight(&r.cfg).unwrap_err().to_string().contains("Lost"));
+    }
+
+    #[test]
+    fn a_smart_crate_isnt_mistaken_for_a_crate_with_no_file() {
+        let r = rig();
+        r.in_sqlite(
+            "root.sqlite",
+            "INSERT INTO container VALUES (9, 'Smart', 1);
+             INSERT INTO dj_container_metadata VALUES (9, 'Smart.scrate');",
+        );
+        preflight(&r.cfg).unwrap();
+    }
+
+    #[test]
+    fn a_crate_serato_never_exported_blocks_writes() {
+        let r = rig();
+        r.in_sqlite(
+            "root.sqlite",
+            "INSERT INTO container VALUES (9, 'New', 1);
+             INSERT INTO dj_container_metadata VALUES (9, NULL);",
+        );
+        assert!(preflight(&r.cfg).unwrap_err().to_string().contains("New"));
     }
 
     #[test]

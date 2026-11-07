@@ -1,6 +1,6 @@
 # dj-sync
 
-Spotify / YouTube / SoundCloud → Rekordbox prep for a DJ laptop. One Rust binary
+Spotify / YouTube / SoundCloud → Rekordbox and Serato prep for a DJ laptop. One Rust binary
 with two optional lanes:
 
 - **Telegram bot.** It matches Spotify playlists against your local library
@@ -66,6 +66,9 @@ src/
 ├── main.rs           # loads .env + config, runs the bot and HTTP lanes, SIGINT/SIGTERM shutdown
 ├── lib.rs            # shared types, Rekordbox Location encode/decode, unique_name
 ├── bot.rs …          # Telegram lane (bot, matcher, library, spotify, rekordbox, usb, nlu)
+├── dj_library.rs     # one DJ app's library: queue, semver backups, restore, which apps are in use
+├── rekordbox_db.rs   # …written through rekordbox/rbdb.py (pyrekordbox)
+├── serato.rs         # …written through the files Serato re-imports, with its safety checks
 ├── rekordbox_xml.rs  # read-only parser for Rekordbox's own XML export (bot browser)
 ├── http.rs           # axum: /health, /<secret>/mcp, /api/downloads
 ├── mcp.rs            # JSON-RPC dispatch + the two MCP tools
