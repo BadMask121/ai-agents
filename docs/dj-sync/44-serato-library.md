@@ -1,10 +1,8 @@
 # 44 — Serato's library
 
-**Status:** code on branch `dj-sync-serato` (bd `ai-agents-jff.8`), not released.
-Tested on the owner's Mac against **Serato DJ Pro 5.0.0.1278**, with a spike
-script for the live rounds and the Rust writer on a copy of the real library.
-The Rust writer hasn't yet been loaded by a running Serato. See
-[What isn't proven](#what-isnt-proven).
+**Status:** released in DJ Sync 1.5.0 with Worker 1.6.0 (bd `ai-agents-jff.8`).
+Tested against **Serato DJ Pro 5.0.0.1278**. See [How it was tested](#how-it-was-tested)
+and [What isn't proven](#what-isnt-proven).
 
 Same job as [doc 43](43-rekordbox-library.md): downloads and playlist edits land
 in the DJ's real library. The queue, backups, restore and failure handling are
@@ -125,18 +123,34 @@ or just before a link. Anything else that mentions an app ("to Serato Friday") g
 to the assistant, or gets a question, because a fuzzy playlist match there could land
 in the wrong app.
 
+## How it was tested
+
+- **Live, with a spike script (2026-11-07):** add, edit and delete on a real
+  library, and an iTunes track in an untouched crate kept its place, key and play
+  count.
+- **Live, with the real writer:** it wrote into the crate holding a cued track,
+  plus a new nested crate and a new track. Serato imported them at launch, they
+  played, and they came back through its export after a quit. The writer's delete
+  then removed them. The cue lives in the MP3's `Serato Markers2` tag, and the
+  file's hash didn't change, so a re-import can't reach cues.
+- **The Mac and Worker together:** the new service, on a sandbox home with a copy of
+  the real library, against the new Worker under `wrangler dev --local`. 39 checks
+  through real tool calls: reads and edits per app, downloads to the default, one
+  app and both (with a stand-in for `yt-dlp`), and turning apps on and off while
+  running. The installed 1.4.0 service ran against the same Worker, to prove older
+  Macs keep working and that naming an app is refused for them.
+- **Streaming guard:** a Tidal row planted in a copy of the real `master.sqlite` is
+  refused, and a clean copy isn't.
+
+Crate colours aren't a concern: Serato 5.0.0 wouldn't set one, and none is stored.
+
 ## What isn't proven
 
-Release is blocked on these (`ai-agents-jff.8.5`, `.8.6`):
-
-- **The Rust writer in front of a running Serato.** The live rounds used the spike
-  script. The Rust writer produced the same files on a copy of the real library,
-  and its parent crate came out the same size as Serato's re-export, but no
-  running Serato has loaded its output yet.
-- **Crate colours and cue points across a re-import.** Cues live in file tags, so
-  they should survive, but that hasn't been tested.
 - **Streaming tracks in a crate.** No account to test with, so the guard refuses
-  those libraries outright. The check itself was proven by planting a Tidal row
-  in a copy of the real `master.sqlite`.
+  those libraries outright (`ai-agents-jff.8.10`).
 - **Serato 4.0.x:** refused, untested.
-- **Large libraries:** the test library had 413 tracks and one real crate.
+- **Large libraries:** the test library had 414 tracks and one real crate.
+- **Track colours** should be safe, since they're stored beside cues in the file,
+  but that wasn't tested.
+- **The setup step and menu bar controls** build, and their settings are tested, but
+  weren't looked at on screen before release.

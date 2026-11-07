@@ -11,7 +11,7 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
-## [Unreleased] · Serato
+## [1.5.0] — 2026-11-07 · Serato
 
 ### Added
 - **Serato DJ Pro 5 is a library DJ Sync can write to.** Downloads and playlist changes land in a `DJ Sync` crate through the files Serato still exports and re-imports when they change. It follows Rekordbox's rules: nothing is written while Serato is open, and every change is bracketed by semver backups that can be restored. See `docs/dj-sync/44-serato-library.md`.
@@ -21,6 +21,7 @@ Three things are versioned independently:
 - **`/local/serato/*`** mirrors `/local/rekordbox/*`, `/local/status` gains `serato_db` and `dj_apps` (default first), and `dj-sync uninstall` keeps Serato's backups in `~/Music/DJ Sync Backups/Serato`.
 
 ### Changed
+- **Agent protocol 2.1.0**, which needs Worker 1.6.0. Additive: Macs on 2.0.0 keep working, and the Worker refuses a request naming an app for those, because they'd use their default.
 - The queue, backups, restore and failure handling moved from `rekordbox_db.rs` to `dj_library.rs`, behind a small `Backend` trait. Rekordbox behaves as before, and its state files stay where they were.
 
 ## [1.4.0] — 2026-10-29 · SoundCloud

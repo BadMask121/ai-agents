@@ -4,6 +4,14 @@ All notable changes to the DJ Sync website. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-11-07
+### Pages
+- **DJ Sync works with Serato DJ Pro 5.** The home page, install steps, terms and
+  `llms.txt` say so, and the home headline is now "It lands in your library."
+- **FAQ:** how Serato behaves, which Serato libraries DJ Sync won't change, and
+  what happens if you use both apps.
+- **Disclaimer:** every page says DJ Sync isn't affiliated with Serato.
+
 ## [1.2.3] — 2026-10-28
 ### Pages
 - **FAQ "How do I remove DJ Sync?"** now points to About → Uninstall DJ
