@@ -13,6 +13,11 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.7.1] — 2026-11-26 · Lost jobs go back in the queue at once
+
+### Fixed
+- **A job the Mac lost in a restart is queued again as soon as the Mac reconnects.** The Mac's `hello` lists every job it still holds, and a DJ has one Mac, so any other job marked running was lost with an earlier socket or process. Before, it stayed "downloading" until its lease ran out, up to 15 minutes after the last extend. `/queue` showed it as downloading while nothing happened, and re-sending the link was deduplicated onto it. The owner hit this on 2026-11-26 when the service restarted mid-download. Its message says "Queued again: your Mac restarted before it finished." The agent protocol is unchanged.
+
 ## [1.7.0] — 2026-11-26 · Clear the queue from Telegram
 
 ### Added

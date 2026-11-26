@@ -8,6 +8,7 @@ import { gunzip, gzip } from "./bytes";
 import { LIBRARY_CHUNK_BYTES, MAX_LIBRARY_JSON_BYTES } from "./constants";
 import {
   CLAIMED_MESSAGE,
+  REQUEUED_AFTER_RESTART,
   type AgentRow,
   type AgentSeen,
   type AppChoice,
@@ -389,6 +390,29 @@ export class SqlStore implements Store {
       )
       .toArray()
       .map((r) => r.id as string);
+  }
+
+  /**
+   * Running jobs the Mac's hello doesn't list go straight back to the queue.
+   * The Mac lists every job it still holds, and a DJ has one Mac, so anything
+   * else was lost with an earlier socket or process (a restart mid-download).
+   * Without this it stays "running" until its lease runs out (up to 15 min).
+   */
+  requeueRunningExcept(active: string[]): string[] {
+    const held = new Set(active);
+    const lost = this.db
+      .exec("SELECT id FROM jobs WHERE state = 'running'")
+      .toArray()
+      .map((r) => r.id as string)
+      .filter((id) => !held.has(id));
+    for (const id of lost) {
+      this.db.exec(
+        "UPDATE jobs SET state = 'queued', lease_until = NULL, message = ? WHERE id = ? AND state = 'running'",
+        REQUEUED_AFTER_RESTART,
+        id,
+      );
+    }
+    return lost;
   }
 
   /** The soonest lease expiry, for the alarm; null when nothing is leased. */

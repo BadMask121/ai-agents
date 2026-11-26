@@ -827,6 +827,9 @@ export class Tenant extends DurableObject<TenantEnv> {
     const wanted = (apps?.enabled ?? []).filter((a) => typeof hashes[a] === "string" && hashes[a] !== store.libraryHash(a));
 
     await store.extendLeases(active, this.leaseUntil());
+    // Anything else marked running was lost with an earlier socket or process.
+    const lost = store.requeueRunningExcept(active);
+    if (lost.length > 0) console.log(`the Mac no longer holds ${lost.length} running job(s); requeued`);
     att.hello = true;
     att.ready = msg.can_claim === true;
     ws.serializeAttachment(att);
