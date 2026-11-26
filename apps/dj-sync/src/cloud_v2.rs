@@ -639,7 +639,8 @@ pub async fn run_with(
             _ = stopped(&mut shutdown) => return Ok(()),
             _ = tokio::time::sleep(delay) => {}
         }
-        let started = Instant::now();
+        // How long the socket stayed open; None when it never opened.
+        let mut was_up = None;
         let outcome = match session.connect().await {
             Ok(ws) => {
                 session.connected.store(true, Ordering::Relaxed);
@@ -648,8 +649,10 @@ pub async fn run_with(
                 } else {
                     info!("connected to DJ Sync cloud");
                 }
+                let opened = Instant::now();
                 let r = connection(ws, &session, &mut core, &t, &mut shutdown).await;
                 session.connected.store(false, Ordering::Relaxed);
+                was_up = Some(opened.elapsed());
                 r
             }
             Err(e) => Err(e),
@@ -663,11 +666,7 @@ pub async fn run_with(
             Ok(Ended::Shutdown) => return Ok(()),
             Ok(Ended::Dropped) => {
                 debug!("cloud socket closed; reconnecting");
-                if started.elapsed() > t.ping * 2 {
-                    t.min_backoff
-                } else {
-                    (delay * 2).clamp(t.min_backoff, t.max_backoff)
-                }
+                retry_delay(delay, was_up, &t)
             }
             Err(CloudError::Unauthorized) => {
                 unauthorized += 1;
@@ -710,9 +709,24 @@ pub async fn run_with(
                     warn!(error = %format!("{e:#}"), "cloud unreachable; will keep retrying");
                     offline_since = Some(Instant::now());
                 }
-                (delay * 2).clamp(t.min_backoff, t.max_backoff)
+                retry_delay(delay, was_up, &t)
             }
         };
+    }
+}
+
+/// The wait before reconnecting after a socket was lost or couldn't open.
+///
+/// A socket that stayed open past two pings was healthy, so losing it starts
+/// a new outage at `min_backoff`. Otherwise each failed attempt doubles the
+/// wait, up to `max_backoff`. The cloud socket is reset several times a day
+/// ("connection reset without closing handshake"). Before 1.5.1 the wait never
+/// came back down, so each reset cost `max_backoff` (5 min) offline while new
+/// links waited in the cloud.
+fn retry_delay(previous: Duration, was_up: Option<Duration>, t: &LaneTiming) -> Duration {
+    match was_up {
+        Some(up) if up > t.ping * 2 => t.min_backoff,
+        _ => (previous * 2).clamp(t.min_backoff, t.max_backoff),
     }
 }
 
@@ -1490,5 +1504,36 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         assert!(CloudSession::new("http://mcp.example.com", tmp.path().into()).is_err());
         assert!(CloudSession::new("https://mcp.example.com/", tmp.path().into()).is_ok());
+    }
+
+    #[test]
+    fn a_reset_after_a_healthy_socket_reconnects_straight_away() {
+        let t = LaneTiming::from_cfg(&CloudCfg::default());
+        let hour = Some(Duration::from_secs(3600));
+        // The owner's log: many resets of long-lived sockets in a row. The
+        // wait used to climb to max_backoff and stay there (5 min each time).
+        let mut delay = Duration::ZERO;
+        for _ in 0..20 {
+            delay = retry_delay(delay, hour, &t);
+            assert_eq!(delay, t.min_backoff);
+        }
+        // Even when the last outage had already reached the cap.
+        assert_eq!(retry_delay(t.max_backoff, hour, &t), t.min_backoff);
+    }
+
+    #[test]
+    fn failed_attempts_and_short_sockets_still_back_off() {
+        let t = LaneTiming::from_cfg(&CloudCfg::default());
+        // Couldn't connect at all.
+        assert_eq!(retry_delay(Duration::ZERO, None, &t), t.min_backoff);
+        assert_eq!(retry_delay(t.min_backoff, None, &t), t.min_backoff * 2);
+        assert_eq!(retry_delay(t.max_backoff, None, &t), t.max_backoff);
+        // Opened, then dropped within two pings: still part of the outage.
+        let brief = Some(t.ping);
+        assert_eq!(
+            retry_delay(Duration::from_secs(8), brief, &t),
+            Duration::from_secs(16)
+        );
+        assert_eq!(retry_delay(t.max_backoff, brief, &t), t.max_backoff);
     }
 }
