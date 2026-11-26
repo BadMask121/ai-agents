@@ -4,6 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/). The version lives in `VERSION`, and
 `build-app.sh` stamps it into the bundle.
 
+## [1.5.1] — 2026-11-26 · reconnect straight away
+
+### Fixed
+- **Links you send reach your Mac straight away.** When the connection to DJ Sync's cloud dropped, which happens a few times a day, DJ Sync waited 5 minutes before reconnecting, and anything you sent in that window had to wait. It now reconnects within seconds.
+
 ## [1.5.0] — 2026-11-07 · Serato
 
 ### Added
