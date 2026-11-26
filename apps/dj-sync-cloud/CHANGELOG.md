@@ -13,6 +13,15 @@ The Worker has two versions:
   - **MAJOR bump:** breaking changes. Every Mac on the old MAJOR is refused with
     `409 incompatible_protocol` until it's upgraded.
 
+## [1.7.0] — 2026-11-26 · Clear the queue from Telegram
+
+### Added
+- **`/queue` in the Telegram bot.** It lists what's waiting for the Mac, in the order the Mac takes it, plus what it's working on now. Each waiting job has a ✕ button, and there's a **Remove all** button. The list redraws in place after each tap. A job the Mac has already started can't be removed (the button says it's too late), and it still finishes and is announced. Before this, a DJ had no way to drop downloads stuck behind an offline Mac.
+- **`/status` points at `/queue`** when anything is waiting.
+- `/queue` is in the bot's command menu. Run `POST /v2/admin/telegram/setup` again after deploying so Telegram shows it.
+
+Removed jobs are deleted, along with the chat's finish notification. The agent protocol is unchanged.
+
 ## [1.6.0] — 2026-11-07 · Serato
 
 ### Changed

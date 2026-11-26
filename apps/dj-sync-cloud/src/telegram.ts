@@ -220,6 +220,7 @@ export const BOT_COMMANDS = [
   { command: "search", description: "Find tracks in your library" },
   { command: "rename", description: "Rename a playlist: /rename Friday to Friday Night" },
   { command: "status", description: "Your latest downloads and changes" },
+  { command: "queue", description: "What's waiting for your Mac, and remove it" },
   { command: "help", description: "How to use DJ Sync here" },
   { command: "stop", description: "Disconnect this chat from DJ Sync" },
 ];

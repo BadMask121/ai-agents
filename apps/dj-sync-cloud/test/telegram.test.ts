@@ -3,7 +3,7 @@ import { TELEGRAM_MESSAGES_PER_HOUR, TELEGRAM_PAIRING_SECONDS, TELEGRAM_PENDING_
 import { BAD_CODE, NOT_CONNECTED, clip } from "../src/telegram";
 import { splitMessage } from "../src/telegram-bot";
 import { ADMIN, FakeTelegram, YT, agentHeaders, makeCloud, req, type Any } from "./cloud";
-import { CHAT, TG, codeOf, hook, links, msg, paired, pushedJob, tap, tgCloud, upload } from "./telegram-helpers";
+import { CHAT, TG, codeOf, hook, links, msg, paired, pushedJob, storeOf, tap, tgCloud, upload } from "./telegram-helpers";
 
 
 describe("Telegram pairing (connect-anywhere spec §1)", () => {
@@ -245,6 +245,74 @@ describe("Telegram bot", () => {
     expect(tg.last(CHAT).text).toBe("⚠️ YouTube said no.");
   });
 
+  it("/queue shows what's waiting and takes one job, or all of them, out of the queue", async () => {
+    const { c, tg } = tgCloud();
+    const { t } = await paired(c);
+    await upload(c, t);
+    await hook(c, msg(CHAT, "/queue"));
+    expect(tg.last(CHAT).text).toBe("Nothing is waiting for your Mac.");
+    expect(tg.last(CHAT).reply_markup).toBeUndefined();
+
+    for (const n of [11, 12, 13]) await hook(c, msg(CHAT, `${YT(n)} friday`));
+    // Offline: all three wait, and the chat is told why.
+    await hook(c, msg(CHAT, "/queue"));
+    expect(tg.last(CHAT).text).toContain("Waiting (3)");
+    expect(tg.last(CHAT).text).toContain("Your Mac is offline");
+
+    // The Mac takes the oldest; two wait.
+    const ws = await c.connect(t);
+    await c.hello(t, ws);
+    const running = ws.frames().find((f) => f.type === "job")!;
+    await hook(c, msg(CHAT, "/status"));
+    expect(tg.last(CHAT).text).toContain("\n2 jobs waiting — /queue to see or remove them.");
+
+    await hook(c, msg(CHAT, "/queue"));
+    const view = tg.last(CHAT);
+    expect(view.text).toBe(
+      "Now: 1 link → Friday — downloading\n\n" +
+        "Waiting (2), in the order your Mac takes them:\n" +
+        "1. 1 link → Friday · just now\n" +
+        "2. 1 link → Friday · just now\n\n" +
+        "Tap ✕ to take one out of the queue. Anything already downloading carries on.",
+    );
+    const [[one, two], [all]] = view.reply_markup.inline_keyboard;
+    expect([one.text, two.text, all.text]).toEqual(["✕ 1", "✕ 2", "Remove all 2"]);
+    for (const b of [one, two, all]) expect(new TextEncoder().encode(b.callback_data).length).toBeLessThanOrEqual(64);
+    expect(all.callback_data).toBe("q:all");
+    const firstId = one.callback_data.slice(2);
+
+    // ✕ 1: gone from the queue, no finish message later, and the list is redrawn in place.
+    await hook(c, tap(CHAT, one.callback_data, 91));
+    const edited = tg.of("editMessageText").at(-1);
+    expect(edited.message_id).toBe(91);
+    expect(edited.text).toMatch(/^Removed: 1 link → Friday\.\n\nNow: 1 link → Friday — downloading\n\nWaiting \(1\)/u);
+    expect(edited.reply_markup.inline_keyboard).toEqual([[{ text: "✕ 1", callback_data: two.callback_data }]]);
+    const store = storeOf(c, t);
+    expect(await store.getJob(firstId)).toBeNull();
+    expect(store.takeTgJob(firstId)).toBeNull();
+
+    // The running job can't be removed: the Mac already has it.
+    await hook(c, tap(CHAT, `q:${running.job_id}`, 91));
+    expect(tg.of("answerCallbackQuery").at(-1).text).toBe("Too late — your Mac already started that one.");
+    expect((await store.getJob(running.job_id)).state).toBe("running");
+
+    // Remove all takes every queued job, and drops the buttons once nothing waits.
+    await hook(c, msg(CHAT, `${YT(14)} friday`));
+    await hook(c, tap(CHAT, "q:all", 92));
+    const cleared = tg.of("editMessageText").at(-1);
+    expect(cleared.text).toBe("Removed 2 jobs from the queue.\n\nNow: 1 link → Friday — downloading");
+    expect(cleared.reply_markup).toBeUndefined();
+    expect(await store.countQueued()).toBe(0);
+    await hook(c, tap(CHAT, "q:all", 92));
+    expect(tg.of("answerCallbackQuery").at(-1).text).toBe("Nothing was waiting.");
+
+    // The running job still finishes and is announced; nothing removed is handed out.
+    await c.send(t, ws, { type: "complete", job_id: running.job_id, state: "done", message: "1 track ready in Friday." });
+    expect(tg.last(CHAT).text).toBe("✅ 1 track ready in Friday.");
+    await c.send(t, ws, { type: "ready" });
+    expect(ws.frames().filter((f) => f.type === "job")).toHaveLength(1);
+  });
+
   it(`stops listening after ${TELEGRAM_MESSAGES_PER_HOUR} messages an hour, with one warning`, async () => {
     const { c, tg } = tgCloud();
     await paired(c);
@@ -274,7 +342,7 @@ describe("Telegram bot", () => {
       allowed_updates: ["message", "callback_query"],
       drop_pending_updates: true,
     });
-    expect(tg.of("setMyCommands")[0].commands.map((x: Any) => x.command)).toEqual(["playlists", "search", "rename", "status", "help", "stop"]);
+    expect(tg.of("setMyCommands")[0].commands.map((x: Any) => x.command)).toEqual(["playlists", "search", "rename", "status", "queue", "help", "stop"]);
     expect(tg.of("setMyDescription")).toHaveLength(1);
     expect(tg.of("setMyShortDescription")).toHaveLength(1);
 

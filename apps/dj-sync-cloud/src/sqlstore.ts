@@ -310,6 +310,40 @@ export class SqlStore implements Store {
     return this.count("SELECT COUNT(*) AS n FROM jobs WHERE state = 'queued'");
   }
 
+  /** Jobs not finished yet, in the order the Mac takes them (running first). */
+  unfinishedJobs(limit: number): JobRow[] {
+    return this.db
+      .exec(
+        `SELECT ${COLUMNS} FROM jobs WHERE state IN ('queued', 'running')
+          ORDER BY state = 'queued', created_at, rowid LIMIT ?`,
+        limit,
+      )
+      .toArray()
+      .map((r) => toJob(r)!);
+  }
+
+  /**
+   * Take jobs out of the queue before the Mac gets them: the given ids, or
+   * every queued job when `ids` is null. A job the Mac already started is
+   * left alone. Returns what was removed.
+   */
+  removeQueued(ids: string[] | null): JobRow[] {
+    return this.db.transaction(() => {
+      const removed = (ids ?? [null]).flatMap((id) =>
+        this.db
+          .exec(
+            `DELETE FROM jobs WHERE state = 'queued' AND (? IS NULL OR id = ?) RETURNING ${COLUMNS}`,
+            id,
+            id,
+          )
+          .toArray()
+          .map((r) => toJob(r)!),
+      );
+      for (const j of removed) this.db.exec("DELETE FROM tg_jobs WHERE job_id = ?", j.id);
+      return removed;
+    });
+  }
+
   /** Jobs stored since `since` (ISO) — the per-day limit. */
   countCreatedSince(since: string): number {
     return this.count("SELECT COUNT(*) AS n FROM jobs WHERE created_at >= ?", since);
