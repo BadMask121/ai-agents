@@ -11,6 +11,11 @@ Three things are versioned independently:
 - **the import XML**: each saved state is a semver snapshot (see
   `docs/dj-sync/40-chatgpt-mcp-design.md`)
 
+## [1.5.1] — 2026-11-26 · reconnect straight away
+
+### Fixed
+- **The cloud lane reconnects within seconds after a dropped socket.** The reconnect wait only reset after a clean close. A reset (`connection reset without closing handshake`, several times a day) surfaces as a transient error, so the wait kept doubling, reached the 300 s cap and stayed there. Every reset then left the Mac offline for 5 minutes while new links waited in the cloud: the owner's log since 2026-11-14 shows 146 outages. Now a socket that stayed open past two pings restarts the backoff at `min_backoff` (2 s). Failed attempts and short-lived sockets still back off up to the cap (`cloud_v2::retry_delay`).
+
 ## [1.5.0] — 2026-11-07 · Serato
 
 ### Added
