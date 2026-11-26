@@ -15,6 +15,7 @@ import {
   WORKER_VERSION,
 } from "../src/constants";
 import { YT, agentHeaders, makeCloud, req, type Any } from "./cloud";
+import { REQUEUED_AFTER_RESTART } from "../src/store";
 
 const LIBRARY = {
   hash: "h1",
@@ -234,6 +235,34 @@ describe("agent WebSocket (protocol 2, spec §3.4)", () => {
     expect(ws2.last()).toMatchObject({ type: "job", job_id: q.job_id, attempt: 2 });
     await c.send(t, ws2, { type: "complete", job_id: q.job_id, state: "failed", message: "nope" });
     expect(storage.alarm).toBeNull();
+  });
+
+  it("requeues a running job at once when the Mac reconnects without it (restarted mid-job)", async () => {
+    const c = makeCloud();
+    const t = await c.registered();
+    const { url } = await c.link(t);
+    const status = async (id: string) => (await c.tool(url, "get_download_status", { job_id: id })).structuredContent;
+    const ws = await c.connect(t);
+    await c.hello(t, ws);
+    const a = (await c.tool(url, "download_tracks", { urls: [YT(5)] })).structuredContent;
+    const b = (await c.tool(url, "download_tracks", { urls: [YT(6)] })).structuredContent;
+    expect(ws.last()).toMatchObject({ type: "job", job_id: a.job_id, attempt: 1 });
+
+    // A dropped socket, same process: the Mac still holds `a`, so it stays running and `b` waits.
+    const ws2 = await c.connect(t);
+    await c.hello(t, ws2, { active: [a.job_id], can_claim: false });
+    expect(await status(a.job_id)).toMatchObject({ state: "running" });
+    expect(ws2.frames().map((f) => f.type)).toEqual(["welcome"]);
+
+    // The service restarts: its hello holds nothing, so `a` is back in the queue
+    // straight away, not after its 15-minute lease, and first in line.
+    c.advance(60);
+    const ws3 = await c.connect(t);
+    await c.hello(t, ws3, { can_claim: false });
+    expect(await status(a.job_id)).toMatchObject({ state: "queued", message: REQUEUED_AFTER_RESTART });
+    expect(await status(b.job_id)).toMatchObject({ state: "queued" });
+    await c.send(t, ws3, { type: "ready" });
+    expect(ws3.last()).toMatchObject({ type: "job", job_id: a.job_id, attempt: 2 });
   });
 
   it("closes with 4001 / 4009 / 4010 / 4029", async () => {

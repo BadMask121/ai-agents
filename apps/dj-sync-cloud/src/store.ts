@@ -154,6 +154,9 @@ export interface Store {
 const isActive = (j: JobRow) => j.state === "queued" || j.state === "running";
 
 /** Status messages while a claimed job runs on the Mac. */
+/** A job the Mac lost (it restarted mid-job), back in the queue. */
+export const REQUEUED_AFTER_RESTART = "Queued again: your Mac restarted before it finished.";
+
 export const CLAIMED_MESSAGE: Record<JobKind, string> = {
   download: "Downloading on your Mac…",
   library: "Updating your library on your Mac…",
