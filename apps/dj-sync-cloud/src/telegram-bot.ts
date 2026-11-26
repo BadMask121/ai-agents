@@ -1,6 +1,6 @@
 // The DJ Sync bot for one paired chat, run inside that DJ's Tenant
 // (connect-anywhere spec §1): links (with a playlist hint, or buttons),
-// /playlists, /search, /status, /help, /stop. What isn't clear from code goes
+// /playlists, /search, /status, /queue, /help, /stop. What isn't clear from code goes
 // to Jev when it's configured (routing.ts decides what to trust), then to the
 // assistant (telegram-agent.ts, spec §1c). Replies are plain text.
 
@@ -9,18 +9,18 @@ import { agentEvent, type AgentEvent } from "./metrics";
 import type { JevClient, JevRoute } from "./jev";
 import { appInMessage, decideLink, decideText, exactPlaylist, looksLikeInstruction, mentionsApp, renameRequest } from "./routing";
 import { sha256Hex } from "./bytes";
-import { MAX_PLAYLIST_NAME, TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
+import { MAX_PLAYLIST_NAME, MAX_QUEUED_JOBS, TELEGRAM_BUTTONS, TELEGRAM_PENDING_SECONDS } from "./constants";
 import { agentStatus, offlineNote, scopeToApp, stateWord, submit, whereItGoes, type Deps } from "./jobs";
 import { NO_LIBRARY, closestPlaylists, normalizeName, playlistPath, plural, resolvePlaylist, sortPlaylists } from "./library";
 import { libraryIndex, searchIndex } from "./search";
 import { asLink, extractMediaRef, type MediaRef } from "./links";
 import { isCollection } from "./oembed";
 import type { SqlStore } from "./sqlstore";
-import type { LibPlaylist } from "./store";
+import type { JobRow, LibPlaylist } from "./store";
 import { answerCallback, clip, send, updateChat, type TelegramApi, type TgUpdate } from "./telegram";
 import { randomBase64url } from "./bytes";
 import { resolveConfirmation, runAgent, type AiRunner } from "./telegram-agent";
-import { addSeconds } from "./util";
+import { addSeconds, relativeTime } from "./util";
 
 export interface BotHost {
   store: SqlStore;
@@ -60,6 +60,7 @@ export const HELP =
   "/search <words> — find tracks in your library\n" +
   "/rename <playlist> to <new name> — rename a playlist\n" +
   "/status — your latest downloads and changes\n" +
+  "/queue — what's waiting for your Mac, and remove it\n" +
   "/stop — disconnect this chat";
 
 export function welcome(firstName: string | null): string {
@@ -411,6 +412,23 @@ async function onButton(
     await replaceMessage(host, chatId, messageId, DISCONNECTED);
     return host.disconnect(linkId);
   }
+  const remove = REMOVE_BUTTON.exec(data);
+  if (remove) {
+    const all = remove[1] === "all";
+    const removed = host.store.removeQueued(all ? null : [remove[1]!]);
+    if (removed.length === 0) {
+      await answerCallback(host.api, callbackId, all ? "Nothing was waiting." : "Too late — your Mac already started that one.");
+    } else {
+      await answerCallback(host.api, callbackId);
+    }
+    const note =
+      removed.length === 0
+        ? ""
+        : removed.length === 1
+          ? `Removed: ${jobWhat(removed[0]!)}.`
+          : `Removed ${plural(removed.length, "job")} from the queue.`;
+    return showQueue(host, chatId, messageId, note);
+  }
   const confirm = /^c:([A-Za-z0-9_-]{8}):([yn])$/u.exec(data);
   if (confirm) {
     const text = await resolveConfirmation(
@@ -514,6 +532,8 @@ async function onCommand(host: BotHost, chatId: string, linkId: string, text: st
       return void (await send(host.api, chatId, await searchText(host, args)));
     case "status":
       return void (await send(host.api, chatId, await statusText(host)));
+    case "queue":
+      return showQueue(host, chatId, null);
     case "stats": {
       const stats = host.ownerStats?.(chatId);
       if (stats) return void (await send(host.api, chatId, await stats));
@@ -577,10 +597,71 @@ async function statusText(host: BotHost): Promise<string> {
   const jobs = await host.store.recentJobs(5);
   if (jobs.length === 0) return "Nothing yet — send me a link.";
   const lines = jobs.map((j) => {
-    const what = j.kind === "library" ? (j.summary ?? j.playlist) : `${plural(j.urls.length, "link")} → ${j.playlist}`;
     const msg = j.message.length > 100 ? `${j.message.slice(0, 99)}…` : j.message;
-    return `• ${what}: ${stateWord(j.state, j.kind)} — ${msg}`;
+    return `• ${jobWhat(j)}: ${stateWord(j.state, j.kind)} — ${msg}`;
   });
   const agent = await agentStatus(host.deps);
-  return `Latest:\n${lines.join("\n")}${agent.online ? "" : `\n${offlineNote(agent, host.now()).trim()}`}`;
+  const offline = agent.online ? "" : `\n${offlineNote(agent, host.now()).trim()}`;
+  const waiting = await host.store.countQueued();
+  const hint = waiting > 0 ? `\n${plural(waiting, "job")} waiting — /queue to see or remove them.` : "";
+  return `Latest:\n${lines.join("\n")}${offline}${hint}`;
+}
+
+// ---------- the queue ----------
+
+/** `q:<job id>` removes one queued job, `q:all` every queued job. */
+const REMOVE_BUTTON = /^q:(all|[A-Za-z0-9_-]{1,40})$/u;
+/** Queued jobs listed (and given a button) in /queue; "Remove all" covers the rest. */
+const QUEUE_SHOWN = 10;
+const QUEUE_BUTTONS_PER_ROW = 5;
+
+function jobWhat(j: JobRow): string {
+  return j.kind === "library" ? (j.summary ?? j.playlist) : `${plural(j.urls.length, "link")} → ${j.playlist}`;
+}
+
+/**
+ * What's waiting for the Mac, with a button per queued job and one for all
+ * of them. A running job has no button: the Mac already has it. Replaces the
+ * message the buttons were on when there is one.
+ */
+async function showQueue(host: BotHost, chatId: string, messageId: number | null, note = ""): Promise<void> {
+  const jobs = host.store.unfinishedJobs(MAX_QUEUED_JOBS + 10);
+  const running = jobs.filter((j) => j.state === "running");
+  const queued = jobs.filter((j) => j.state === "queued");
+  const lines: string[] = note ? [note, ""] : [];
+  if (jobs.length === 0) {
+    lines.push("Nothing is waiting for your Mac.");
+  } else {
+    for (const j of running) lines.push(`Now: ${jobWhat(j)} — ${stateWord(j.state, j.kind)}`);
+    if (queued.length > 0) {
+      lines.push(`${running.length > 0 ? "\n" : ""}Waiting (${queued.length}), in the order your Mac takes them:`);
+      queued.slice(0, QUEUE_SHOWN).forEach((j, i) => {
+        lines.push(`${i + 1}. ${jobWhat(j)} · ${relativeTime(j.created_at, host.now())}`);
+      });
+      if (queued.length > QUEUE_SHOWN) lines.push(`…and ${queued.length - QUEUE_SHOWN} more`);
+      lines.push("", "Tap ✕ to take one out of the queue. Anything already downloading carries on.");
+    }
+    const agent = await agentStatus(host.deps);
+    if (!agent.online) lines.push("", offlineNote(agent, host.now()).trim());
+  }
+  const text = lines.join("\n");
+
+  const rows: { text: string; callback_data: string }[][] = [];
+  const shown = queued.slice(0, QUEUE_SHOWN);
+  for (let i = 0; i < shown.length; i += QUEUE_BUTTONS_PER_ROW) {
+    rows.push(shown.slice(i, i + QUEUE_BUTTONS_PER_ROW).map((j, k) => ({ text: `✕ ${i + k + 1}`, callback_data: `q:${j.id}` })));
+  }
+  if (queued.length > 1) rows.push([{ text: `Remove all ${queued.length}`, callback_data: "q:all" }]);
+  const markup = rows.length > 0 ? { reply_markup: { inline_keyboard: rows } } : {};
+
+  if (messageId !== null) {
+    try {
+      // Without reply_markup Telegram drops the old buttons, which is right once nothing is queued.
+      await host.api.call("editMessageText", { chat_id: chatId, message_id: messageId, text: clip(text), ...markup });
+      return;
+    } catch {
+      /* fall through to a new message */
+    }
+  }
+  await send(host.api, chatId, text, markup);
 }
